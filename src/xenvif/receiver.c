@@ -226,14 +226,19 @@ __ReceiverRingGetPacket(
 {
     PXENVIF_RECEIVER            Receiver;
     PXENVIF_FRONTEND            Frontend;
+    PXENVIF_RECEIVER_PACKET     Packet;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
-    return XENBUS_CACHE(Get,
-                        &Receiver->CacheInterface,
-                        Ring->PacketCache,
-                        Locked);
+    Packet = XENBUS_CACHE(Get,
+                          &Receiver->CacheInterface,
+                          Ring->PacketCache,
+                          Locked);
+
+    ASSERT(IsZeroMemory(Packet->Info, sizeof (XENVIF_PACKET_INFO)));
+
+    return Packet;
 }
 
 static FORCEINLINE VOID
@@ -755,7 +760,7 @@ __ReceiverRingBuildSegment(
     RtlCopyMemory(StartVa, InfoVa, Info->Length);
     Mdl->ByteCount += Info->Length;
 
-    Segment->Info = Packet->Info;
+    *Segment->Info = *Packet->Info;
     Segment->Cookie = Packet->Cookie;
 
     // Adjust the info for the next segment
