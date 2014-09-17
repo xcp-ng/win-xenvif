@@ -29,6 +29,9 @@
  * SUCH DAMAGE.
  */
 
+/*! \file ethernet.h
+    \brief Structures and macros relating to ethernet packets
+*/
 #ifndef _ETHERNET_H_
 #define _ETHERNET_H_
 
@@ -56,10 +59,16 @@ typedef struct _ETHERNET_ADDRESS {
 
 #define ETHERNET_ADDRESS_LENGTH (sizeof (ETHERNET_ADDRESS))
 
+/*! \enum _ETHERNET_ADDRESS_TYPE
+    \brief Ethernet packet address type
+*/
 typedef enum _ETHERNET_ADDRESS_TYPE {
     ETHERNET_ADDRESS_TYPE_INVALID = 0,
+    /*! Unicast (directed) packet */
     ETHERNET_ADDRESS_UNICAST,
+    /*! Multicast packet */
     ETHERNET_ADDRESS_MULTICAST,
+    /*! Broadcast packet */
     ETHERNET_ADDRESS_BROADCAST,
     ETHERNET_ADDRESS_TYPE_COUNT
 } ETHERNET_ADDRESS_TYPE, *PETHERNET_ADDRESS_TYPE;
