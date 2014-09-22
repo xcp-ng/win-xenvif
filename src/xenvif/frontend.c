@@ -1029,13 +1029,44 @@ __FrontendPrepare(
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    while (State != XenbusStateClosed &&
-           State != XenbusStateInitialising &&
-           State != XenbusStateInitWait) {
+    while (State == XenbusStateConnected) {
+        (VOID) XENBUS_STORE(Printf,
+                            &Frontend->StoreInterface,
+                            NULL,
+                            __FrontendGetPath(Frontend),
+                            "state",
+                            "%u",
+                            XenbusStateClosing);
         status = __FrontendWaitForStateChange(Frontend, Path, &State);
         if (!NT_SUCCESS(status))
             goto fail4;
     }
+
+    while (State == XenbusStateClosing) {
+        (VOID) XENBUS_STORE(Printf,
+                            &Frontend->StoreInterface,
+                            NULL,
+                            __FrontendGetPath(Frontend),
+                            "state",
+                            "%u",
+                            XenbusStateClosed);
+        status = __FrontendWaitForStateChange(Frontend, Path, &State);
+        if (!NT_SUCCESS(status))
+            goto fail5;
+    }
+
+    while (State != XenbusStateClosed &&
+           State != XenbusStateInitialising &&
+           State != XenbusStateInitWait &&
+           State != XenbusStateUnknown) {
+        status = __FrontendWaitForStateChange(Frontend, Path, &State);
+        if (!NT_SUCCESS(status))
+            goto fail6;
+    }
+
+    status = STATUS_UNSUCCESSFUL;
+    if (State == XenbusStateUnknown)
+        goto fail7;
 
     status = XENBUS_STORE(Printf,
                           &Frontend->StoreInterface,
@@ -1045,18 +1076,18 @@ __FrontendPrepare(
                           "%u",
                           XenbusStateInitialising);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail8;
 
     while (State == XenbusStateClosed ||
            State == XenbusStateInitialising) {
         status = __FrontendWaitForStateChange(Frontend, Path, &State);
         if (!NT_SUCCESS(status))
-            goto fail6;
+            goto fail9;
     }
 
     status = STATUS_UNSUCCESSFUL;
     if (State != XenbusStateInitWait)
-        goto fail7;
+        goto fail10;
 
     Frontend->BackendPath = Path;
 
@@ -1083,16 +1114,25 @@ __FrontendPrepare(
                           ThreadGetEvent(Frontend->EjectThread),
                           &Frontend->Watch);
     if (!NT_SUCCESS(status))
-        goto fail8;
+        goto fail11;
 
     Trace("<====\n");
     return STATUS_SUCCESS;
 
-fail8:
-    Error("fail8\n");
+fail11:
+    Error("fail11\n");
 
     Frontend->BackendDomain = DOMID_INVALID;
     Frontend->BackendPath = NULL;
+
+fail10:
+    Error("fail10\n");
+
+fail9:
+    Error("fail9\n");
+
+fail8:
+    Error("fail8\n");
 
 fail7:
     Error("fail7\n");
