@@ -467,6 +467,7 @@ ReceiverRingProcessChecksum(
     }
 
     flags = (uint16_t)(ULONG_PTR)Packet->Cookie;
+    ASSERT3U(Packet->Flags.Value, ==, 0);
 
     if (Info->IpHeader.Length == 0)
         return;
@@ -537,17 +538,10 @@ ReceiverRingProcessChecksum(
                 Calculated = ChecksumPseudoHeader(StartVa, Info);
                 Calculated = ChecksumTcpPacket(StartVa, Info, Calculated, &Payload);
 
-                if (IpHeader->Version == 4) {
-                    if (ChecksumVerify(Calculated, Embedded))
-                        Packet->Flags.TcpChecksumSucceeded = 1;
-                    else
-                        Packet->Flags.TcpChecksumFailed = 1;
-                } else {
-                    if (ChecksumVerify(Calculated, Embedded))
-                        Packet->Flags.TcpChecksumSucceeded = 1;
-                    else
-                        Packet->Flags.TcpChecksumFailed = 1;
-                }
+                if (ChecksumVerify(Calculated, Embedded))
+                    Packet->Flags.TcpChecksumSucceeded = 1;
+                else
+                    Packet->Flags.TcpChecksumFailed = 1;
             }
         }
         
