@@ -87,6 +87,12 @@ ChecksumVerify(
 {
     ULONG       Accumulator = ~Calculated;
 
+    // 
+    // MSVC extends Calculated to ULONG prior to inverting it
+    // so we must explicitly zero out the upper half
+    //
+    Accumulator &= 0xFFFF;
+
     // See RFC 1624, section 5
     __AccumulateChecksum(&Accumulator, (PUCHAR)&Embedded, sizeof (USHORT));
 
