@@ -89,7 +89,7 @@ typedef struct _XENVIF_TRANSMITTER_FRAGMENT {
 #define XENVIF_TRANSMITTER_MAXIMUM_FRAGMENT_ID  0x03FF
 
 typedef struct _XENVIF_TRANSMITTER_STATE {
-    PXENVIF_TRANSMITTER_PACKET_V1       Packet;
+    PXENVIF_TRANSMITTER_PACKET          Packet;
     XENVIF_TRANSMITTER_PACKET_SEND_INFO Send;
     PUCHAR                              StartVa;
     XENVIF_PACKET_INFO                  Info;
@@ -99,11 +99,6 @@ typedef struct _XENVIF_TRANSMITTER_STATE {
 } XENVIF_TRANSMITTER_STATE, *PXENVIF_TRANSMITTER_STATE;
 
 #define XENVIF_TRANSMITTER_RING_SIZE   (__CONST_RING_SIZE(netif_tx, PAGE_SIZE))
-
-typedef struct _XENVIF_TRANSMITTER_PACKET_LIST {
-    PXENVIF_TRANSMITTER_PACKET_V1   HeadPacket;
-    PXENVIF_TRANSMITTER_PACKET_V1   *TailPacket;
-} XENVIF_TRANSMITTER_PACKET_LIST, *PXENVIF_TRANSMITTER_PACKET_LIST;
 
 typedef struct _XENVIF_TRANSMITTER_RING {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -124,7 +119,7 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     BOOLEAN                         Stopped;
     PVOID                           Lock;
     PKTHREAD                        LockThread;
-    XENVIF_TRANSMITTER_PACKET_LIST  Queued;
+    LIST_ENTRY                      Queued;
     XENVIF_TRANSMITTER_STATE        State;
     ULONG                           PacketsQueued;
     ULONG                           PacketsGranted;
@@ -137,7 +132,7 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     ULONG                           RequestsPushed;
     ULONG                           ResponsesProcessed;
     ULONG                           PacketsSent;
-    XENVIF_TRANSMITTER_PACKET_LIST  Completed;
+    LIST_ENTRY                      Completed;
     ULONG                           PacketsCompleted;
     PSOCKADDR_INET                  AddressTable;
     ULONG                           AddressCount;
@@ -157,12 +152,15 @@ struct _XENVIF_TRANSMITTER {
     ULONG                       DisableIpVersion4Gso;
     ULONG                       DisableIpVersion6Gso;
     ULONG                       AlwaysCopy;
+    KSPIN_LOCK                  PacketLock;
+    PXENBUS_CACHE               PacketCache;
     XENBUS_STORE_INTERFACE      StoreInterface;
     XENBUS_DEBUG_INTERFACE      DebugInterface;
     PXENBUS_DEBUG_CALLBACK      DebugCallback;
 };
 
 #define XENVIF_TRANSMITTER_TAG  'NART'
+#define XENVIF_PACKET_CACHE_RESERVATION 32
 
 static FORCEINLINE PVOID
 __TransmitterAllocate(
@@ -178,6 +176,72 @@ __TransmitterFree(
     )
 {
     __FreePoolWithTag(Buffer, XENVIF_TRANSMITTER_TAG);
+}
+
+static VOID
+TransmitterPacketAcquireLock(
+    IN  PVOID                       Argument
+    )
+{
+    PXENVIF_TRANSMITTER Transmitter = Argument;
+    KeAcquireSpinLockAtDpcLevel(&Transmitter->PacketLock);
+}
+
+static VOID
+TransmitterPacketReleaseLock(
+    IN  PVOID                       Argument
+    )
+{
+    PXENVIF_TRANSMITTER Transmitter = Argument;
+    KeReleaseSpinLockFromDpcLevel(&Transmitter->PacketLock);
+}
+
+static NTSTATUS
+TransmitterPacketCtor(
+    IN  PVOID                       Argument,
+    IN  PVOID                       Object
+    )
+{
+    UNREFERENCED_PARAMETER(Argument);
+    UNREFERENCED_PARAMETER(Object);
+
+    return STATUS_SUCCESS;
+}
+
+static VOID
+TransmitterPacketDtor(
+    IN  PVOID                       Argument,
+    IN  PVOID                       Object
+    )
+{
+    UNREFERENCED_PARAMETER(Argument);
+    UNREFERENCED_PARAMETER(Object);
+}
+
+static FORCEINLINE PXENVIF_TRANSMITTER_PACKET
+__TransmitterGetPacket(
+    IN  PXENVIF_TRANSMITTER         Transmitter
+    )
+{
+    return XENBUS_CACHE(Get,
+                        &Transmitter->CacheInterface,
+                        Transmitter->PacketCache,
+                        TRUE);
+}
+
+static FORCEINLINE VOID
+__TransmitterPutPacket(
+    IN  PXENVIF_TRANSMITTER         Transmitter,
+    IN  PXENVIF_TRANSMITTER_PACKET  Packet
+    )
+{
+    RtlZeroMemory(Packet, sizeof(XENVIF_TRANSMITTER_PACKET));
+
+    XENBUS_CACHE(Put,
+                 &Transmitter->CacheInterface,
+                 Transmitter->PacketCache,
+                 Packet,
+                 TRUE);
 }
 
 static NTSTATUS
@@ -529,26 +593,6 @@ fail1:
     return FALSE;
 }
 
-#define INCREMENT_PACKET_REFERENCE(_Packet)                         \
-        do {                                                        \
-            PULONG_PTR Reference = (PULONG_PTR)&(_Packet)->Next;    \
-                                                                    \
-            ASSERT(Packet != NULL);                                 \
-            (*Reference)++;                                         \
-        } while (FALSE)
-
-#define DECREMENT_PACKET_REFERENCE(_Packet)                         \
-        do {                                                        \
-            PULONG_PTR Reference = (PULONG_PTR)&(_Packet)->Next;    \
-                                                                    \
-            ASSERT(Packet != NULL);                                 \
-            ASSERT(*Reference != 0);                                \
-            --(*Reference);                                         \
-        } while (FALSE)
-
-#define PACKET_REFERENCE(_Packet)                                   \
-        (*(PULONG_PTR)&(_Packet)->Next)
-
 static FORCEINLINE NTSTATUS
 __TransmitterRingCopyPayload(
     IN  PXENVIF_TRANSMITTER_RING    Ring
@@ -557,7 +601,7 @@ __TransmitterRingCopyPayload(
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
     PXENVIF_TRANSMITTER_STATE       State;
-    PXENVIF_TRANSMITTER_PACKET_V1   Packet;
+    PXENVIF_TRANSMITTER_PACKET      Packet;
     XENVIF_PACKET_PAYLOAD           Payload;
     PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
     PXENVIF_TRANSMITTER_BUFFER      Buffer;
@@ -571,7 +615,7 @@ __TransmitterRingCopyPayload(
 
     Payload = State->Payload;
 
-    ASSERT3U(PACKET_REFERENCE(Packet), ==, 1);
+    ASSERT3U(Packet->Value, ==, 1);
 
     while (Payload.Length != 0) {
         PMDL        Mdl;
@@ -586,7 +630,7 @@ __TransmitterRingCopyPayload(
             goto fail1;
 
         Buffer->Context = Packet;
-        INCREMENT_PACKET_REFERENCE(Packet);
+        Packet->Value++;
 
         Mdl = Buffer->Mdl;
 
@@ -648,14 +692,14 @@ fail2:
     ASSERT3P(Buffer->Context, ==, Packet);
     Buffer->Context = NULL;        
 
-    DECREMENT_PACKET_REFERENCE(Packet);
+    Packet->Value--;
 
     __TransmitterPutBuffer(Ring, Buffer);
 
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    while (PACKET_REFERENCE(Packet) != 1) {
+    while (Packet->Value != 1) {
         PLIST_ENTRY         ListEntry;
 
         ASSERT(State->Count != 0);
@@ -688,7 +732,7 @@ fail1:
         ASSERT3P(Buffer->Context, ==, Packet);
         Buffer->Context = NULL;        
 
-        DECREMENT_PACKET_REFERENCE(Packet);
+        Packet->Value--;
 
         __TransmitterPutBuffer(Ring, Buffer);
     }
@@ -704,7 +748,7 @@ __TransmitterRingGrantPayload(
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
     PXENVIF_TRANSMITTER_STATE       State;
-    PXENVIF_TRANSMITTER_PACKET_V1   Packet;
+    PXENVIF_TRANSMITTER_PACKET      Packet;
     PXENVIF_PACKET_PAYLOAD          Payload;
     PMDL                            Mdl;
     ULONG                           Offset;
@@ -719,7 +763,7 @@ __TransmitterRingGrantPayload(
     Packet = State->Packet;
     Payload = &State->Payload;
 
-    ASSERT3U(PACKET_REFERENCE(Packet), ==, 1);
+    ASSERT3U(Packet->Value, ==, 1);
 
     Mdl = Payload->Mdl;
     Offset = Payload->Offset;
@@ -748,7 +792,7 @@ __TransmitterRingGrantPayload(
 
             Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_PACKET;
             Fragment->Context = Packet;
-            INCREMENT_PACKET_REFERENCE(Packet);
+            Packet->Value++;
 
             Pfn = MmGetMdlPfnArray(Mdl)[MdlOffset / PAGE_SIZE];
             PageOffset = MdlOffset & (PAGE_SIZE - 1);
@@ -801,7 +845,7 @@ fail2:
         Fragment->Context = NULL;
         Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID;
 
-        DECREMENT_PACKET_REFERENCE(Packet);
+        Packet->Value--;
 
         __TransmitterPutFragment(Ring, Fragment);
     }
@@ -812,7 +856,7 @@ fail1:
 
     ASSERT3P(Fragment, ==, NULL);
 
-    while (PACKET_REFERENCE(Packet) != 1) {
+    while (Packet->Value != 1) {
         PLIST_ENTRY         ListEntry;
 
         ASSERT(State->Count != 0);
@@ -836,7 +880,7 @@ fail1:
         Fragment->Context = NULL;
         Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID;
 
-        DECREMENT_PACKET_REFERENCE(Packet);
+        Packet->Value;
 
         __TransmitterPutFragment(Ring, Fragment);
     }
@@ -853,7 +897,7 @@ __TransmitterRingPrepareHeader(
     PXENVIF_FRONTEND                Frontend;
     PXENVIF_MAC                     Mac;
     PXENVIF_TRANSMITTER_STATE       State;
-    PXENVIF_TRANSMITTER_PACKET_V1   Packet;
+    PXENVIF_TRANSMITTER_PACKET      Packet;
     PXENVIF_PACKET_PAYLOAD          Payload;
     PXENVIF_PACKET_INFO             Info;
     PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
@@ -873,7 +917,7 @@ __TransmitterRingPrepareHeader(
     Payload = &State->Payload;
     Info = &State->Info;
 
-    ASSERT3U(PACKET_REFERENCE(Packet), ==, 0);
+    ASSERT3U(Packet->Value, ==, 0);
 
     Buffer = __TransmitterGetBuffer(Ring);
 
@@ -882,7 +926,7 @@ __TransmitterRingPrepareHeader(
         goto fail1;
 
     Buffer->Context = Packet;
-    INCREMENT_PACKET_REFERENCE(Packet);
+    Packet->Value++;
 
     Mdl = Buffer->Mdl;
 
@@ -1100,7 +1144,7 @@ fail3:
 fail2:
     Error("fail2\n");
 
-    DECREMENT_PACKET_REFERENCE(Packet);
+    Packet->Value--;
     Buffer->Context = NULL;
 
     __TransmitterPutBuffer(Ring, Buffer);
@@ -1108,7 +1152,7 @@ fail2:
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    ASSERT3U(PACKET_REFERENCE(Packet), ==, 0);
+    ASSERT3U(Packet->Value, ==, 0);
 
     return status;
 }
@@ -1130,7 +1174,7 @@ __TransmitterRingUnprepareFragments(
     while (State->Count != 0) {
         PLIST_ENTRY                     ListEntry;
         PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
-        PXENVIF_TRANSMITTER_PACKET_V1   Packet;
+        PXENVIF_TRANSMITTER_PACKET      Packet;
 
         --State->Count;
 
@@ -1180,25 +1224,16 @@ __TransmitterRingUnprepareFragments(
         __TransmitterPutFragment(Ring, Fragment);
 
         if (Packet != NULL)
-            DECREMENT_PACKET_REFERENCE(Packet);
+            Packet->Value--;
     }
 }
 
 static FORCEINLINE NTSTATUS
 __TransmitterRingPreparePacket(
     IN  PXENVIF_TRANSMITTER_RING        Ring,
-    IN  PXENVIF_TRANSMITTER_PACKET_V1   Packet
+    IN  PXENVIF_TRANSMITTER_PACKET      Packet
     )
 {
-#define OFFSET_EXISTS(_Ring, _Packet, _Type)                                                        \
-    ((_Ring)->Transmitter->Offset[XENVIF_TRANSMITTER_PACKET_ ## _Type ## _OFFSET] != 0)
-
-#define OFFSET(_Ring, _Packet, _Type)                                                               \
-        ((OFFSET_EXISTS(_Ring, _Packet, _Type)) ?                                                   \
-         (PVOID)((PUCHAR)(_Packet) +                                                                \
-                 (_Ring)->Transmitter->Offset[XENVIF_TRANSMITTER_PACKET_ ## _Type ## _OFFSET]) :    \
-         NULL)
-
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_TRANSMITTER_STATE       State;
     PXENVIF_PACKET_PAYLOAD          Payload;
@@ -1206,7 +1241,6 @@ __TransmitterRingPreparePacket(
     NTSTATUS                        status;
 
     ASSERT(IsZeroMemory(&Ring->State, sizeof (XENVIF_TRANSMITTER_STATE)));
-    ASSERT3P(Packet->Next, ==, NULL);
 
     Transmitter = Ring->Transmitter;
 
@@ -1218,17 +1252,9 @@ __TransmitterRingPreparePacket(
     RtlZeroMemory(&Packet->Send, sizeof (XENVIF_TRANSMITTER_PACKET_SEND_INFO));
 
     Payload = &State->Payload;
-
-    ASSERT(OFFSET_EXISTS(Ring, Packet, MDL));
-    Payload->Mdl = *(PMDL *)OFFSET(Ring, Packet, MDL);
-
-    if (OFFSET_EXISTS(Ring, Packet, OFFSET))
-        Payload->Offset = *(PULONG)OFFSET(Ring, Packet, OFFSET);
-    else
-        Payload->Offset = 0;
-
-    ASSERT(OFFSET_EXISTS(Ring, Packet, LENGTH));
-    Payload->Length = *(PULONG)OFFSET(Ring, Packet, LENGTH);
+    Payload->Mdl = Packet->Mdl;
+    Payload->Offset = Packet->Offset;
+    Payload->Length = Packet->Length;
 
     InitializeListHead(&State->List);
     ASSERT3U(State->Count, ==, 0);
@@ -1237,7 +1263,7 @@ __TransmitterRingPreparePacket(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    ASSERT3U(State->Count, ==, PACKET_REFERENCE(Packet));
+    ASSERT3U(State->Count, ==, Packet->Value);
 
     Info = &State->Info;
 
@@ -1295,7 +1321,7 @@ __TransmitterRingPreparePacket(
 
         if (Transmitter->AlwaysCopy != 0 ||
             (!NT_SUCCESS(status) && status == STATUS_BUFFER_OVERFLOW)) {
-            ASSERT3U(State->Count, ==, PACKET_REFERENCE(Packet));
+            ASSERT3U(State->Count, ==, Packet->Value);
 
             status = __TransmitterRingCopyPayload(Ring);
         }
@@ -1304,7 +1330,7 @@ __TransmitterRingPreparePacket(
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    ASSERT3U(State->Count, ==, PACKET_REFERENCE(Packet));
+    ASSERT3U(State->Count, ==, Packet->Value);
 
     Ring->PacketsPrepared++;
     return STATUS_SUCCESS;
@@ -1333,18 +1359,15 @@ fail1:
     ASSERT(IsZeroMemory(&Ring->State, sizeof (XENVIF_TRANSMITTER_STATE)));
 
     return status;
-
-#undef  OFFSET
-#undef  OFFSET_EXISTS
 }
 
-static FORCEINLINE PXENVIF_TRANSMITTER_PACKET_V1
+static FORCEINLINE PXENVIF_TRANSMITTER_PACKET
 __TransmitterRingUnpreparePacket(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
 {
     PXENVIF_TRANSMITTER_STATE       State;
-    PXENVIF_TRANSMITTER_PACKET_V1   Packet;
+    PXENVIF_TRANSMITTER_PACKET      Packet;
 
     State = &Ring->State;
     Packet = State->Packet;
@@ -1703,7 +1726,7 @@ __TransmitterRingPostFragments(
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
     PXENVIF_TRANSMITTER_STATE       State;
-    PXENVIF_TRANSMITTER_PACKET_V1   Packet;
+    PXENVIF_TRANSMITTER_PACKET      Packet;
     PXENVIF_PACKET_PAYLOAD          Payload;
     RING_IDX                        req_prod;
     RING_IDX                        rsp_cons;
@@ -1723,7 +1746,7 @@ __TransmitterRingPostFragments(
     ASSERT(!IsListEmpty(&State->List));
     ASSERT(State->Count != 0);
     ASSERT3U(State->Count, <=, XEN_NETIF_NR_SLOTS_MIN);
-    ASSERT(IMPLY(Packet != NULL, State->Count == PACKET_REFERENCE(Packet)));
+    ASSERT(IMPLY(Packet != NULL, State->Count == Packet->Value));
 
     req_prod = Ring->Front.req_prod_pvt;
     rsp_cons = Ring->Front.rsp_cons;
@@ -1928,8 +1951,8 @@ __TransmitterRingFakeResponses(
 
 static FORCEINLINE VOID
 __TransmitterRingCompletePacket(
-    IN  PXENVIF_TRANSMITTER_RING        Ring,
-    IN  PXENVIF_TRANSMITTER_PACKET_V1   Packet
+    IN  PXENVIF_TRANSMITTER_RING    Ring,
+    IN  PXENVIF_TRANSMITTER_PACKET  Packet
     )
 {
     PXENVIF_TRANSMITTER                 Transmitter;
@@ -1988,10 +2011,7 @@ __TransmitterRingCompletePacket(
         }
     }
 
-    *Ring->Completed.TailPacket = Packet;
-    ASSERT3P(Packet->Next, ==, NULL);
-    Ring->Completed.TailPacket = &Packet->Next;
-
+    InsertTailList(&Ring->Completed, &Packet->ListEntry);
     Ring->PacketsCompleted++;
 }
 
@@ -2027,7 +2047,7 @@ TransmitterRingPoll(
             netif_tx_response_t             *rsp;
             uint16_t                        id;
             PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
-            PXENVIF_TRANSMITTER_PACKET_V1   Packet;
+            PXENVIF_TRANSMITTER_PACKET      Packet;
 
             rsp = RING_GET_RESPONSE(&Ring->Front, rsp_cons);
             rsp_cons++;
@@ -2091,7 +2111,7 @@ TransmitterRingPoll(
                 continue;
             }
 
-            DECREMENT_PACKET_REFERENCE(Packet);
+            Packet->Value--;
 
             if (rsp->status != NETIF_RSP_OKAY &&
                 Packet->Completion.Status == XENVIF_TRANSMITTER_PACKET_PENDING) {
@@ -2112,7 +2132,7 @@ TransmitterRingPoll(
 
             RtlZeroMemory(rsp, sizeof (netif_tx_response_t));
 
-            if (PACKET_REFERENCE(Packet) != 0)
+            if (Packet->Value != 0)
                 continue;
 
             if (Packet->Completion.Status == XENVIF_TRANSMITTER_PACKET_PENDING)
@@ -2229,32 +2249,44 @@ TransmitterRingSwizzle(
 {
     ULONG_PTR                       Old;
     ULONG_PTR                       New;
-    PXENVIF_TRANSMITTER_PACKET_V1   HeadPacket;
-    PXENVIF_TRANSMITTER_PACKET_V1   *TailPacket;
+    PLIST_ENTRY                     ListEntry;
+    LIST_ENTRY                      List;
     ULONG                           Count;
 
     ASSERT3P(Ring->LockThread, ==, KeGetCurrentThread());
+
+    InitializeListHead(&List);
 
     New = XENVIF_TRANSMITTER_LOCK_BIT;    
     Old = (ULONG_PTR)InterlockedExchangePointer(&Ring->Lock, (PVOID)New);
 
     ASSERT(Old & XENVIF_TRANSMITTER_LOCK_BIT);
-    HeadPacket = (PVOID)(Old & ~XENVIF_TRANSMITTER_LOCK_BIT);
+    ListEntry = (PVOID)(Old & ~XENVIF_TRANSMITTER_LOCK_BIT);
 
-    if (HeadPacket == NULL)
+    if (ListEntry == NULL)
         return;
 
     // Packets are held in the atomic packet list in reverse order
     // so that the most recent is always head of the list. This is
     // necessary to allow addition to the list to be done atomically.
 
-    TailPacket = &HeadPacket->Next;
-    Count = __TransmitterReversePacketList(&HeadPacket);
-    ASSERT3P(*TailPacket, ==, NULL);
+    for (Count = 0; ListEntry != NULL; ++Count) {
+        PLIST_ENTRY     NextEntry;
 
-    *(Ring->Queued.TailPacket) = HeadPacket;
-    Ring->Queued.TailPacket = TailPacket;
-    Ring->PacketsQueued += Count;
+        NextEntry = ListEntry->Blink;
+        ListEntry->Flink = ListEntry->Blink = ListEntry;
+
+        InsertHeadList(&List, ListEntry);
+
+        ListEntry = NextEntry;
+    }
+
+    ListEntry = List.Flink;
+    if (!IsListEmpty(&List)) {
+        RemoveEntryList(&List);
+        AppendTailList(&Ring->Queued, ListEntry);
+        Ring->PacketsQueued += Count;
+    }
 }
 
 static DECLSPEC_NOINLINE VOID
@@ -2270,8 +2302,9 @@ TransmitterRingSchedule(
     State = &Ring->State;
 
     for (;;) {
-        PXENVIF_TRANSMITTER_PACKET_V1   Packet;
-        NTSTATUS                        status;
+        PLIST_ENTRY                 ListEntry;
+        PXENVIF_TRANSMITTER_PACKET  Packet;
+        NTSTATUS                    status;
 
         if (State->Count != 0) {
             status = __TransmitterRingPostFragments(Ring);
@@ -2320,18 +2353,13 @@ TransmitterRingSchedule(
             continue;
         }
 
-        Packet = Ring->Queued.HeadPacket;
-
-        if (Packet == NULL)
+        ListEntry = RemoveHeadList(&Ring->Queued);
+        if (ListEntry == &Ring->Queued)
             break;
 
-        if (Packet->Next == NULL) {
-            Ring->Queued.HeadPacket = NULL;
-            Ring->Queued.TailPacket = &Ring->Queued.HeadPacket;
-        } else {
-            Ring->Queued.HeadPacket = Packet->Next;
-            Packet->Next = NULL;
-        }
+        Packet = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_PACKET, ListEntry);
+        Packet->ListEntry.Flink = Packet->ListEntry.Blink = NULL;
+        Packet->Value = 0;
 
         status = __TransmitterRingPreparePacket(Ring, Packet);
         if (!NT_SUCCESS(status)) {
@@ -2360,23 +2388,62 @@ TransmitterRingSchedule(
         ASSERT3U(Ring->PacketsPrepared, ==, Ring->PacketsCopied + Ring->PacketsGranted + Ring->PacketsFaked);
     }
 
-    ASSERT(IMPLY(Ring->Queued.HeadPacket == NULL, Ring->Queued.TailPacket == &Ring->Queued.HeadPacket));
-
     __TransmitterRingPushRequests(Ring);
 }
 
 static FORCEINLINE VOID
 __TransmitterReturnPackets(
-    IN  PXENVIF_TRANSMITTER             Transmitter,
-    IN  PXENVIF_TRANSMITTER_PACKET_V1   HeadPacket
+    IN  PXENVIF_TRANSMITTER Transmitter,
+    IN  PLIST_ENTRY         List
     )
 {
-    PXENVIF_FRONTEND    Frontend;
+    PXENVIF_FRONTEND        Frontend;
+    PXENVIF_VIF_CONTEXT     VifContext;
 
     Frontend = Transmitter->Frontend;
+    VifContext = PdoGetVifContext(FrontendGetPdo(Frontend));
 
-    VifTransmitterReturnPacketsV1(PdoGetVifContext(FrontendGetPdo(Frontend)),
-                                  HeadPacket);
+    switch (VifGetVersion(VifContext)) {
+    case 1: {
+        PXENVIF_TRANSMITTER_PACKET_V1   HeadPacket;
+        PXENVIF_TRANSMITTER_PACKET_V1   NextPacket;
+
+        HeadPacket = NextPacket = NULL;
+
+        while (!IsListEmpty(List)) {
+            PLIST_ENTRY                 ListEntry;
+            PXENVIF_TRANSMITTER_PACKET  Packet;
+
+            ListEntry = RemoveTailList(List);
+            ASSERT3P(ListEntry, !=, List);
+
+            Packet = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_PACKET, ListEntry);
+            Packet->ListEntry.Flink = Packet->ListEntry.Blink = NULL;
+
+            HeadPacket = Packet->Cookie;
+            HeadPacket->Next = NextPacket;
+            NextPacket = HeadPacket;
+
+            HeadPacket->Completion = Packet->Completion;
+
+            __TransmitterPutPacket(Transmitter, Packet);
+        }
+
+        if (HeadPacket != NULL)
+            VifTransmitterReturnPacketsVersion1(VifContext, HeadPacket);
+
+        break;
+    }
+    case 2:
+        if (!IsListEmpty(List))
+            VifTransmitterReturnPackets(VifContext, List);
+
+        break;
+
+    default:
+        ASSERT(FALSE);
+        break;
+    }
 }
 
 static FORCEINLINE BOOLEAN
@@ -2476,11 +2543,9 @@ __TransmitterRingReleaseLock(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
 {
-    PXENVIF_TRANSMITTER_PACKET_V1   HeadPacket;
-    PXENVIF_TRANSMITTER_PACKET_V1   *TailPacket;
-    
-    HeadPacket = NULL;
-    TailPacket = &HeadPacket;
+    LIST_ENTRY                      List;
+
+    InitializeListHead(&List);
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
 
@@ -2490,23 +2555,26 @@ __TransmitterRingReleaseLock(
     // thread could be simuntaneously adding to the list.
 
     do {
+        PLIST_ENTRY     ListEntry;
+
         TransmitterRingSwizzle(Ring);
         TransmitterRingSchedule(Ring);
 
-        *TailPacket = Ring->Completed.HeadPacket;
-        TailPacket = Ring->Completed.TailPacket;
-
-        Ring->Completed.HeadPacket = NULL;
-        Ring->Completed.TailPacket = &Ring->Completed.HeadPacket;
+        ListEntry = Ring->Completed.Flink;
+        if (!IsListEmpty(&Ring->Completed)) {
+            RemoveEntryList(&Ring->Completed);
+            InitializeListHead(&Ring->Completed);
+            AppendTailList(&List, ListEntry);
+        }
     } while (!__TransmitterRingTryReleaseLock(Ring));
 
-    if (HeadPacket != NULL) {
+    if (!IsListEmpty(&List)) {
         PXENVIF_TRANSMITTER Transmitter;
 
         Transmitter = Ring->Transmitter;
 
         __TransmitterReturnPackets(Transmitter,
-                                   HeadPacket);
+                                   &List);
     }
 }
 
@@ -2751,8 +2819,9 @@ __TransmitterRingInitialize(
 
     (*Ring)->Transmitter = Transmitter;
     (*Ring)->Index = Index;
-    (*Ring)->Queued.TailPacket = &(*Ring)->Queued.HeadPacket;
-    (*Ring)->Completed.TailPacket = &(*Ring)->Completed.HeadPacket;
+
+    InitializeListHead(&(*Ring)->Queued);
+    InitializeListHead(&(*Ring)->Completed);
 
     KeInitializeDpc(&(*Ring)->Dpc, TransmitterRingDpc, *Ring);
 
@@ -2887,8 +2956,8 @@ fail2:
 
     RtlZeroMemory(&(*Ring)->Dpc, sizeof (KDPC));
 
-    (*Ring)->Queued.TailPacket = NULL;
-    (*Ring)->Completed.TailPacket = NULL;
+    RtlZeroMemory(&(*Ring)->Queued, sizeof (LIST_ENTRY));
+    RtlZeroMemory(&(*Ring)->Completed, sizeof (LIST_ENTRY));
     (*Ring)->Index = 0;
     (*Ring)->Transmitter = NULL;
 
@@ -3103,7 +3172,7 @@ __TransmitterRingDisable(
 {    
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
-    PXENVIF_TRANSMITTER_PACKET_V1   Packet;
+    PXENVIF_TRANSMITTER_PACKET      Packet;
     PCHAR                           Buffer;
     XenbusState                     State;
     ULONG                           Attempt;
@@ -3122,14 +3191,7 @@ __TransmitterRingDisable(
 
     // Put any packet back on the head of the queue
     if (Packet != NULL) {
-        ASSERT3P(Packet->Next, ==, NULL);
-
-        Packet->Next = Ring->Queued.HeadPacket;
-
-        if (Ring->Queued.TailPacket == &Ring->Queued.HeadPacket)
-            Ring->Queued.TailPacket = &Packet->Next;
-
-        Ring->Queued.HeadPacket = Packet;
+        InsertHeadList(&Ring->Queued, &Packet->ListEntry);
     }
 
     Ring->AddressIndex = 0;
@@ -3283,11 +3345,11 @@ __TransmitterRingTeardown(
                  Ring->BufferCache);
     Ring->BufferCache = NULL;
 
-    ASSERT3P(Ring->Queued.TailPacket, ==, &Ring->Queued.HeadPacket);
-    Ring->Queued.TailPacket = NULL;
+    ASSERT(IsListEmpty(&Ring->Queued));
+    RtlZeroMemory(&Ring->Queued, sizeof (LIST_ENTRY));
 
-    ASSERT3P(Ring->Completed.TailPacket, ==, &Ring->Completed.HeadPacket);
-    Ring->Completed.TailPacket = NULL;
+    ASSERT(IsListEmpty(&Ring->Completed));
+    RtlZeroMemory(&Ring->Completed, sizeof (LIST_ENTRY));
 
     Ring->Index = 0;
     Ring->Transmitter = NULL;
@@ -3298,25 +3360,20 @@ __TransmitterRingTeardown(
 
 static FORCEINLINE VOID
 __TransmitterRingQueuePackets(
-    IN  PXENVIF_TRANSMITTER_RING        Ring,
-    IN  PXENVIF_TRANSMITTER_PACKET_V1   HeadPacket
+    IN  PXENVIF_TRANSMITTER_RING    Ring,
+    IN  PLIST_ENTRY                 List
     )
 {
-    PXENVIF_TRANSMITTER_PACKET_V1       *TailPacket;
-    ULONG_PTR                           Old;
-    ULONG_PTR                           LockBit;
-    ULONG_PTR                           New;
-
-    TailPacket = &HeadPacket->Next;
-    (VOID) __TransmitterReversePacketList(&HeadPacket);
-    ASSERT3P(*TailPacket, ==, NULL);
+    ULONG_PTR                       Old;
+    ULONG_PTR                       LockBit;
+    ULONG_PTR                       New;
 
     do {
         Old = (ULONG_PTR)Ring->Lock;
         LockBit = Old & XENVIF_TRANSMITTER_LOCK_BIT;
 
-        *TailPacket = (PVOID)(Old & ~XENVIF_TRANSMITTER_LOCK_BIT);
-        New = (ULONG_PTR)HeadPacket;
+        List->Flink->Blink = (PVOID)(Old & ~XENVIF_TRANSMITTER_LOCK_BIT);
+        New = (ULONG_PTR)List->Blink;
         ASSERT((New & XENVIF_TRANSMITTER_LOCK_BIT) == 0);
         New |= LockBit;
     } while ((ULONG_PTR)InterlockedCompareExchangePointer(&Ring->Lock, (PVOID)New, (PVOID)Old) != Old);
@@ -3335,22 +3392,19 @@ __TransmitterRingAbortPackets(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
 {
-    PXENVIF_TRANSMITTER_PACKET_V1   Packet;
-
     __TransmitterRingAcquireLock(Ring);
 
     TransmitterRingSwizzle(Ring);
 
-    Packet = Ring->Queued.HeadPacket;
-
-    Ring->Queued.HeadPacket = NULL;
-    Ring->Queued.TailPacket = &Ring->Queued.HeadPacket;
-
-    while (Packet != NULL) {
-        PXENVIF_TRANSMITTER_PACKET_V1   Next;
+    while (!IsListEmpty(&Ring->Queued)) {
+        PLIST_ENTRY                 ListEntry;
+        PXENVIF_TRANSMITTER_PACKET  Packet;
         
-        Next = Packet->Next;
-        Packet->Next = NULL;
+        ListEntry = RemoveHeadList(&Ring->Queued);
+        ASSERT3P(ListEntry, !=, &Ring->Queued);
+
+        Packet = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_PACKET, ListEntry);
+        Packet->ListEntry.Flink = Packet->ListEntry.Blink = NULL;
 
         // Fake that we prapared and sent this packet
         Ring->PacketsPrepared++;
@@ -3360,8 +3414,6 @@ __TransmitterRingAbortPackets(
         Packet->Completion.Status = XENVIF_TRANSMITTER_PACKET_DROPPED;
 
         __TransmitterRingCompletePacket(Ring, Packet);
-
-        Packet = Next;
     }
 
     ASSERT3U(Ring->PacketsSent, ==, Ring->PacketsPrepared - Ring->PacketsUnprepared);
@@ -3454,6 +3506,7 @@ TransmitterInitialize(
                           &(*Transmitter)->EvtchnInterface);
 
     (*Transmitter)->Frontend = Frontend;
+    KeInitializeSpinLock(&(*Transmitter)->PacketLock);
 
     status = XENBUS_RANGE_SET(Acquire, &(*Transmitter)->RangeSetInterface);
     if (!NT_SUCCESS(status))
@@ -3502,6 +3555,9 @@ fail2:
     Error("fail2\n");
 
     (*Transmitter)->Frontend = NULL;
+
+    RtlZeroMemory(&(*Transmitter)->PacketLock,
+                  sizeof (KSPIN_LOCK));
 
     RtlZeroMemory(&(*Transmitter)->CacheInterface,
                   sizeof (XENBUS_CACHE_INTERFACE));
@@ -3552,6 +3608,20 @@ TransmitterConnect(
     if (!NT_SUCCESS(status))
         goto fail3;
 
+    status = XENBUS_CACHE(Create,
+                          &Transmitter->CacheInterface,
+                          "packet_cache",
+                          sizeof (XENVIF_TRANSMITTER_PACKET),
+                          XENVIF_PACKET_CACHE_RESERVATION,
+                          TransmitterPacketCtor,
+                          TransmitterPacketDtor,
+                          TransmitterPacketAcquireLock,
+                          TransmitterPacketReleaseLock,
+                          Transmitter,
+                          &Transmitter->PacketCache);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
     status = XENBUS_STORE(Read,
                           &Transmitter->StoreInterface,
                           NULL,
@@ -3577,7 +3647,7 @@ TransmitterConnect(
 
         status = __TransmitterRingConnect(Ring);
         if (!NT_SUCCESS(status))
-            goto fail4;
+            goto fail5;
     }    
 
     status = XENBUS_DEBUG(Register,
@@ -3587,15 +3657,15 @@ TransmitterConnect(
                           Transmitter,
                           &Transmitter->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     return STATUS_SUCCESS;
 
+fail6:
+    Error("fail6\n");
+
 fail5:
     Error("fail5\n");
-
-fail4:
-    Error("fail4\n");
 
     for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
@@ -3606,6 +3676,14 @@ fail4:
 
         __TransmitterRingDisconnect(Ring);
     }
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 Transmitter->PacketCache);
+    Transmitter->PacketCache = NULL;
+
+fail4:
+    Error("fail4\n");
 
     XENBUS_EVTCHN(Release, &Transmitter->EvtchnInterface);
 
@@ -3719,6 +3797,11 @@ TransmitterDisconnect(
         __TransmitterRingDisconnect(Ring);
     }
 
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 Transmitter->PacketCache);
+    Transmitter->PacketCache = NULL;
+
     XENBUS_STORE(Release, &Transmitter->StoreInterface);
 
     XENBUS_DEBUG(Release, &Transmitter->DebugInterface);
@@ -3757,6 +3840,9 @@ TransmitterTeardown(
 
     Transmitter->Frontend = NULL;
     Transmitter->Split = FALSE;
+
+    RtlZeroMemory(&Transmitter->PacketLock,
+                  sizeof (KSPIN_LOCK));
 
     RtlZeroMemory(&Transmitter->CacheInterface,
                   sizeof (XENBUS_CACHE_INTERFACE));
@@ -3840,10 +3926,163 @@ fail1:
     return status;
 }
 
+static BOOLEAN
+__TransmitterGetPacketHeadersPullup(
+    IN      PVOID                   Argument,
+    IN      PUCHAR                  DestinationVa,
+    IN OUT  PXENVIF_PACKET_PAYLOAD  Payload,
+    IN      ULONG                   Length
+    )
+{
+    PMDL                            Mdl;
+    ULONG                           Offset;
+
+    UNREFERENCED_PARAMETER(Argument);
+
+    Mdl = Payload->Mdl;
+    Offset = Payload->Offset;
+
+    if (Payload->Length < Length)
+        goto fail1;
+
+    Payload->Length -= Length;
+
+    while (Length != 0) {
+        PUCHAR  MdlMappedSystemVa;
+        ULONG   MdlByteCount;
+        ULONG   CopyLength;
+
+        ASSERT(Mdl != NULL);
+
+        MdlMappedSystemVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+        ASSERT(MdlMappedSystemVa != NULL);
+
+        MdlMappedSystemVa += Offset;
+
+        MdlByteCount = Mdl->ByteCount - Offset;
+
+        CopyLength = __min(MdlByteCount, Length);
+
+        RtlCopyMemory(DestinationVa, MdlMappedSystemVa, CopyLength);
+        DestinationVa += CopyLength;
+
+        Offset += CopyLength;
+        Length -= CopyLength;
+
+        MdlByteCount -= CopyLength;
+        if (MdlByteCount == 0) {
+            Mdl = Mdl->Next;
+            Offset = 0;
+        }
+    }
+
+    Payload->Mdl = Mdl;
+    Payload->Offset = Offset;
+
+    return TRUE;
+
+fail1:
+    Error("fail1\n");
+
+    return FALSE;
+}
+
+NTSTATUS
+TransmitterGetPacketHeaders(
+    IN  PXENVIF_TRANSMITTER         Transmitter,
+    IN  PXENVIF_TRANSMITTER_PACKET  Packet,
+    OUT PVOID                       Headers,
+    OUT PXENVIF_PACKET_INFO         Info
+    )
+{
+    XENVIF_PACKET_PAYLOAD           Payload;
+    NTSTATUS                        status;
+
+    Payload.Mdl = Packet->Mdl;
+    Payload.Offset = Packet->Offset;
+    Payload.Length = Packet->Length;
+
+    status = ParsePacket(Headers,
+                         __TransmitterGetPacketHeadersPullup,
+                         Transmitter,
+                         &Payload,
+                         Info);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    return STATUS_SUCCESS;
+
+fail1:
+    return status;
+}
+
 VOID
 TransmitterQueuePacketsVersion1(
     IN  PXENVIF_TRANSMITTER             Transmitter,
     IN  PXENVIF_TRANSMITTER_PACKET_V1   HeadPacket
+    )
+{
+#define OFFSET_EXISTS(_Transmitter, _Packet, _Type)                                         \
+    ((_Transmitter)->Offset[XENVIF_TRANSMITTER_PACKET_ ## _Type ## _OFFSET] != 0)
+
+#define OFFSET(_Transmitter, _Packet, _Type)                                                \
+        ((OFFSET_EXISTS(_Transmitter, _Packet, _Type)) ?                                    \
+         (PVOID)((PUCHAR)(_Packet) +                                                        \
+                 (_Transmitter)->Offset[XENVIF_TRANSMITTER_PACKET_ ## _Type ## _OFFSET]) :  \
+         NULL)
+
+    LIST_ENTRY                          List;
+    PXENVIF_FRONTEND                    Frontend;
+    PXENVIF_VIF_CONTEXT                 VifContext;
+
+    Frontend = Transmitter->Frontend;
+    VifContext = PdoGetVifContext(FrontendGetPdo(Frontend));
+
+    ASSERT3U(VifGetVersion(VifContext), ==, 1);
+
+    InitializeListHead(&List);
+
+    while (HeadPacket != NULL) {
+        PXENVIF_TRANSMITTER_PACKET      Packet;
+
+        Packet = __TransmitterGetPacket(Transmitter);
+        if (Packet == NULL)
+            break;
+
+        Packet->Cookie = HeadPacket;
+        Packet->Send = HeadPacket->Send;
+
+        ASSERT(OFFSET_EXISTS(Transmitter, HeadPacket, MDL));
+        Packet->Mdl = *(PMDL *)OFFSET(Transmitter, HeadPacket, MDL);
+
+        if (OFFSET_EXISTS(Transmitter, HeadPacket, OFFSET))
+            Packet->Offset = *(PULONG)OFFSET(Transmitter, HeadPacket, OFFSET);
+        else
+            Packet->Offset = 0;
+
+        ASSERT(OFFSET_EXISTS(Transmitter, HeadPacket, LENGTH));
+        Packet->Length = *(PULONG)OFFSET(Transmitter, HeadPacket, LENGTH);
+
+        InsertTailList(&List, &Packet->ListEntry);
+
+        HeadPacket = HeadPacket->Next;
+    }
+
+    if (!IsListEmpty(&List))
+        TransmitterQueuePackets(Transmitter, &List);
+
+    if (HeadPacket != NULL)
+        VifTransmitterReturnPacketsVersion1(VifContext,
+                                            HeadPacket);
+
+#undef OFFSET
+#undef OFFSET_EXISTS
+}
+
+VOID
+TransmitterQueuePackets(
+    IN  PXENVIF_TRANSMITTER Transmitter,
+    IN  PLIST_ENTRY         List
     )
 {
     PXENVIF_TRANSMITTER_RING        Ring;
@@ -3853,7 +4092,7 @@ TransmitterQueuePacketsVersion1(
     Ring = Transmitter->Rings[0];
     ASSERT3P(Ring, !=, NULL);
 
-    __TransmitterRingQueuePackets(Ring, HeadPacket);
+    __TransmitterRingQueuePackets(Ring, List);
 }
 
 VOID

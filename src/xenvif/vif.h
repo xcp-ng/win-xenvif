@@ -69,13 +69,24 @@ VifReceiverQueuePackets(
     );
 
 extern VOID
-VifTransmitterReturnPacketsV1(
+VifTransmitterReturnPacketsVersion1(
     IN  PXENVIF_VIF_CONTEXT             Context,
     IN  PXENVIF_TRANSMITTER_PACKET_V1   Head
     );
 
+extern VOID
+VifTransmitterReturnPackets(
+    IN  PXENVIF_VIF_CONTEXT Context,
+    IN  PLIST_ENTRY         List
+    );
+
 extern PXENVIF_THREAD
 VifGetMacThread(
+    IN  PXENVIF_VIF_CONTEXT Context
+    );
+
+extern ULONG
+VifGetVersion(
     IN  PXENVIF_VIF_CONTEXT Context
     );
 

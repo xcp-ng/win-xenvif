@@ -114,6 +114,12 @@ TransmitterQueuePacketsVersion1(
     );
 
 extern VOID
+TransmitterQueuePackets(
+    IN  PXENVIF_TRANSMITTER Transmitter,
+    IN  PLIST_ENTRY         List
+    );
+
+extern VOID
 TransmitterQueryOffloadOptions(
     IN  PXENVIF_TRANSMITTER         Transmitter,
     OUT PXENVIF_VIF_OFFLOAD_OPTIONS Options
@@ -131,6 +137,14 @@ TransmitterSetPacketOffset(
     IN  PXENVIF_TRANSMITTER                 Transmitter,
     IN  XENVIF_TRANSMITTER_PACKET_OFFSET    Type,
     IN  LONG_PTR                            Value
+    );
+
+extern NTSTATUS
+TransmitterGetPacketHeaders(
+    IN  PXENVIF_TRANSMITTER         Transmitter,
+    IN  PXENVIF_TRANSMITTER_PACKET  Packet,
+    OUT PVOID                       Headers,
+    OUT PXENVIF_PACKET_INFO         Info
     );
 
 #endif  // _XENVIF_TRANSMITTER_H
