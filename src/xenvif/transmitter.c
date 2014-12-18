@@ -106,7 +106,6 @@ typedef struct _XENVIF_TRANSMITTER_PACKET_LIST {
 
 typedef struct _XENVIF_TRANSMITTER_RING {
     PXENVIF_TRANSMITTER             Transmitter;
-    LIST_ENTRY                      ListEntry;
     ULONG                           Index;
     PXENBUS_CACHE                   BufferCache;
     PXENBUS_CACHE                   FragmentCache;
@@ -146,7 +145,7 @@ struct _XENVIF_TRANSMITTER {
     PXENVIF_FRONTEND            Frontend;
     XENBUS_CACHE_INTERFACE      CacheInterface;
     XENBUS_RANGE_SET_INTERFACE  RangeSetInterface;
-    LIST_ENTRY                  List;
+    PXENVIF_TRANSMITTER_RING    Rings[MAXIMUM_PROCESSORS];
     LONG_PTR                    Offset[XENVIF_TRANSMITTER_PACKET_OFFSET_COUNT];
     ULONG                       DisableIpVersion4Gso;
     ULONG                       DisableIpVersion6Gso;
@@ -3242,8 +3241,6 @@ TransmitterInitialize(
             (*Transmitter)->AlwaysCopy = TransmitterAlwaysCopy;
     }
 
-    InitializeListHead(&(*Transmitter)->List);
-
     FdoGetDebugInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
                          &(*Transmitter)->DebugInterface);
 
@@ -3266,16 +3263,15 @@ TransmitterInitialize(
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    Index = 0;
-    while (Index < Count) {
+    ASSERT3U(Count, <=, MAXIMUM_PROCESSORS);
+    for (Index = 0; Index < Count; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
         status = __TransmitterRingInitialize(*Transmitter, Index, &Ring);
         if (!NT_SUCCESS(status))
             goto fail4;
 
-        InsertTailList(&(*Transmitter)->List, &Ring->ListEntry);
-        Index++;
+        (*Transmitter)->Rings[Index] = Ring;
     }
 
     return STATUS_SUCCESS;
@@ -3283,21 +3279,17 @@ TransmitterInitialize(
 fail4:
     Error("fail4\n");
 
-    while (!IsListEmpty(&(*Transmitter)->List)) {
-        PLIST_ENTRY                 ListEntry;
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
-        ListEntry = RemoveTailList(&(*Transmitter)->List);
-        ASSERT3P(ListEntry, !=, &(*Transmitter)->List);
+        Ring = (*Transmitter)->Rings[Index];
+        (*Transmitter)->Rings[Index] = NULL;
 
-        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
-
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+        if (Ring == NULL)
+            continue;
 
         __TransmitterRingTeardown(Ring);
-        --Index;
     }
-    ASSERT3U(Index, ==, 0);
 
     XENBUS_CACHE(Release, &(*Transmitter)->CacheInterface);
 
@@ -3323,8 +3315,6 @@ fail2:
     RtlZeroMemory(&(*Transmitter)->DebugInterface,
                   sizeof (XENBUS_DEBUG_INTERFACE));
 
-    RtlZeroMemory(&(*Transmitter)->List, sizeof (LIST_ENTRY));
-
     (*Transmitter)->DisableIpVersion4Gso = 0;
     (*Transmitter)->DisableIpVersion6Gso = 0;
     (*Transmitter)->AlwaysCopy = 0;
@@ -3344,7 +3334,7 @@ TransmitterConnect(
     )
 {
     PXENVIF_FRONTEND            Frontend;
-    PLIST_ENTRY                 ListEntry;
+    ULONG                       Index;
     NTSTATUS                    status;
 
     Frontend = Transmitter->Frontend;
@@ -3357,12 +3347,12 @@ TransmitterConnect(
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    for (ListEntry = Transmitter->List.Flink;
-         ListEntry != &Transmitter->List;
-         ListEntry = ListEntry->Flink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+        Ring = Transmitter->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         status = __TransmitterRingConnect(Ring);
         if (!NT_SUCCESS(status))
@@ -3383,22 +3373,17 @@ TransmitterConnect(
 fail4:
     Error("fail4\n");
 
-    ListEntry = &Transmitter->List;
-
 fail3:
     Error("fail3\n");
 
-    ListEntry = ListEntry->Blink;
-
-    while (ListEntry != &Transmitter->List) {
-        PLIST_ENTRY                 Prev = ListEntry->Blink;
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+        Ring = Transmitter->Rings[Index];
+        if (Ring == NULL)
+            continue;
 
         __TransmitterRingDisconnect(Ring);
-
-        ListEntry = Prev;
     }
 
     XENBUS_STORE(Release, &Transmitter->StoreInterface);
@@ -3420,15 +3405,15 @@ TransmitterStoreWrite(
     IN  PXENBUS_STORE_TRANSACTION   Transaction
     )
 {
-    PLIST_ENTRY                     ListEntry;
     NTSTATUS                        status;
+    ULONG                   Index;
 
-    for (ListEntry = Transmitter->List.Flink;
-         ListEntry != &Transmitter->List;
-         ListEntry = ListEntry->Flink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+        Ring = Transmitter->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         status = __TransmitterRingStoreWrite(Ring, Transaction);
         if (!NT_SUCCESS(status))
@@ -3448,14 +3433,14 @@ TransmitterEnable(
     IN  PXENVIF_TRANSMITTER Transmitter
     )
 {
-    PLIST_ENTRY             ListEntry;
+    ULONG                   Index;
 
-    for (ListEntry = Transmitter->List.Flink;
-         ListEntry != &Transmitter->List;
-         ListEntry = ListEntry->Flink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+        Ring = Transmitter->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         __TransmitterRingEnable(Ring);
     }    
@@ -3468,14 +3453,14 @@ TransmitterDisable(
     IN  PXENVIF_TRANSMITTER Transmitter
     )
 {
-    PLIST_ENTRY             ListEntry;
+    ULONG                   Index;
 
-    for (ListEntry = Transmitter->List.Blink;
-         ListEntry != &Transmitter->List;
-         ListEntry = ListEntry->Blink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+        Ring = Transmitter->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         __TransmitterRingDisable(Ring);
     }
@@ -3487,7 +3472,7 @@ TransmitterDisconnect(
     )
 {
     PXENVIF_FRONTEND        Frontend;
-    PLIST_ENTRY             ListEntry;
+    ULONG                   Index;
 
     Frontend = Transmitter->Frontend;
 
@@ -3496,12 +3481,12 @@ TransmitterDisconnect(
                  Transmitter->DebugCallback);
     Transmitter->DebugCallback = NULL;
 
-    for (ListEntry = Transmitter->List.Blink;
-         ListEntry != &Transmitter->List;
-         ListEntry = ListEntry->Blink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+        Ring = Transmitter->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         __TransmitterRingDisconnect(Ring);
     }
@@ -3516,18 +3501,19 @@ TransmitterTeardown(
     IN  PXENVIF_TRANSMITTER Transmitter
     )
 {
+    ULONG                   Index;
+
     RtlZeroMemory(Transmitter->Offset,
                   sizeof (LONG_PTR) *  XENVIF_TRANSMITTER_PACKET_OFFSET_COUNT); 
 
-    while (!IsListEmpty(&Transmitter->List)) {
-        PLIST_ENTRY                 ListEntry;
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
-        ListEntry = RemoveHeadList(&Transmitter->List);
-        ASSERT3P(ListEntry, !=, &Transmitter->List);
-        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
+        Ring = Transmitter->Rings[Index];
+        Transmitter->Rings[Index] = NULL;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+        if (Ring == NULL)
+            continue;
 
         __TransmitterRingTeardown(Ring);
     }
@@ -3550,8 +3536,6 @@ TransmitterTeardown(
     RtlZeroMemory(&Transmitter->DebugInterface,
                   sizeof (XENBUS_DEBUG_INTERFACE));
 
-    RtlZeroMemory(&Transmitter->List, sizeof (LIST_ENTRY));
-
     Transmitter->DisableIpVersion4Gso = 0;
     Transmitter->DisableIpVersion6Gso = 0;
     Transmitter->AlwaysCopy = 0;
@@ -3568,15 +3552,14 @@ TransmitterUpdateAddressTable(
     )
 {
     KIRQL                       Irql;
-    PLIST_ENTRY                 ListEntry;
     PXENVIF_TRANSMITTER_RING    Ring;
 
     // Make sure we don't suspend
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 
     // Use the first ring for address advertisment
-    ListEntry = Transmitter->List.Flink;
-    Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+    Ring = Transmitter->Rings[0];
+    ASSERT3U(Ring, !=, NULL);
 
     __TransmitterRingUpdateAddressTable(Ring, Table, Count);
 
@@ -3588,12 +3571,11 @@ TransmitterAdvertiseAddresses(
     IN  PXENVIF_TRANSMITTER     Transmitter
     )
 {
-    PLIST_ENTRY                 ListEntry;
     PXENVIF_TRANSMITTER_RING    Ring;
 
     // Use the first ring for address advertisment
-    ListEntry = Transmitter->List.Flink;
-    Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+    Ring = Transmitter->Rings[0];
+    ASSERT3U(Ring, !=, NULL);
 
     __TransmitterRingAdvertiseAddresses(Ring);
 }
@@ -3627,13 +3609,12 @@ TransmitterQueuePackets(
     IN  PXENVIF_TRANSMITTER_PACKET  HeadPacket
     )
 {
-    PLIST_ENTRY                     ListEntry;
     PXENVIF_TRANSMITTER_RING        Ring;
 
     // We need to hash for a ring eventually. Since there is only a
     // single ring for now, we just use that.
-    ListEntry = Transmitter->List.Flink;
-    Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+    Ring = Transmitter->Rings[0];
+    ASSERT3P(Ring, !=, NULL);
 
     __TransmitterRingQueuePackets(Ring, HeadPacket);
 }
@@ -3643,17 +3624,17 @@ TransmitterAbortPackets(
     IN  PXENVIF_TRANSMITTER Transmitter
     )
 {
-    PLIST_ENTRY             ListEntry;
+    ULONG                   Index;
     KIRQL                   Irql;
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 
-    for (ListEntry = Transmitter->List.Flink;
-         ListEntry != &Transmitter->List;
-         ListEntry = ListEntry->Flink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+        Ring = Transmitter->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         __TransmitterRingAbortPackets(Ring);
     }    
@@ -3677,14 +3658,14 @@ TransmitterNotify(
     IN  PXENVIF_TRANSMITTER Transmitter
     )
 {
-    PLIST_ENTRY             ListEntry;
+    ULONG                   Index;
 
-    for (ListEntry = Transmitter->List.Flink;
-         ListEntry != &Transmitter->List;
-         ListEntry = ListEntry->Flink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_RING, ListEntry);
+        Ring = Transmitter->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         __TransmitterRingNotify(Ring);
     }    
