@@ -108,9 +108,9 @@ TransmitterAdvertiseAddresses(
     );
 
 extern VOID
-TransmitterQueuePackets(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  PXENVIF_TRANSMITTER_PACKET  HeadPacket
+TransmitterQueuePacketsVersion1(
+    IN  PXENVIF_TRANSMITTER             Transmitter,
+    IN  PXENVIF_TRANSMITTER_PACKET_V1   HeadPacket
     );
 
 extern VOID

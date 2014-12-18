@@ -69,9 +69,9 @@ VifReceiverQueuePackets(
     );
 
 extern VOID
-VifTransmitterReturnPackets(
-    IN  PXENVIF_VIF_CONTEXT         Context,
-    IN  PXENVIF_TRANSMITTER_PACKET  Head
+VifTransmitterReturnPacketsV1(
+    IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  PXENVIF_TRANSMITTER_PACKET_V1   Head
     );
 
 extern PXENVIF_THREAD

@@ -275,9 +275,9 @@ VifReceiverReturnPackets(
 
 
 static NTSTATUS
-VifTransmitterQueuePackets(
-    IN  PINTERFACE                  Interface,
-    IN  PXENVIF_TRANSMITTER_PACKET  Head
+VifTransmitterQueuePacketsVersion1(
+    IN  PINTERFACE                      Interface,
+    IN  PXENVIF_TRANSMITTER_PACKET_V1   Head
     )
 {
     PXENVIF_VIF_CONTEXT             Context = Interface->Context;
@@ -289,8 +289,8 @@ VifTransmitterQueuePackets(
     if (Context->Enabled == FALSE)
         goto fail1;
 
-    TransmitterQueuePackets(FrontendGetTransmitter(Context->Frontend),
-                            Head);            
+    TransmitterQueuePacketsVersion1(FrontendGetTransmitter(Context->Frontend),
+                                    Head);
 
     ReleaseMrswLockShared(&Context->Lock);
 
@@ -642,7 +642,7 @@ static struct _XENVIF_VIF_INTERFACE_V1 VifInterfaceVersion1 = {
     VifReceiverSetOffloadOptions,
     VifReceiverQueryRingSize,
     VifTransmitterSetPacketOffset,
-    VifTransmitterQueuePackets,
+    VifTransmitterQueuePacketsVersion1,
     VifTransmitterQueryOffloadOptions,
     VifTransmitterQueryLargePacketSize,
     VifTransmitterQueryRingSize,
@@ -783,9 +783,9 @@ VifReceiverQueuePackets(
 }
 
 VOID
-VifTransmitterReturnPackets(
-    IN  PXENVIF_VIF_CONTEXT         Context,
-    IN  PXENVIF_TRANSMITTER_PACKET  Head
+VifTransmitterReturnPacketsV1(
+    IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  PXENVIF_TRANSMITTER_PACKET_V1   Head
     )
 {
     Context->Callback(Context->Argument,
