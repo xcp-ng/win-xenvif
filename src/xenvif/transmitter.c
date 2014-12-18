@@ -40,6 +40,7 @@
 #include <cache_interface.h>
 #include <gnttab_interface.h>
 #include <range_set_interface.h>
+#include <evtchn_interface.h>
 
 #include "ethernet.h"
 #include "tcpip.h"
@@ -114,6 +115,10 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     netif_tx_front_ring_t           Front;
     netif_tx_sring_t                *Shared;
     XENVIF_GRANTER_HANDLE           Handle;
+    PXENBUS_EVTCHN_CHANNEL          Channel;
+    KDPC                            Dpc;
+    ULONG                           Dpcs;
+    ULONG                           Events;
     BOOLEAN                         Connected;
     BOOLEAN                         Enabled;
     BOOLEAN                         Stopped;
@@ -145,8 +150,10 @@ struct _XENVIF_TRANSMITTER {
     PXENVIF_FRONTEND            Frontend;
     XENBUS_CACHE_INTERFACE      CacheInterface;
     XENBUS_RANGE_SET_INTERFACE  RangeSetInterface;
+    XENBUS_EVTCHN_INTERFACE     EvtchnInterface;
     PXENVIF_TRANSMITTER_RING    Rings[MAXIMUM_PROCESSORS];
     LONG_PTR                    Offset[XENVIF_TRANSMITTER_PACKET_OFFSET_COUNT];
+    BOOLEAN                     Split;
     ULONG                       DisableIpVersion4Gso;
     ULONG                       DisableIpVersion6Gso;
     ULONG                       AlwaysCopy;
@@ -2129,6 +2136,35 @@ TransmitterRingPoll(
 }
 
 static FORCEINLINE VOID
+__TransmitterRingSend(
+    IN  PXENVIF_TRANSMITTER_RING    Ring
+    )
+{
+    PXENVIF_TRANSMITTER             Transmitter;
+
+    Transmitter = Ring->Transmitter;
+
+    if (!Ring->Connected)
+        return;
+
+    if (Transmitter->Split) {
+        ASSERT(Ring->Channel != NULL);
+
+        (VOID) XENBUS_EVTCHN(Send,
+                             &Transmitter->EvtchnInterface,
+                             Ring->Channel);
+    } else {
+        PXENVIF_FRONTEND        Frontend;
+
+        ASSERT(Ring->Channel == NULL);
+        Frontend = Transmitter->Frontend;
+
+        ReceiverSend(FrontendGetReceiver(Frontend),
+                     Ring->Index);
+    }
+}
+
+static FORCEINLINE VOID
 __TransmitterRingPushRequests(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
@@ -2146,15 +2182,8 @@ __TransmitterRingPushRequests(
 
 #pragma warning (pop)
 
-    if (Notify) {
-        PXENVIF_TRANSMITTER Transmitter;
-        PXENVIF_FRONTEND    Frontend;
-
-        Transmitter = Ring->Transmitter;
-        Frontend = Transmitter->Frontend;
-
-        NotifierSendTx(FrontendGetNotifier(Frontend));
-    }
+    if (Notify)
+        __TransmitterRingSend(Ring);
 
     Ring->RequestsPushed = Ring->RequestsPosted;
 }
@@ -2477,6 +2506,93 @@ TransmitterRingReleaseLock(
     __TransmitterRingReleaseLock(Ring);
 }
 
+static FORCEINLINE VOID
+__TransmitterRingNotify(
+    IN  PXENVIF_TRANSMITTER_RING    Ring
+    )
+{
+    __TransmitterRingAcquireLock(Ring);
+    TransmitterRingPoll(Ring);
+    __TransmitterRingReleaseLock(Ring);
+}
+
+static FORCEINLINE BOOLEAN
+__TransmitterRingUnmask(
+    IN  PXENVIF_TRANSMITTER_RING    Ring
+    )
+{
+    PXENVIF_TRANSMITTER             Transmitter;
+    BOOLEAN                         Pending;
+
+    Transmitter = Ring->Transmitter;
+
+    Pending = (Ring->Connected) ?
+              XENBUS_EVTCHN(Unmask,
+                            &Transmitter->EvtchnInterface,
+                            Ring->Channel,
+                            FALSE) :
+              FALSE;
+
+    return Pending;
+}
+
+__drv_functionClass(KDEFERRED_ROUTINE)
+__drv_maxIRQL(DISPATCH_LEVEL)
+__drv_minIRQL(DISPATCH_LEVEL)
+__drv_requiresIRQL(DISPATCH_LEVEL)
+__drv_sameIRQL
+static VOID
+TransmitterRingDpc(
+    IN  PKDPC                   Dpc,
+    IN  PVOID                   Context,
+    IN  PVOID                   Argument1,
+    IN  PVOID                   Argument2
+    )
+{
+    PXENVIF_TRANSMITTER_RING    Ring = Context;
+    PXENVIF_TRANSMITTER         Transmitter;
+    BOOLEAN                     Pending;
+
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(Argument1);
+    UNREFERENCED_PARAMETER(Argument2);
+
+    ASSERT(Ring != NULL);
+
+    Transmitter = Ring->Transmitter;
+
+    do {
+        if (Ring->Enabled) {
+            ASSERT(Transmitter->Split);
+            __TransmitterRingNotify(Ring);
+        }
+
+        Pending = __TransmitterRingUnmask(Ring);
+    } while (Pending);
+}
+
+KSERVICE_ROUTINE    TransmitterRingEvtchnCallback;
+
+BOOLEAN
+TransmitterRingEvtchnCallback(
+    IN  PKINTERRUPT         InterruptObject,
+    IN  PVOID               Argument
+    )
+{
+    PXENVIF_TRANSMITTER_RING    Ring = Argument;
+
+    UNREFERENCED_PARAMETER(InterruptObject);
+
+    ASSERT(Ring != NULL);
+
+    Ring->Events++;
+
+    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
+        Ring->Dpcs++;
+
+    return TRUE;
+}
+
 #define TIME_US(_us)        ((_us) * 10)
 #define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
 #define TIME_S(_s)          (TIME_MS((_s) * 1000))
@@ -2522,17 +2638,15 @@ TransmitterRingWatchdog(
             if (Ring->PacketsQueued == PacketsQueued &&
                 Ring->PacketsCompleted != PacketsQueued) {
                 PXENVIF_TRANSMITTER Transmitter;
-                PXENVIF_FRONTEND    Frontend;
 
                 Transmitter = Ring->Transmitter;
-                Frontend = Transmitter->Frontend;
 
                 XENBUS_DEBUG(Trigger,
                              &Transmitter->DebugInterface,
                              Ring->DebugCallback);
 
                 // Try to move things along
-                NotifierSendTx(FrontendGetNotifier(Frontend));
+                __TransmitterRingSend(Ring);
                 TransmitterRingPoll(Ring);
             }
 
@@ -2627,6 +2741,8 @@ __TransmitterRingInitialize(
     (*Ring)->Index = Index;
     (*Ring)->Queued.TailPacket = &(*Ring)->Queued.HeadPacket;
     (*Ring)->Completed.TailPacket = &(*Ring)->Completed.HeadPacket;
+
+    KeInitializeDpc(&(*Ring)->Dpc, TransmitterRingDpc, *Ring);
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
@@ -2757,6 +2873,8 @@ fail3:
 fail2:
     Error("fail2\n");
 
+    RtlZeroMemory(&(*Ring)->Dpc, sizeof (KDPC));
+
     (*Ring)->Queued.TailPacket = NULL;
     (*Ring)->Completed.TailPacket = NULL;
     (*Ring)->Index = 0;
@@ -2780,6 +2898,7 @@ __TransmitterRingConnect(
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
     PFN_NUMBER                      Pfn;
+    BOOLEAN                         Pending;
     CHAR                            Name[MAXNAMELEN];
     NTSTATUS                        status;
 
@@ -2817,6 +2936,32 @@ __TransmitterRingConnect(
     if (!NT_SUCCESS(status))
         goto fail3;
 
+    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+    if (Transmitter->Split) {
+        Ring->Channel = XENBUS_EVTCHN(Open,
+                                      &Transmitter->EvtchnInterface,
+                                      XENBUS_EVTCHN_TYPE_UNBOUND,
+                                      TransmitterRingEvtchnCallback,
+                                      Ring,
+                                      FrontendGetBackendDomain(Frontend),
+                                      TRUE);
+
+        status = STATUS_UNSUCCESSFUL;
+        if (Ring->Channel == NULL)
+            goto fail4;
+
+        Pending = XENBUS_EVTCHN(Unmask,
+                                &Transmitter->EvtchnInterface,
+                                Ring->Channel,
+                                FALSE);
+
+        if (Pending)
+            XENBUS_EVTCHN(Trigger,
+                          &Transmitter->EvtchnInterface,
+                          Ring->Channel);
+    }
+
     status = XENBUS_DEBUG(Register,
                           &Transmitter->DebugInterface,
                           Name,
@@ -2824,11 +2969,21 @@ __TransmitterRingConnect(
                           Ring,
                           &Ring->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     Ring->Connected = TRUE;
 
     return STATUS_SUCCESS;
+
+fail5:
+    Error("fail5\n");
+
+    XENBUS_EVTCHN(Close,
+                  &Transmitter->EvtchnInterface,
+                  Ring->Channel);
+    Ring->Channel = NULL;
+
+    Ring->Events = 0;
 
 fail4:
     Error("fail4\n");
@@ -2864,6 +3019,7 @@ __TransmitterRingStoreWrite(
 {
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
+    ULONG                           Port;
     NTSTATUS                        status;
 
     Transmitter = Ring->Transmitter;
@@ -2881,7 +3037,28 @@ __TransmitterRingStoreWrite(
     if (!NT_SUCCESS(status))
         goto fail1;
 
+    if (!Transmitter->Split)
+        goto done;
+
+    Port = XENBUS_EVTCHN(GetPort,
+                         &Transmitter->EvtchnInterface,
+                         Ring->Channel);
+
+    status = XENBUS_STORE(Printf,
+                          &Transmitter->StoreInterface,
+                          Transaction,
+                          FrontendGetPath(Frontend),
+                          "event-channel-tx",
+                          "%u",
+                          Port);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+done:
     return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -2898,6 +3075,9 @@ __TransmitterRingEnable(
 
     ASSERT(!Ring->Enabled);
     Ring->Enabled = TRUE;
+
+    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
+        Ring->Dpcs++;
 
     __TransmitterRingReleaseLock(Ring);
 
@@ -2994,6 +3174,17 @@ __TransmitterRingDisconnect(
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
+    Transmitter->Split = FALSE;
+
+    if (Ring->Channel != NULL) {
+        XENBUS_EVTCHN(Close,
+                      &Transmitter->EvtchnInterface,
+                      Ring->Channel);
+        Ring->Channel = NULL;
+
+        Ring->Events = 0;
+    }
+
     ASSERT3U(Ring->ResponsesProcessed, ==, Ring->RequestsPushed);
     ASSERT3U(Ring->RequestsPushed, ==, Ring->RequestsPosted);
 
@@ -3029,6 +3220,9 @@ __TransmitterRingTeardown(
 
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
+
+    Ring->Dpcs = 0;
+    RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
 
     ASSERT3U(Ring->PacketsCompleted, ==, Ring->PacketsSent);
     ASSERT3U(Ring->PacketsSent, ==, Ring->PacketsPrepared - Ring->PacketsUnprepared);
@@ -3166,16 +3360,6 @@ __TransmitterRingAbortPackets(
     __TransmitterRingReleaseLock(Ring);
 }
 
-static FORCEINLINE VOID
-__TransmitterRingNotify(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
-    )
-{
-    __TransmitterRingAcquireLock(Ring);
-    TransmitterRingPoll(Ring);
-    __TransmitterRingReleaseLock(Ring);
-}
-
 static VOID
 TransmitterDebugCallback(
     IN  PVOID           Argument,
@@ -3216,6 +3400,7 @@ TransmitterInitialize(
     (*Transmitter)->DisableIpVersion4Gso = 0;
     (*Transmitter)->DisableIpVersion6Gso = 0;
     (*Transmitter)->AlwaysCopy = 0;
+    (*Transmitter)->Split = FALSE;
 
     if (ParametersKey != NULL) {
         ULONG   TransmitterDisableIpVersion4Gso;
@@ -3252,6 +3437,9 @@ TransmitterInitialize(
 
     FdoGetCacheInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
                          &(*Transmitter)->CacheInterface);
+
+    FdoGetEvtchnInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
+                          &(*Transmitter)->EvtchnInterface);
 
     (*Transmitter)->Frontend = Frontend;
 
@@ -3334,6 +3522,7 @@ TransmitterConnect(
     )
 {
     PXENVIF_FRONTEND            Frontend;
+    PCHAR                       Buffer;
     ULONG                       Index;
     NTSTATUS                    status;
 
@@ -3347,6 +3536,26 @@ TransmitterConnect(
     if (!NT_SUCCESS(status))
         goto fail2;
 
+    status = XENBUS_EVTCHN(Acquire, &Transmitter->EvtchnInterface);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    status = XENBUS_STORE(Read,
+                          &Transmitter->StoreInterface,
+                          NULL,
+                          FrontendGetBackendPath(Frontend),
+                          "feature-split-event-channels",
+                          &Buffer);
+    if (!NT_SUCCESS(status)) {
+        Transmitter->Split = FALSE;
+    } else {
+        Transmitter->Split = (BOOLEAN)strtol(Buffer, NULL, 2);
+
+        XENBUS_STORE(Free,
+                     &Transmitter->StoreInterface,
+                     Buffer);
+    }
+
     for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
@@ -3356,7 +3565,7 @@ TransmitterConnect(
 
         status = __TransmitterRingConnect(Ring);
         if (!NT_SUCCESS(status))
-            goto fail3;
+            goto fail4;
     }    
 
     status = XENBUS_DEBUG(Register,
@@ -3366,15 +3575,15 @@ TransmitterConnect(
                           Transmitter,
                           &Transmitter->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     return STATUS_SUCCESS;
 
+fail5:
+    Error("fail5\n");
+
 fail4:
     Error("fail4\n");
-
-fail3:
-    Error("fail3\n");
 
     for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
@@ -3385,6 +3594,11 @@ fail3:
 
         __TransmitterRingDisconnect(Ring);
     }
+
+    XENBUS_EVTCHN(Release, &Transmitter->EvtchnInterface);
+
+fail3:
+    Error("fail3\n");
 
     XENBUS_STORE(Release, &Transmitter->StoreInterface);
 
@@ -3476,6 +3690,8 @@ TransmitterDisconnect(
 
     Frontend = Transmitter->Frontend;
 
+    Transmitter->Split = FALSE;
+
     XENBUS_DEBUG(Deregister,
                  &Transmitter->DebugInterface,
                  Transmitter->DebugCallback);
@@ -3494,6 +3710,8 @@ TransmitterDisconnect(
     XENBUS_STORE(Release, &Transmitter->StoreInterface);
 
     XENBUS_DEBUG(Release, &Transmitter->DebugInterface);
+
+    XENBUS_EVTCHN(Release, &Transmitter->EvtchnInterface);
 }
 
 VOID
@@ -3502,6 +3720,9 @@ TransmitterTeardown(
     )
 {
     ULONG                   Index;
+
+    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
+    KeFlushQueuedDpcs();
 
     RtlZeroMemory(Transmitter->Offset,
                   sizeof (LONG_PTR) *  XENVIF_TRANSMITTER_PACKET_OFFSET_COUNT); 
@@ -3523,6 +3744,7 @@ TransmitterTeardown(
     XENBUS_RANGE_SET(Release, &Transmitter->RangeSetInterface);
 
     Transmitter->Frontend = NULL;
+    Transmitter->Split = FALSE;
 
     RtlZeroMemory(&Transmitter->CacheInterface,
                   sizeof (XENBUS_CACHE_INTERFACE));
@@ -3535,6 +3757,9 @@ TransmitterTeardown(
 
     RtlZeroMemory(&Transmitter->DebugInterface,
                   sizeof (XENBUS_DEBUG_INTERFACE));
+
+    RtlZeroMemory(&Transmitter->EvtchnInterface,
+                  sizeof (XENBUS_EVTCHN_INTERFACE));
 
     Transmitter->DisableIpVersion4Gso = 0;
     Transmitter->DisableIpVersion6Gso = 0;
@@ -3654,21 +3879,21 @@ TransmitterQueryRingSize(
 }
 
 VOID
-TransmitterNotify(
-    IN  PXENVIF_TRANSMITTER Transmitter
+TransmitterRingNotify(
+    IN  PXENVIF_TRANSMITTER Transmitter,
+    IN  ULONG               Index
     )
 {
-    ULONG                   Index;
+    PXENVIF_TRANSMITTER_RING    Ring;
 
-    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
-        PXENVIF_TRANSMITTER_RING    Ring;
+    if (Index >= MAXIMUM_PROCESSORS)
+        return;
 
-        Ring = Transmitter->Rings[Index];
-        if (Ring == NULL)
-            break;
+    Ring = Transmitter->Rings[Index];
+    if (Ring == NULL)
+        return;
 
-        __TransmitterRingNotify(Ring);
-    }    
+    __TransmitterRingNotify(Ring);
 }
 
 VOID

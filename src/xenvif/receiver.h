@@ -79,11 +79,6 @@ ReceiverTeardown(
     );
 
 extern VOID
-ReceiverNotify(
-    IN  PXENVIF_RECEIVER    Receiver
-    );
-
-extern VOID
 ReceiverWaitForPackets(
     IN  PXENVIF_RECEIVER    Receiver
     );
@@ -104,6 +99,12 @@ extern VOID
 ReceiverReturnPackets(
     IN  PXENVIF_RECEIVER    Receiver,
     IN  PLIST_ENTRY         List
+    );
+
+extern VOID
+ReceiverSend(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  ULONG               Index
     );
 
 #endif  // _XENVIF_RECEIVER_H

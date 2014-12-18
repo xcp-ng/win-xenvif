@@ -119,13 +119,6 @@ FrontendGetGranter(
     IN  PXENVIF_FRONTEND    Frontend
     );
 
-#include "notifier.h"
-
-extern PXENVIF_NOTIFIER
-FrontendGetNotifier(
-    IN  PXENVIF_FRONTEND    Frontend
-    );
-
 #include "mac.h"
 
 extern PXENVIF_MAC

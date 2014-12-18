@@ -79,8 +79,9 @@ TransmitterTeardown(
     );
 
 extern VOID
-TransmitterNotify(
-    IN  PXENVIF_TRANSMITTER Transmitter
+TransmitterRingNotify(
+    IN  PXENVIF_TRANSMITTER Transmitter,
+    IN  ULONG               Index
     );
 
 extern VOID
