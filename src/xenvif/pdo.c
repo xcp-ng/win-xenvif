@@ -547,7 +547,7 @@ __PdoSetRevisions(
     IN  PXENVIF_PDO Pdo
     )
 {
-    ULONG           Vif;
+    ULONG           Cache;
     ULONG           Revision;
     NTSTATUS        status;
 
@@ -559,15 +559,20 @@ __PdoSetRevisions(
     // even when a particular combination of interface versions becomes
     // unsupported. (See README.md for API versioning policy).
 
-    for (Vif = 1; Vif <= XENVIF_VIF_INTERFACE_VERSION_MAX; Vif++) {
-        Revision++;
+    for (Cache = 1; Cache <= XENBUS_CACHE_INTERFACE_VERSION_MAX; Cache++) {
+        ULONG       Vif;
 
-        if (Vif >= XENVIF_VIF_INTERFACE_VERSION_MIN) {
-            status = __PdoAddRevision(Pdo, Revision);
-            if (!NT_SUCCESS(status))
-                goto fail1;
+        for (Vif = 1; Vif <= XENVIF_VIF_INTERFACE_VERSION_MAX; Vif++) {
+            Revision++;
+
+            if (Vif >= XENVIF_VIF_INTERFACE_VERSION_MIN &&
+                Cache >= XENBUS_CACHE_INTERFACE_VERSION_MIN) {
+                status = __PdoAddRevision(Pdo, Revision);
+                if (!NT_SUCCESS(status))
+                    goto fail1;
+            }
         }
-    }                             
+    }
 
     ASSERT(Pdo->Count > 0);
     return STATUS_SUCCESS;
@@ -1543,6 +1548,7 @@ struct _INTERFACE_ENTRY {
 struct _INTERFACE_ENTRY PdoInterfaceTable[] = {
     { &GUID_BUS_INTERFACE_STANDARD, "BUS_INTERFACE", PdoQueryBusInterface },
     { &GUID_XENVIF_VIF_INTERFACE, "VIF_INTERFACE", PdoQueryVifInterface },
+    { &GUID_XENBUS_CACHE_INTERFACE, "CACHE_INTERFACE", __PdoDelegateIrp },
     { NULL, NULL, NULL }
 };
 
@@ -1577,8 +1583,6 @@ PdoQueryInterface(
             goto done;
         }
     }
-
-    status = __PdoDelegateIrp(Pdo, Irp);
 
 done:
     Irp->IoStatus.Status = status;
