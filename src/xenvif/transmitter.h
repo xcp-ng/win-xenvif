@@ -43,7 +43,6 @@ typedef struct _XENVIF_TRANSMITTER XENVIF_TRANSMITTER, *PXENVIF_TRANSMITTER;
 extern NTSTATUS
 TransmitterInitialize(
     IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Count,
     OUT PXENVIF_TRANSMITTER *Transmitter
     );
 

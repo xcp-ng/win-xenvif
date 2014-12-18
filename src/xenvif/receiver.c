@@ -76,6 +76,7 @@ typedef struct _XENVIF_RECEIVER_FRAGMENT {
 typedef struct _XENVIF_RECEIVER_RING {
     PXENVIF_RECEIVER            Receiver;
     ULONG                       Index;
+    PCHAR                       Path;
     KSPIN_LOCK                  Lock;
     PXENBUS_CACHE               PacketCache;
     PXENBUS_CACHE               FragmentCache;
@@ -2036,6 +2037,10 @@ __ReceiverRingInitialize(
     (*Ring)->Receiver = Receiver;
     (*Ring)->Index = Index;
 
+    (*Ring)->Path = FrontendFormatPath(Frontend, Index);
+    if ((*Ring)->Path == NULL)
+        goto fail2;
+
     InitializeListHead(&(*Ring)->PacketList);
 
     KeInitializeDpc(&(*Ring)->Dpc, ReceiverRingDpc, *Ring);
@@ -2043,9 +2048,9 @@ __ReceiverRingInitialize(
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
                                 "%s_receiver_packet",
-                                FrontendGetPath(Frontend));
+                                (*Ring)->Path);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail3;
 
     for (Index = 0; Name[Index] != '\0'; Index++)
         if (Name[Index] == '/')
@@ -2063,14 +2068,14 @@ __ReceiverRingInitialize(
                           *Ring,
                           &(*Ring)->PacketCache);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
                                 "%s_receiver_fragment",
-                                FrontendGetPath(Frontend));
+                                (*Ring)->Path);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     for (Index = 0; Name[Index] != '\0'; Index++)
         if (Name[Index] == '/')
@@ -2088,44 +2093,50 @@ __ReceiverRingInitialize(
                           *Ring,
                           &(*Ring)->FragmentCache);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     status = ThreadCreate(ReceiverRingWatchdog,
                           *Ring,
                           &(*Ring)->WatchdogThread);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail7;
 
     return STATUS_SUCCESS;
 
-fail6:
-    Error("fail6\n");
+fail7:
+    Error("fail7\n");
 
     XENBUS_CACHE(Destroy,
                  &Receiver->CacheInterface,
                  (*Ring)->FragmentCache);
     (*Ring)->FragmentCache = NULL;
 
+fail6:
+    Error("fail6\n");
+
 fail5:
     Error("fail5\n");
-    
-fail4:
-    Error("fail4\n");
 
     XENBUS_CACHE(Destroy,
                  &Receiver->CacheInterface,
                  (*Ring)->PacketCache);
     (*Ring)->PacketCache = NULL;
 
+fail4:
+    Error("fail4\n");
+
 fail3:
     Error("fail3\n");
-    
-fail2:
-    Error("fail2\n");
 
     RtlZeroMemory(&(*Ring)->Dpc, sizeof (KDPC));
 
     RtlZeroMemory(&(*Ring)->PacketList, sizeof (LIST_ENTRY));
+
+    FrontendFreePath(Frontend, (*Ring)->Path);
+    (*Ring)->Path = NULL;
+
+fail2:
+    Error("fail2\n");
 
     (*Ring)->Index = 0;
     (*Ring)->Receiver = NULL;
@@ -2199,6 +2210,16 @@ __ReceiverRingConnect(
     status = STATUS_UNSUCCESSFUL;
     if (Ring->Channel == NULL)
         goto fail4;
+
+    if (FrontendGetQueueCount(Frontend) > 1) {
+        (VOID) XENBUS_EVTCHN(Bind,
+                                &Receiver->EvtchnInterface,
+                                Ring->Channel,
+                                Ring->Index);
+
+        KeSetTargetProcessorDpc(&Ring->Dpc,
+                                (CCHAR)Ring->Index);
+    }
 
     Pending = XENBUS_EVTCHN(Unmask,
                             &Receiver->EvtchnInterface,
@@ -2278,7 +2299,7 @@ __ReceiverRingStoreWrite(
     status = XENBUS_STORE(Printf,
                           &Receiver->StoreInterface,
                           Transaction,
-                          FrontendGetPath(Frontend),
+                          Ring->Path,
                           "rx-ring-ref",
                           "%u",
                           GranterGetReference(FrontendGetGranter(Frontend),
@@ -2294,7 +2315,7 @@ __ReceiverRingStoreWrite(
     status = XENBUS_STORE(Printf,
                           &Receiver->StoreInterface,
                           Transaction,
-                          FrontendGetPath(Frontend),
+                          Ring->Path,
                           Receiver->Split ? "event-channel-rx" : "event-channel",
                           "%u",
                           Port);
@@ -2419,8 +2440,10 @@ __ReceiverRingTeardown(
     )
 {
     PXENVIF_RECEIVER            Receiver;
+    PXENVIF_FRONTEND            Frontend;
 
     Receiver = Ring->Receiver;
+    Frontend = Receiver->Frontend;
 
     Ring->Dpcs = 0;
     RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
@@ -2443,6 +2466,9 @@ __ReceiverRingTeardown(
 
     ASSERT(IsListEmpty(&Ring->PacketList));
     RtlZeroMemory(&Ring->PacketList, sizeof (LIST_ENTRY));
+
+    FrontendFreePath(Frontend, Ring->Path);
+    Ring->Path = NULL;
 
     Ring->Index = 0;
     Ring->Receiver = NULL;
@@ -2490,14 +2516,15 @@ ReceiverDebugCallback(
 NTSTATUS
 ReceiverInitialize(
     IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Count,
     OUT PXENVIF_RECEIVER    *Receiver
     )
 {
     HANDLE                  ParametersKey;
     ULONG                   Index;
+    ULONG                   Count;
     NTSTATUS                status;
 
+    Count = DriverGetMaximumQueueCount();
     *Receiver = __ReceiverAllocate(sizeof (XENVIF_RECEIVER));
 
     status = STATUS_NO_MEMORY;
@@ -2602,7 +2629,7 @@ fail3:
         (*Receiver)->Rings[Index] = NULL;
 
         if (Ring == NULL)
-            continue;
+            continue; // ensure all rings are destroyed
 
         __ReceiverRingTeardown(Ring);
     }
@@ -2652,6 +2679,7 @@ ReceiverConnect(
 {
     PXENVIF_FRONTEND        Frontend;
     ULONG                   Index;
+    ULONG                   Count;
     PCHAR                   Buffer;
     NTSTATUS                status;
 
@@ -2685,7 +2713,10 @@ ReceiverConnect(
                      Buffer);
     }
 
-    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
+    Count = FrontendGetQueueCount(Frontend);
+    ASSERT3U(Count, <=, MAXIMUM_PROCESSORS);
+
+    for (Index = 0; Index < Count; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
         Ring = Receiver->Rings[Index];
@@ -2714,7 +2745,7 @@ fail5:
 fail4:
     Error("fail4\n");
 
-    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
+    for (Index = 0; Index < Count; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
         Ring = Receiver->Rings[Index];
@@ -2834,6 +2865,7 @@ ReceiverStoreWrite(
 {
     PXENVIF_FRONTEND                Frontend;
     ULONG                           Index;
+    ULONG                           Count;
     NTSTATUS                        status;
 
     Frontend = Receiver->Frontend;
@@ -2876,7 +2908,10 @@ ReceiverStoreWrite(
     if (!NT_SUCCESS(status))
         goto fail5;
 
-    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
+    Count = FrontendGetQueueCount(Frontend);
+    ASSERT3U(Count, <=, MAXIMUM_PROCESSORS);
+
+    for (Index = 0; Index < Count; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
         Ring = Receiver->Rings[Index];
@@ -2918,11 +2953,15 @@ ReceiverEnable(
 {
     PXENVIF_FRONTEND        Frontend;
     ULONG                   Index;
+    ULONG                   Count;
     NTSTATUS                status;
 
     Frontend = Receiver->Frontend;
 
-    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
+    Count = FrontendGetQueueCount(Frontend);
+    ASSERT3U(Count, <=, MAXIMUM_PROCESSORS);
+
+    for (Index = 0; Index < Count; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
         Ring = Receiver->Rings[Index];
@@ -2939,7 +2978,7 @@ ReceiverEnable(
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
+    for (Index = 0; Index < Count; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
         Ring = Receiver->Rings[Index];
@@ -2958,8 +2997,12 @@ ReceiverDisable(
     )
 {
     ULONG                   Index;
+    ULONG                   Count;
 
-    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
+    Count = FrontendGetQueueCount(Receiver->Frontend);
+    ASSERT3U(Count, <=, MAXIMUM_PROCESSORS);
+
+    for (Index = 0; Index < Count; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
         Ring = Receiver->Rings[Index];
@@ -2977,6 +3020,7 @@ ReceiverDisconnect(
 {
     PXENVIF_FRONTEND        Frontend;
     ULONG                   Index;
+    ULONG                   Count;
 
     Frontend = Receiver->Frontend;
 
@@ -2987,7 +3031,10 @@ ReceiverDisconnect(
                  Receiver->DebugCallback);
     Receiver->DebugCallback = NULL;
 
-    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
+    Count = FrontendGetQueueCount(Frontend);
+    ASSERT3U(Count, <=, MAXIMUM_PROCESSORS);
+
+    for (Index = 0; Index < Count; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
         Ring = Receiver->Rings[Index];
@@ -3025,7 +3072,7 @@ ReceiverTeardown(
         Receiver->Rings[Index] = NULL;
 
         if (Ring == NULL)
-            break;
+            continue; // ensure all rings are destroyed
 
         __ReceiverRingTeardown(Ring);
     }
@@ -3067,6 +3114,7 @@ ReceiverSetOffloadOptions(
     )
 {
     ULONG                           Index;
+    ULONG                           Count;
 
     if (Receiver->AllowGsoPackets == 0) {
         Warning("RECEIVER GSO DISALLOWED\n");
@@ -3074,7 +3122,10 @@ ReceiverSetOffloadOptions(
         Options.OffloadIpVersion6LargePacket = 0;
     }
 
-    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
+    Count = FrontendGetQueueCount(Receiver->Frontend);
+    ASSERT3U(Count, <=, MAXIMUM_PROCESSORS);
+
+    for (Index = 0; Index < Count; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
         Ring = Receiver->Rings[Index];

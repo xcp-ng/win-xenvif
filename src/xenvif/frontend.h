@@ -112,6 +112,23 @@ FrontendGetBackendDomain(
     IN  PXENVIF_FRONTEND    Frontend
     );
 
+extern ULONG
+FrontendGetQueueCount(
+    IN  PXENVIF_FRONTEND    Frontend
+    );
+
+extern PCHAR
+FrontendFormatPath(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  ULONG               Index
+    );
+
+extern VOID
+FrontendFreePath(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  PCHAR               Path
+    );
+
 #include "granter.h"
 
 extern PXENVIF_GRANTER

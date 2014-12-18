@@ -47,6 +47,7 @@ typedef struct _XENVIF_DRIVER {
     PDRIVER_OBJECT      DriverObject;
     HANDLE              ParametersKey;
     HANDLE              AddressesKey;
+    ULONG               MaximumQueues;
 } XENVIF_DRIVER, *PXENVIF_DRIVER;
 
 static XENVIF_DRIVER    Driver;
@@ -123,6 +124,30 @@ DriverGetAddressesKey(
     return __DriverGetAddressesKey();
 }
 
+static FORCEINLINE VOID
+__DriverSetMaximumQueueCount(
+    IN  ULONG   Count
+    )
+{
+    Driver.MaximumQueues = Count;
+}
+
+static FORCEINLINE ULONG
+__DriverGetMaximumQueueCount(
+    VOID
+    )
+{
+    return Driver.MaximumQueues;
+}
+
+ULONG
+DriverGetMaximumQueueCount(
+    VOID
+    )
+{
+    return __DriverGetMaximumQueueCount();
+}
+
 DRIVER_UNLOAD       DriverUnload;
 
 VOID
@@ -147,6 +172,8 @@ DriverUnload(
 
     ParametersKey = __DriverGetParametersKey();
     __DriverSetParametersKey(NULL);
+
+    __DriverSetMaximumQueueCount(0);
 
     RegistryCloseKey(ParametersKey);
 
@@ -254,6 +281,8 @@ DriverEntry(
     HANDLE              ParametersKey;
     HANDLE              AddressesKey;
     ULONG               Index;
+    ULONG               MaxQueues;
+    ULONG               Processors;
     NTSTATUS            status;
 
     ASSERT3P(__DriverGetDriverObject(), ==, NULL);
@@ -295,6 +324,8 @@ DriverEntry(
     if (!NT_SUCCESS(status))
         goto fail3;
 
+    __DriverSetParametersKey(ParametersKey);
+
     status = RegistryCreateSubKey(ServiceKey, 
                                   "Addresses", 
                                   REG_OPTION_VOLATILE, 
@@ -303,6 +334,17 @@ DriverEntry(
         goto fail4;
 
     __DriverSetAddressesKey(AddressesKey);
+
+    status = RegistryQueryDwordValue(ParametersKey,
+                                     "MultiQueueMaxQueues",
+                                     &MaxQueues);
+    if (!NT_SUCCESS(status))
+        MaxQueues = MAXIMUM_PROCESSORS;
+
+    Processors = KeQueryActiveProcessorCount(NULL);
+    __DriverSetMaximumQueueCount(MaxQueues > Processors ?
+                                        Processors :
+                                        MaxQueues);
 
     RegistryCloseKey(ServiceKey);
 

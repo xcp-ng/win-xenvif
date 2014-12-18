@@ -63,6 +63,7 @@ struct _XENVIF_FRONTEND {
 
     PCHAR                       BackendPath;
     USHORT                      BackendDomain;
+    ULONG                       QueueCount;
 
     PXENVIF_GRANTER             Granter;
     PXENVIF_MAC                 Mac;
@@ -199,6 +200,81 @@ FrontendGetBackendDomain(
     )
 {
     return __FrontendGetBackendDomain(Frontend);
+}
+
+static FORCEINLINE VOID
+__FrontendSetQueueCount(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  ULONG               Count
+    )
+{
+    Frontend->QueueCount = Count;
+}
+
+static FORCEINLINE ULONG
+__FrontendGetQueueCount(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    return Frontend->QueueCount;
+}
+
+ULONG
+FrontendGetQueueCount(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    return __FrontendGetQueueCount(Frontend);
+}
+
+PCHAR
+FrontendFormatPath(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  ULONG               Index
+    )
+{
+    ULONG                   Length;
+    PCHAR                   Path;
+    NTSTATUS                status;
+
+    if (__FrontendGetQueueCount(Frontend) == 1)
+        return __FrontendGetPath(Frontend);
+
+    Length = (ULONG)(strlen(__FrontendGetPath(Frontend)) +
+                     strlen("/queue-00") +
+                     1) * sizeof (CHAR);
+
+    Path = __FrontendAllocate(Length);
+    if (Path == NULL)
+        goto fail1;
+
+    status = RtlStringCbPrintfA(Path,
+                                Length,
+                                "%s/queue-%u",
+                                __FrontendGetPath(Frontend),
+                                Index);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    return Path;
+
+fail2:
+    __FrontendFree(Path);
+
+fail1:
+    return NULL;
+}
+
+VOID
+FrontendFreePath(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  PCHAR               Path
+    )
+{
+    if (__FrontendGetQueueCount(Frontend) == 1)
+        return;
+
+    __FrontendFree(Path);
 }
 
 #define DEFINE_FRONTEND_GET_FUNCTION(_Function, _Type)  \
@@ -1274,6 +1350,42 @@ FrontendDebugCallback(
     }
 }
 
+static FORCEINLINE VOID
+__FrontendReadQueueCount(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    PCHAR                   Buffer;
+    ULONG                   Value;
+    NTSTATUS                status;
+
+    // default to 1 queue.
+    // backend must advertise "multi-queue-max-queues" to enable
+    // multi-queue support.
+    Value = 1;
+
+    status = XENBUS_STORE(Read,
+                          &Frontend->StoreInterface,
+                          NULL,
+                          __FrontendGetBackendPath(Frontend),
+                          "multi-queue-max-queues",
+                          &Buffer);
+    if (NT_SUCCESS(status)) {
+        Value = (ULONG)strtoul(Buffer, NULL, 10);
+
+        XENBUS_STORE(Free,
+                     &Frontend->StoreInterface,
+                     Buffer);
+
+        // set value to minimum of what frontend supports (vCPUs) and
+        // what backend supports (Dom0 vCPUs)
+        if (Value > DriverGetMaximumQueueCount())
+            Value = DriverGetMaximumQueueCount();
+    }
+
+    __FrontendSetQueueCount(Frontend, Value);
+}
+
 static FORCEINLINE NTSTATUS
 __FrontendConnect(
     IN  PXENVIF_FRONTEND    Frontend
@@ -1307,6 +1419,7 @@ __FrontendConnect(
     if (!NT_SUCCESS(status))
         goto fail4;
 
+    __FrontendReadQueueCount(Frontend);
     status = ReceiverConnect(__FrontendGetReceiver(Frontend));
     if (!NT_SUCCESS(status))
         goto fail5;
@@ -1332,6 +1445,16 @@ __FrontendConnect(
 
         status = TransmitterStoreWrite(__FrontendGetTransmitter(Frontend),
                                        Transaction);
+        if (!NT_SUCCESS(status))
+            goto abort;
+
+        status = XENBUS_STORE(Printf,
+                              &Frontend->StoreInterface,
+                              Transaction,
+                              __FrontendGetPath(Frontend),
+                              "multi-queue-num-queues",
+                              "%u",
+                              __FrontendGetQueueCount(Frontend));
         if (!NT_SUCCESS(status))
             goto abort;
 
@@ -1870,11 +1993,11 @@ FrontendInitialize(
     if (!NT_SUCCESS(status))
         goto fail7;
 
-    status = ReceiverInitialize(*Frontend, 1, &(*Frontend)->Receiver);
+    status = ReceiverInitialize(*Frontend, &(*Frontend)->Receiver);
     if (!NT_SUCCESS(status))
         goto fail8;
 
-    status = TransmitterInitialize(*Frontend, 1, &(*Frontend)->Transmitter);
+    status = TransmitterInitialize(*Frontend, &(*Frontend)->Transmitter);
     if (!NT_SUCCESS(status))
         goto fail9;
 
@@ -2021,6 +2144,7 @@ FrontendTeardown(
     RtlZeroMemory(&Frontend->Lock, sizeof (KSPIN_LOCK));
 
     Frontend->BackendDomain = 0;
+    __FrontendSetQueueCount(Frontend, 0);
 
     __FrontendFree(Frontend->Prefix);
     Frontend->Prefix = NULL;

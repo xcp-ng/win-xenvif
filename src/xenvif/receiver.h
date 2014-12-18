@@ -43,7 +43,6 @@ typedef struct _XENVIF_RECEIVER XENVIF_RECEIVER, *PXENVIF_RECEIVER;
 extern NTSTATUS
 ReceiverInitialize(
     IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Count,
     OUT PXENVIF_RECEIVER    *Receiver
     );
 
