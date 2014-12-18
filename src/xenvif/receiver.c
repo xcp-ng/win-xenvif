@@ -74,7 +74,6 @@ typedef struct _XENVIF_RECEIVER_FRAGMENT {
 
 typedef struct _XENVIF_RECEIVER_RING {
     PXENVIF_RECEIVER            Receiver;
-    LIST_ENTRY                  ListEntry;
     ULONG                       Index;
     KSPIN_LOCK                  Lock;
     PXENBUS_CACHE               PacketCache;
@@ -98,7 +97,7 @@ typedef struct _XENVIF_RECEIVER_RING {
 struct _XENVIF_RECEIVER {
     PXENVIF_FRONTEND        Frontend;
     XENBUS_CACHE_INTERFACE  CacheInterface;
-    LIST_ENTRY              List;
+    PXENVIF_RECEIVER_RING   Rings[MAXIMUM_PROCESSORS];
     LONG                    Loaned;
     LONG                    Returned;
     KEVENT                  Event;
@@ -2360,7 +2359,6 @@ ReceiverInitialize(
             (*Receiver)->AlwaysPullup = ReceiverAlwaysPullup;
     }
 
-    InitializeListHead(&(*Receiver)->List);
     KeInitializeEvent(&(*Receiver)->Event, NotificationEvent, FALSE);
 
     FdoGetDebugInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
@@ -2378,16 +2376,15 @@ ReceiverInitialize(
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    Index = 0;
-    while (Index < Count) {
+    ASSERT3U(Count, <=, MAXIMUM_PROCESSORS);
+    for (Index = 0; Index < Count; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
         status = __ReceiverRingInitialize(*Receiver, Index, &Ring);
         if (!NT_SUCCESS(status))
             goto fail3;
 
-        InsertTailList(&(*Receiver)->List, &Ring->ListEntry);
-        Index++;
+        (*Receiver)->Rings[Index] = Ring;
     }
 
     return STATUS_SUCCESS;
@@ -2395,22 +2392,17 @@ ReceiverInitialize(
 fail3:
     Error("fail3\n");
 
-    while (!IsListEmpty(&(*Receiver)->List)) {
-        PLIST_ENTRY             ListEntry;
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
-        ListEntry = RemoveTailList(&(*Receiver)->List);
-        ASSERT3P(ListEntry, !=, &(*Receiver)->List);
+        Ring = (*Receiver)->Rings[Index];
+        (*Receiver)->Rings[Index] = NULL;
 
-        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
-
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_RING, ListEntry);
+        if (Ring == NULL)
+            continue;
 
         __ReceiverRingTeardown(Ring);
-
-        --Index;
     }
-    ASSERT3U(Index, ==, 0);
 
     XENBUS_CACHE(Release, &(*Receiver)->CacheInterface);
 
@@ -2429,7 +2421,6 @@ fail2:
                   sizeof (XENBUS_DEBUG_INTERFACE));
 
     RtlZeroMemory(&(*Receiver)->Event, sizeof (KEVENT));
-    RtlZeroMemory(&(*Receiver)->List, sizeof (LIST_ENTRY));
 
     (*Receiver)->CalculateChecksums = 0;
     (*Receiver)->AllowGsoPackets = 0;
@@ -2453,7 +2444,7 @@ ReceiverConnect(
     )
 {
     PXENVIF_FRONTEND        Frontend;
-    PLIST_ENTRY             ListEntry;
+    ULONG                   Index;
     NTSTATUS                status;
 
     Frontend = Receiver->Frontend;
@@ -2466,12 +2457,12 @@ ReceiverConnect(
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    for (ListEntry = Receiver->List.Flink;
-         ListEntry != &Receiver->List;
-         ListEntry = ListEntry->Flink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_RING, ListEntry);
+        Ring = Receiver->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         status = __ReceiverRingConnect(Ring);
         if (!NT_SUCCESS(status))
@@ -2492,22 +2483,17 @@ ReceiverConnect(
 fail4:
     Error("fail4\n");
 
-    ListEntry = &Receiver->List;
-
 fail3:
     Error("fail3\n");
 
-    ListEntry = ListEntry->Blink;
-
-    while (ListEntry != &Receiver->List) {
-        PLIST_ENTRY             Prev = ListEntry->Blink;
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_RING, ListEntry);
+        Ring = Receiver->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         __ReceiverRingDisconnect(Ring);
-
-        ListEntry = Prev;
     }
 
     XENBUS_STORE(Release, &Receiver->StoreInterface);
@@ -2614,7 +2600,7 @@ ReceiverStoreWrite(
     )
 {
     PXENVIF_FRONTEND                Frontend;
-    PLIST_ENTRY                     ListEntry;
+    ULONG                           Index;
     NTSTATUS                        status;
 
     Frontend = Receiver->Frontend;
@@ -2657,12 +2643,12 @@ ReceiverStoreWrite(
     if (!NT_SUCCESS(status))
         goto fail5;
 
-    for (ListEntry = Receiver->List.Flink;
-         ListEntry != &Receiver->List;
-         ListEntry = ListEntry->Flink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_RING, ListEntry);
+        Ring = Receiver->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         status = __ReceiverRingStoreWrite(Ring, Transaction);
         if (!NT_SUCCESS(status))
@@ -2698,17 +2684,17 @@ ReceiverEnable(
     )
 {
     PXENVIF_FRONTEND        Frontend;
-    PLIST_ENTRY             ListEntry;
+    ULONG                   Index;
     NTSTATUS                status;
 
     Frontend = Receiver->Frontend;
 
-    for (ListEntry = Receiver->List.Flink;
-         ListEntry != &Receiver->List;
-         ListEntry = ListEntry->Flink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_RING, ListEntry);
+        Ring = Receiver->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         status = __ReceiverRingEnable(Ring);
         if (!NT_SUCCESS(status))
@@ -2720,12 +2706,12 @@ ReceiverEnable(
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    ListEntry = ListEntry->Blink;
-
-    while (ListEntry != &Receiver->List) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_RING, ListEntry);
+        Ring = Receiver->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         __ReceiverRingDisable(Ring);
     }
@@ -2738,14 +2724,14 @@ ReceiverDisable(
     IN  PXENVIF_RECEIVER    Receiver
     )
 {
-    PLIST_ENTRY             ListEntry;
+    ULONG                   Index;
 
-    for (ListEntry = Receiver->List.Blink;
-         ListEntry != &Receiver->List;
-         ListEntry = ListEntry->Blink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_RING, ListEntry);
+        Ring = Receiver->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         __ReceiverRingDisable(Ring);
     }
@@ -2757,7 +2743,7 @@ ReceiverDisconnect(
     )
 {
     PXENVIF_FRONTEND        Frontend;
-    PLIST_ENTRY             ListEntry;
+    ULONG                   Index;
 
     Frontend = Receiver->Frontend;
 
@@ -2766,12 +2752,12 @@ ReceiverDisconnect(
                  Receiver->DebugCallback);
     Receiver->DebugCallback = NULL;
 
-    for (ListEntry = Receiver->List.Blink;
-         ListEntry != &Receiver->List;
-         ListEntry = ListEntry->Blink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_RING, ListEntry);
+        Ring = Receiver->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         __ReceiverRingDisconnect(Ring);
     }
@@ -2786,19 +2772,20 @@ ReceiverTeardown(
     IN  PXENVIF_RECEIVER    Receiver
     )
 {
+    ULONG                   Index;
+
     ASSERT3U(Receiver->Returned, ==, Receiver->Loaned);
     Receiver->Loaned = 0;
     Receiver->Returned = 0;
 
-    while (!IsListEmpty(&Receiver->List)) {
-        PLIST_ENTRY             ListEntry;
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
-        ListEntry = RemoveTailList(&Receiver->List);
-        ASSERT3P(ListEntry, !=, &Receiver->List);
-        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
+        Ring = Receiver->Rings[Index];
+        Receiver->Rings[Index] = NULL;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_RING, ListEntry);
+        if (Ring == NULL)
+            break;
 
         __ReceiverRingTeardown(Ring);
     }
@@ -2817,7 +2804,6 @@ ReceiverTeardown(
                   sizeof (XENBUS_DEBUG_INTERFACE));
 
     RtlZeroMemory(&Receiver->Event, sizeof (KEVENT));
-    RtlZeroMemory(&Receiver->List, sizeof (LIST_ENTRY));
 
     Receiver->CalculateChecksums = 0;
     Receiver->AllowGsoPackets = 0;
@@ -2836,7 +2822,7 @@ ReceiverSetOffloadOptions(
     IN  XENVIF_VIF_OFFLOAD_OPTIONS  Options
     )
 {
-    PLIST_ENTRY                     ListEntry;
+    ULONG                           Index;
 
     if (Receiver->AllowGsoPackets == 0) {
         Warning("RECEIVER GSO DISALLOWED\n");
@@ -2844,12 +2830,12 @@ ReceiverSetOffloadOptions(
         Options.OffloadIpVersion6LargePacket = 0;
     }
 
-    for (ListEntry = Receiver->List.Flink;
-         ListEntry != &Receiver->List;
-         ListEntry = ListEntry->Flink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_RING, ListEntry);
+        Ring = Receiver->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         __ReceiverRingSetOffloadOptions(Ring, Options);
     }    
@@ -2939,14 +2925,14 @@ ReceiverNotify(
     IN  PXENVIF_RECEIVER    Receiver
     )
 {
-    PLIST_ENTRY             ListEntry;
+    ULONG                   Index;
 
-    for (ListEntry = Receiver->List.Flink;
-         ListEntry != &Receiver->List;
-         ListEntry = ListEntry->Flink) {
+    for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
-        Ring = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_RING, ListEntry);
+        Ring = Receiver->Rings[Index];
+        if (Ring == NULL)
+            break;
 
         __ReceiverRingNotify(Ring);
     }    
