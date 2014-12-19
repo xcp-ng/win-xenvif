@@ -787,7 +787,8 @@ __TransmitterRingGrantPayload(
 
 fail3:
 fail2:
-    Error("fail2\n");
+    if (status != STATUS_BUFFER_OVERFLOW)
+        Error("fail2\n");
 
     if (Fragment != NULL) {
         ASSERT3P(Fragment->Context, ==, Packet);
@@ -800,7 +801,8 @@ fail2:
     }
 
 fail1:
-    Error("fail1 (%08x)\n", status);
+    if (status != STATUS_BUFFER_OVERFLOW)
+        Error("fail1 (%08x)\n", status);
 
     ASSERT3P(Fragment, ==, NULL);
 
