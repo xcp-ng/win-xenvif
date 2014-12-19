@@ -329,6 +329,8 @@ if __name__ == '__main__':
     driver = 'xenvif'
     vs = getVsVersion()
 
+    os.utime('include/version.hx', None)
+
     if 'COMPANY_NAME' not in os.environ.keys():
         os.environ['COMPANY_NAME'] = 'Xen Project'
 
