@@ -237,9 +237,6 @@ FrontendFormatPath(
     PCHAR                   Path;
     NTSTATUS                status;
 
-    if (__FrontendGetQueueCount(Frontend) == 1)
-        return __FrontendGetPath(Frontend);
-
     Length = (ULONG)(strlen(__FrontendGetPath(Frontend)) +
                      strlen("/queue-00") +
                      1) * sizeof (CHAR);

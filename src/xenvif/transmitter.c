@@ -3127,15 +3127,20 @@ __TransmitterRingStoreWrite(
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
     ULONG                           Port;
+    PCHAR                           Path;
     NTSTATUS                        status;
 
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
+    Path = (FrontendGetQueueCount(Frontend) == 1 && Ring->Index == 0) ?
+                    FrontendGetPath(Frontend) :
+                    Ring->Path;
+
     status = XENBUS_STORE(Printf,
                           &Transmitter->StoreInterface,
                           Transaction,
-                          Ring->Path,
+                          Path,
                           "tx-ring-ref",
                           "%u",
                           GranterGetReference(FrontendGetGranter(Frontend),
@@ -3154,7 +3159,7 @@ __TransmitterRingStoreWrite(
     status = XENBUS_STORE(Printf,
                           &Transmitter->StoreInterface,
                           Transaction,
-                          Ring->Path,
+                          Path,
                           "event-channel-tx",
                           "%u",
                           Port);
