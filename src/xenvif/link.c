@@ -119,6 +119,8 @@ again:
 found:
     *ImageBase = QueryInfo[Index].BasicInfo.ImageBase;
 
+    __LinkFree(QueryInfo);
+
     Trace("<====\n");
 
     return STATUS_SUCCESS;
