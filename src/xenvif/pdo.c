@@ -564,7 +564,7 @@ PdoAddRevision(
     if (Pdo->Description != NULL) {
         RtlCopyMemory(Buffer,
                       Pdo->Description,
-                      sizeof (ULONG) * Pdo->Count);
+                      sizeof (PWCHAR) * Pdo->Count);
         __PdoFree(Pdo->Description);
     }
 
