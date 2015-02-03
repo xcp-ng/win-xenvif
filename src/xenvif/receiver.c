@@ -1852,24 +1852,22 @@ __ReceiverRingNotify(
     __ReceiverRingReleaseLock(Ring);
 }
 
-static FORCEINLINE BOOLEAN
+static FORCEINLINE VOID
 __ReceiverRingUnmask(
     IN  PXENVIF_RECEIVER_RING   Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
-    BOOLEAN                     Pending;
+
+    if (!Ring->Connected)
+        return;
 
     Receiver = Ring->Receiver;
 
-    Pending = (Ring->Connected) ?
-              XENBUS_EVTCHN(Unmask,
-                            &Receiver->EvtchnInterface,
-                            Ring->Channel,
-                            FALSE) :
-              FALSE;
-
-    return Pending;
+    XENBUS_EVTCHN(Unmask,
+                  &Receiver->EvtchnInterface,
+                  Ring->Channel,
+                  FALSE);
 }
 
 __drv_functionClass(KDEFERRED_ROUTINE)
@@ -1888,7 +1886,6 @@ ReceiverRingDpc(
     PXENVIF_RECEIVER_RING   Ring = Context;
     PXENVIF_RECEIVER        Receiver;
     PXENVIF_FRONTEND        Frontend;
-    BOOLEAN                 Pending;
 
     UNREFERENCED_PARAMETER(Dpc);
     UNREFERENCED_PARAMETER(Argument1);
@@ -1899,19 +1896,17 @@ ReceiverRingDpc(
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
-    do {
-        if (Ring->Enabled) {
-            if (Receiver->Split) {
-                __ReceiverRingNotify(Ring);
-            } else {
-                TransmitterRingNotify(FrontendGetTransmitter(Frontend),
-                                      Ring->Index);
-                __ReceiverRingNotify(Ring);
-            }
+    if (Ring->Enabled) {
+        if (Receiver->Split) {
+            __ReceiverRingNotify(Ring);
+        } else {
+            TransmitterRingNotify(FrontendGetTransmitter(Frontend),
+                                  Ring->Index);
+            __ReceiverRingNotify(Ring);
         }
+    }
 
-        Pending = __ReceiverRingUnmask(Ring);
-    } while (Pending);
+    __ReceiverRingUnmask(Ring);
 }
 
 KSERVICE_ROUTINE    ReceiverRingEvtchnCallback;
@@ -2161,7 +2156,6 @@ __ReceiverRingConnect(
     PXENVIF_RECEIVER            Receiver;
     PXENVIF_FRONTEND            Frontend;
     PFN_NUMBER                  Pfn;
-    BOOLEAN                     Pending;
     CHAR                        Name[MAXNAMELEN];
     NTSTATUS                    status;
 
@@ -2221,15 +2215,10 @@ __ReceiverRingConnect(
                                 (CCHAR)Ring->Index);
     }
 
-    Pending = XENBUS_EVTCHN(Unmask,
-                            &Receiver->EvtchnInterface,
-                            Ring->Channel,
-                            FALSE);
-
-    if (Pending)
-        XENBUS_EVTCHN(Trigger,
-                      &Receiver->EvtchnInterface,
-                      Ring->Channel);
+    XENBUS_EVTCHN(Unmask,
+                  &Receiver->EvtchnInterface,
+                  Ring->Channel,
+                  FALSE);
 
     Ring->Connected = TRUE;
 

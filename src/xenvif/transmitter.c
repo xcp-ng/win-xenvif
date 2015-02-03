@@ -2601,24 +2601,22 @@ __TransmitterRingNotify(
     __TransmitterRingReleaseLock(Ring);
 }
 
-static FORCEINLINE BOOLEAN
+static FORCEINLINE VOID
 __TransmitterRingUnmask(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
-    BOOLEAN                         Pending;
+
+    if (!Ring->Connected)
+        return;
 
     Transmitter = Ring->Transmitter;
 
-    Pending = (Ring->Connected) ?
-              XENBUS_EVTCHN(Unmask,
-                            &Transmitter->EvtchnInterface,
-                            Ring->Channel,
-                            FALSE) :
-              FALSE;
-
-    return Pending;
+    XENBUS_EVTCHN(Unmask,
+                  &Transmitter->EvtchnInterface,
+                  Ring->Channel,
+                  FALSE);
 }
 
 __drv_functionClass(KDEFERRED_ROUTINE)
@@ -2636,7 +2634,6 @@ TransmitterRingDpc(
 {
     PXENVIF_TRANSMITTER_RING    Ring = Context;
     PXENVIF_TRANSMITTER         Transmitter;
-    BOOLEAN                     Pending;
 
     UNREFERENCED_PARAMETER(Dpc);
     UNREFERENCED_PARAMETER(Argument1);
@@ -2646,14 +2643,12 @@ TransmitterRingDpc(
 
     Transmitter = Ring->Transmitter;
 
-    do {
-        if (Ring->Enabled) {
-            ASSERT(Transmitter->Split);
-            __TransmitterRingNotify(Ring);
-        }
+    if (Ring->Enabled) {
+        ASSERT(Transmitter->Split);
+        __TransmitterRingNotify(Ring);
+    }
 
-        Pending = __TransmitterRingUnmask(Ring);
-    } while (Pending);
+    __TransmitterRingUnmask(Ring);
 }
 
 KSERVICE_ROUTINE    TransmitterRingEvtchnCallback;
@@ -2995,7 +2990,6 @@ __TransmitterRingConnect(
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
     PFN_NUMBER                      Pfn;
-    BOOLEAN                         Pending;
     CHAR                            Name[MAXNAMELEN];
     NTSTATUS                        status;
 
@@ -3058,15 +3052,10 @@ __TransmitterRingConnect(
                                     (CCHAR)Ring->Index);
         }
 
-        Pending = XENBUS_EVTCHN(Unmask,
-                                &Transmitter->EvtchnInterface,
-                                Ring->Channel,
-                                FALSE);
-
-        if (Pending)
-            XENBUS_EVTCHN(Trigger,
-                          &Transmitter->EvtchnInterface,
-                          Ring->Channel);
+        XENBUS_EVTCHN(Unmask,
+                      &Transmitter->EvtchnInterface,
+                      Ring->Channel,
+                      FALSE);
     }
 
     status = XENBUS_DEBUG(Register,
