@@ -3133,7 +3133,8 @@ __TransmitterRingStoreWrite(
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
-    Path = (FrontendGetQueueCount(Frontend) == 1 && Ring->Index == 0) ?
+    ASSERT(IMPLY(FrontendGetQueueCount(Frontend) == 1, Ring->Index == 0));
+    Path = (FrontendGetQueueCount(Frontend) == 1) ?
                     FrontendGetPath(Frontend) :
                     Ring->Path;
 
