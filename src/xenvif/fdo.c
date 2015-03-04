@@ -158,6 +158,16 @@ __FdoGetDevicePnpState(
     return Dx->DevicePnpState;
 }
 
+static FORCEINLINE DEVICE_PNP_STATE
+__FdoGetPreviousDevicePnpState(
+    IN  PXENVIF_FDO Fdo
+    )
+{
+    PXENVIF_DX      Dx = Fdo->Dx;
+
+    return Dx->PreviousDevicePnpState;
+}
+
 static FORCEINLINE VOID
 __FdoSetDevicePowerState(
     IN  PXENVIF_FDO         Fdo,
@@ -621,7 +631,8 @@ FdoAddPhysicalDeviceObject(
     ASSERT3U(Fdo->References, !=, 0);
     Fdo->References++;
 
-    PdoResume(Pdo);
+    if (__FdoGetDevicePowerState(Fdo) == PowerDeviceD0)
+        PdoResume(Pdo);
 }
 
 VOID
@@ -637,7 +648,8 @@ FdoRemovePhysicalDeviceObject(
     Dx = (PXENVIF_DX)DeviceObject->DeviceExtension;
     ASSERT3U(Dx->Type, ==, PHYSICAL_DEVICE_OBJECT);
 
-    PdoSuspend(Pdo);
+    if (__FdoGetDevicePowerState(Fdo) == PowerDeviceD0)
+        PdoSuspend(Pdo);
 
     RemoveEntryList(&Dx->ListEntry);
     ASSERT3U(Fdo->References, !=, 0);
@@ -1485,6 +1497,9 @@ FdoRemoveDevice(
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
+    if (__FdoGetPreviousDevicePnpState(Fdo) != Started)
+        goto done;
+
     KeClearEvent(&Fdo->ScanEvent);
     ThreadWake(Fdo->ScanThread);
 
@@ -1531,6 +1546,7 @@ FdoRemoveDevice(
 
     RtlZeroMemory(&Fdo->Resource, sizeof (FDO_RESOURCE) * RESOURCE_COUNT);
 
+done:
     __FdoSetDevicePnpState(Fdo, Deleted);
 
     // We must release our reference before the PDO is destroyed

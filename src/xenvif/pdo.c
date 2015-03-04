@@ -2533,7 +2533,11 @@ PdoResume(
     IN  PXENVIF_PDO     Pdo
     )
 {
+    Trace("====>\n");
+
     FrontendResume(__PdoGetFrontend(Pdo));
+
+    Trace("<====\n");
 }
 
 VOID
@@ -2541,7 +2545,11 @@ PdoSuspend(
     IN  PXENVIF_PDO     Pdo
     )
 {
+    Trace("====>\n");
+
     FrontendSuspend(__PdoGetFrontend(Pdo));
+
+    Trace("<====\n");
 }
 
 NTSTATUS
