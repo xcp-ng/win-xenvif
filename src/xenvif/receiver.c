@@ -37,6 +37,7 @@
 #include <debug_interface.h>
 #include <store_interface.h>
 #include <cache_interface.h>
+#include <gnttab_interface.h>
 #include <evtchn_interface.h>
 
 // This should be in public/io/netif.h
@@ -50,7 +51,6 @@
 #include "frontend.h"
 #include "checksum.h"
 #include "parse.h"
-#include "granter.h"
 #include "mac.h"
 #include "transmitter.h"
 #include "vif.h"
@@ -66,7 +66,7 @@ typedef struct _XENVIF_RECEIVER_FRAGMENT {
     LIST_ENTRY              ListEntry;
     ULONG                   Next;
     PVOID                   Context;
-    XENVIF_GRANTER_HANDLE   Handle;
+    PXENBUS_GNTTAB_ENTRY    Entry;
 } XENVIF_RECEIVER_FRAGMENT, *PXENVIF_RECEIVER_FRAGMENT;
 
 #define XENVIF_RECEIVER_RING_SIZE   (__CONST_RING_SIZE(netif_rx, PAGE_SIZE))
@@ -80,10 +80,11 @@ typedef struct _XENVIF_RECEIVER_RING {
     KSPIN_LOCK                  Lock;
     PXENBUS_CACHE               PacketCache;
     PXENBUS_CACHE               FragmentCache;
+    PXENBUS_GNTTAB_CACHE        GnttabCache;
     PMDL                        Mdl;
     netif_rx_front_ring_t       Front;
     netif_rx_sring_t            *Shared;
-    XENVIF_GRANTER_HANDLE       Handle;
+    PXENBUS_GNTTAB_ENTRY        Entry;
     PXENBUS_EVTCHN_CHANNEL      Channel;
     KDPC                        Dpc;
     ULONG                       Dpcs;
@@ -104,6 +105,7 @@ typedef struct _XENVIF_RECEIVER_RING {
 struct _XENVIF_RECEIVER {
     PXENVIF_FRONTEND        Frontend;
     XENBUS_CACHE_INTERFACE  CacheInterface;
+    XENBUS_GNTTAB_INTERFACE GnttabInterface;
     XENBUS_EVTCHN_INTERFACE EvtchnInterface;
     PXENVIF_RECEIVER_RING   Rings[MAXIMUM_PROCESSORS];
     BOOLEAN                 Split;
@@ -1449,6 +1451,7 @@ __ReceiverRingPreparePacket(
     PXENVIF_FRONTEND            Frontend;
     PXENVIF_RECEIVER_FRAGMENT   Fragment;
     PMDL                        Mdl;
+    PFN_NUMBER                  Pfn;
     NTSTATUS                    status;
 
     Receiver = Ring->Receiver;
@@ -1462,10 +1465,16 @@ __ReceiverRingPreparePacket(
 
     Mdl = &Packet->Mdl;
 
-    status = GranterPermitAccess(FrontendGetGranter(Frontend),
-                                 MmGetMdlPfnArray(Mdl)[0],
-                                 FALSE,
-                                 &Fragment->Handle);
+    Pfn = MmGetMdlPfnArray(Mdl)[0];
+
+    status = XENBUS_GNTTAB(PermitForeignAccess,
+                           &Receiver->GnttabInterface,
+                           Ring->GnttabCache,
+                           TRUE,
+                           FrontendGetBackendDomain(Frontend),
+                           Pfn,
+                           FALSE,
+                           &Fragment->Entry);
     if (!NT_SUCCESS(status))
         goto fail2;
 
@@ -1555,8 +1564,9 @@ ReceiverRingFill(
         Ring->RequestsPosted++;
 
         req->id = id;
-        req->gref = GranterGetReference(FrontendGetGranter(Frontend),
-                                        Fragment->Handle);
+        req->gref = XENBUS_GNTTAB(GetReference,
+                                  &Receiver->GnttabInterface,
+                                  Fragment->Entry);
 
         ASSERT3U(id, <=, XENVIF_RECEIVER_MAXIMUM_FRAGMENT_ID);
         ASSERT3P(Ring->Pending[id], ==, NULL);
@@ -1604,9 +1614,12 @@ __ReceiverRingEmpty(
         Mdl = Fragment->Context;
         Fragment->Context = NULL;
 
-        GranterRevokeAccess(FrontendGetGranter(Frontend),
-                            Fragment->Handle);
-        Fragment->Handle = NULL;
+        (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
+                             &Receiver->GnttabInterface,
+                             Ring->GnttabCache,
+                             TRUE,
+                             Fragment->Entry);
+        Fragment->Entry = NULL;
 
         __ReceiverRingPutFragment(Ring, Fragment);
 
@@ -1738,9 +1751,12 @@ ReceiverRingPoll(
             Mdl = Fragment->Context;
             Fragment->Context = NULL;
 
-            GranterRevokeAccess(FrontendGetGranter(Frontend),
-                                Fragment->Handle);
-            Fragment->Handle = NULL;
+            (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
+                                 &Receiver->GnttabInterface,
+                                 Ring->GnttabCache,
+                                 TRUE,
+                                 Fragment->Entry);
+            Fragment->Entry = NULL;
 
             __ReceiverRingPutFragment(Ring, Fragment);
 
@@ -2157,16 +2173,39 @@ __ReceiverRingConnect(
     PXENVIF_FRONTEND            Frontend;
     PFN_NUMBER                  Pfn;
     CHAR                        Name[MAXNAMELEN];
+    ULONG                       Index;
     NTSTATUS                    status;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
+    status = RtlStringCbPrintfA(Name,
+                                sizeof (Name),
+                                "%s_receiver",
+                                Ring->Path);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    for (Index = 0; Name[Index] != '\0'; Index++)
+        if (Name[Index] == '/')
+            Name[Index] = '_';
+
+    status = XENBUS_GNTTAB(CreateCache,
+                           &Receiver->GnttabInterface,
+                           Name,
+                           0,
+                           ReceiverRingAcquireLock,
+                           ReceiverRingReleaseLock,
+                           Ring,
+                           &Ring->GnttabCache);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
     Ring->Mdl = __AllocatePage();
 
     status = STATUS_NO_MEMORY;
     if (Ring->Mdl == NULL)
-        goto fail1;
+        goto fail3;
 
     Ring->Shared = MmGetSystemAddressForMdlSafe(Ring->Mdl, NormalPagePriority);
     ASSERT(Ring->Shared != NULL);
@@ -2177,19 +2216,23 @@ __ReceiverRingConnect(
 
     Pfn = MmGetMdlPfnArray(Ring->Mdl)[0];
     
-    status = GranterPermitAccess(FrontendGetGranter(Frontend),
-                                 Pfn,
-                                 FALSE,
-                                 &Ring->Handle);
+    status = XENBUS_GNTTAB(PermitForeignAccess,
+                           &Receiver->GnttabInterface,
+                           Ring->GnttabCache,
+                           TRUE,
+                           FrontendGetBackendDomain(Frontend),
+                           Pfn,
+                           FALSE,
+                           &Ring->Entry);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail4;
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
                                 __MODULE__ "|RECEIVER[%u]",
                                 Ring->Index);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail5;
 
     ASSERT(!Ring->Connected);
 
@@ -2203,7 +2246,7 @@ __ReceiverRingConnect(
 
     status = STATUS_UNSUCCESSFUL;
     if (Ring->Channel == NULL)
-        goto fail4;
+        goto fail6;
 
     if (FrontendGetQueueCount(Frontend) > 1) {
         (VOID) XENBUS_EVTCHN(Bind,
@@ -2229,12 +2272,12 @@ __ReceiverRingConnect(
                           Ring,
                           &Ring->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail7;
 
     return STATUS_SUCCESS;
 
-fail5:
-    Error("fail5\n");
+fail7:
+    Error("fail7\n");
 
     Ring->Connected = FALSE;
 
@@ -2245,18 +2288,21 @@ fail5:
 
     Ring->Events = 0;
 
+fail6:
+    Error("fail6\n");
+
+fail5:
+    Error("fail5\n");
+
+    (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
+                         &Receiver->GnttabInterface,
+                         Ring->GnttabCache,
+                         TRUE,
+                         Ring->Entry);
+    Ring->Entry = NULL;
+
 fail4:
     Error("fail4\n");
-
-fail3:
-    Error("fail3\n");
-
-    GranterRevokeAccess(FrontendGetGranter(Frontend),
-                        Ring->Handle);
-    Ring->Handle = NULL;
-
-fail2:
-    Error("fail2\n");
 
     RtlZeroMemory(&Ring->Front, sizeof (netif_rx_front_ring_t));
     RtlZeroMemory(Ring->Shared, PAGE_SIZE);
@@ -2264,6 +2310,17 @@ fail2:
     Ring->Shared = NULL;
     __FreePage(Ring->Mdl);
     Ring->Mdl = NULL;
+
+fail3:
+    Error("fail3\n");
+
+    XENBUS_GNTTAB(DestroyCache,
+                  &Receiver->GnttabInterface,
+                  Ring->GnttabCache);
+    Ring->GnttabCache = NULL;
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -2297,9 +2354,9 @@ __ReceiverRingStoreWrite(
                           Path,
                           "rx-ring-ref",
                           "%u",
-                          GranterGetReference(FrontendGetGranter(Frontend),
-                                              Ring->Handle));
-
+                          XENBUS_GNTTAB(GetReference,
+                                        &Receiver->GnttabInterface,
+                                        Ring->Entry));
     if (!NT_SUCCESS(status))
         goto fail1;
 
@@ -2417,9 +2474,12 @@ __ReceiverRingDisconnect(
                  Ring->DebugCallback);
     Ring->DebugCallback = NULL;
 
-    GranterRevokeAccess(FrontendGetGranter(Frontend),
-                        Ring->Handle);
-    Ring->Handle = NULL;
+    (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
+                         &Receiver->GnttabInterface,
+                         Ring->GnttabCache,
+                         TRUE,
+                         Ring->Entry);
+    Ring->Entry = NULL;
 
     RtlZeroMemory(&Ring->Front, sizeof (netif_rx_front_ring_t));
     RtlZeroMemory(Ring->Shared, PAGE_SIZE);
@@ -2427,6 +2487,11 @@ __ReceiverRingDisconnect(
     Ring->Shared = NULL;
     __FreePage(Ring->Mdl);
     Ring->Mdl = NULL;
+
+    XENBUS_GNTTAB(DestroyCache,
+                  &Receiver->GnttabInterface,
+                  Ring->GnttabCache);
+    Ring->GnttabCache = NULL;
 }
 
 static FORCEINLINE VOID
@@ -2592,6 +2657,9 @@ ReceiverInitialize(
     FdoGetCacheInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
                          &(*Receiver)->CacheInterface);
 
+    FdoGetGnttabInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
+                          &(*Receiver)->GnttabInterface);
+
     FdoGetEvtchnInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
                           &(*Receiver)->EvtchnInterface);
 
@@ -2638,6 +2706,9 @@ fail2:
 
     RtlZeroMemory(&(*Receiver)->EvtchnInterface,
                   sizeof (XENBUS_EVTCHN_INTERFACE));
+
+    RtlZeroMemory(&(*Receiver)->GnttabInterface,
+                  sizeof (XENBUS_GNTTAB_INTERFACE));
 
     RtlZeroMemory(&(*Receiver)->CacheInterface,
                   sizeof (XENBUS_CACHE_INTERFACE));
@@ -2692,6 +2763,10 @@ ReceiverConnect(
     if (!NT_SUCCESS(status))
         goto fail3;
 
+    status = XENBUS_GNTTAB(Acquire, &Receiver->GnttabInterface);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
     status = XENBUS_STORE(Read,
                           &Receiver->StoreInterface,
                           NULL,
@@ -2720,7 +2795,7 @@ ReceiverConnect(
 
         status = __ReceiverRingConnect(Ring);
         if (!NT_SUCCESS(status))
-            goto fail4;
+            goto fail5;
     }    
 
     status = XENBUS_DEBUG(Register,
@@ -2730,15 +2805,15 @@ ReceiverConnect(
                           Receiver,
                           &Receiver->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     return STATUS_SUCCESS;
 
+fail6:
+    Error("fail6\n");
+
 fail5:
     Error("fail5\n");
-
-fail4:
-    Error("fail4\n");
 
     for (Index = 0; Index < Count; ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
@@ -2749,6 +2824,11 @@ fail4:
 
         __ReceiverRingDisconnect(Ring);
     }
+
+    XENBUS_GNTTAB(Release, &Receiver->GnttabInterface);
+
+fail4:
+    Error("fail4\n");
 
     XENBUS_EVTCHN(Release, &Receiver->EvtchnInterface);
 
@@ -3039,11 +3119,13 @@ ReceiverDisconnect(
         __ReceiverRingDisconnect(Ring);
     }
 
+    XENBUS_GNTTAB(Release, &Receiver->GnttabInterface);
+
+    XENBUS_EVTCHN(Release, &Receiver->EvtchnInterface);
+
     XENBUS_STORE(Release, &Receiver->StoreInterface);
 
     XENBUS_DEBUG(Release, &Receiver->DebugInterface);
-
-    XENBUS_EVTCHN(Release, &Receiver->EvtchnInterface);
 }
 
 VOID
@@ -3079,6 +3161,9 @@ ReceiverTeardown(
 
     RtlZeroMemory(&Receiver->EvtchnInterface,
                   sizeof (XENBUS_EVTCHN_INTERFACE));
+
+    RtlZeroMemory(&Receiver->GnttabInterface,
+                  sizeof (XENBUS_GNTTAB_INTERFACE));
 
     RtlZeroMemory(&Receiver->CacheInterface,
                   sizeof (XENBUS_CACHE_INTERFACE));

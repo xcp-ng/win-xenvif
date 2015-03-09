@@ -129,13 +129,6 @@ FrontendFreePath(
     IN  PCHAR               Path
     );
 
-#include "granter.h"
-
-extern PXENVIF_GRANTER
-FrontendGetGranter(
-    IN  PXENVIF_FRONTEND    Frontend
-    );
-
 #include "mac.h"
 
 extern PXENVIF_MAC

@@ -43,7 +43,6 @@
 #include "thread.h"
 #include "frontend.h"
 #include "names.h"
-#include "granter.h"
 #include "mac.h"
 #include "tcpip.h"
 #include "receiver.h"
@@ -65,7 +64,6 @@ struct _XENVIF_FRONTEND {
     USHORT                      BackendDomain;
     ULONG                       QueueCount;
 
-    PXENVIF_GRANTER             Granter;
     PXENVIF_MAC                 Mac;
     PXENVIF_RECEIVER            Receiver;
     PXENVIF_TRANSMITTER         Transmitter;
@@ -290,7 +288,6 @@ FrontendGet ## _Function(                               \
     return __FrontendGet ## _Function ## (Frontend);    \
 }
 
-DEFINE_FRONTEND_GET_FUNCTION(Granter, PXENVIF_GRANTER)
 DEFINE_FRONTEND_GET_FUNCTION(Mac, PXENVIF_MAC)
 DEFINE_FRONTEND_GET_FUNCTION(Transmitter, PXENVIF_TRANSMITTER)
 DEFINE_FRONTEND_GET_FUNCTION(Receiver, PXENVIF_RECEIVER)
@@ -1407,22 +1404,18 @@ __FrontendConnect(
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    status = GranterConnect(__FrontendGetGranter(Frontend));
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
     status = MacConnect(__FrontendGetMac(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail3;
 
     __FrontendReadQueueCount(Frontend);
     status = ReceiverConnect(__FrontendGetReceiver(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail4;
 
     status = TransmitterConnect(__FrontendGetTransmitter(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail5;
 
     Attempt = 0;
     do {
@@ -1472,7 +1465,7 @@ abort:
     } while (status == STATUS_RETRY);
 
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail6;
 
     status = XENBUS_STORE(Printf,
                           &Frontend->StoreInterface,
@@ -1482,24 +1475,21 @@ abort:
                           "%u",
                           XenbusStateConnected);
     if (!NT_SUCCESS(status))
-        goto fail8;
+        goto fail7;
 
     State = XenbusStateInitWait;
     status = __FrontendWaitForStateChange(Frontend, Path, &State);
     if (!NT_SUCCESS(status))
-        goto fail9;
+        goto fail8;
 
     status = STATUS_UNSUCCESSFUL;
     if (State != XenbusStateConnected)
-        goto fail10;
+        goto fail9;
 
     ThreadWake(Frontend->MibThread);
 
     Trace("<====\n");
     return STATUS_SUCCESS;
-
-fail10:
-    Error("fail10\n");
 
 fail9:
     Error("fail9\n");
@@ -1510,22 +1500,20 @@ fail8:
 fail7:
     Error("fail7\n");
 
-    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
-
 fail6:
     Error("fail6\n");
 
-    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
+    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
 
 fail5:
     Error("fail5\n");
 
-    MacDisconnect(__FrontendGetMac(Frontend));
+    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
 
 fail4:
     Error("fail4\n");
 
-    GranterDisconnect(__FrontendGetGranter(Frontend));
+    MacDisconnect(__FrontendGetMac(Frontend));
 
 fail3:
     Error("fail3\n");
@@ -1557,7 +1545,6 @@ __FrontendDisconnect(
     TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
     ReceiverDisconnect(__FrontendGetReceiver(Frontend));
     MacDisconnect(__FrontendGetMac(Frontend));
-    GranterDisconnect(__FrontendGetGranter(Frontend));
 
     XENBUS_DEBUG(Deregister,
                  &Frontend->DebugInterface,
@@ -1580,39 +1567,30 @@ __FrontendEnable(
 
     Trace("====>\n");
 
-    status = GranterEnable(__FrontendGetGranter(Frontend));
+    status = MacEnable(__FrontendGetMac(Frontend));
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = MacEnable(__FrontendGetMac(Frontend));
+    status = ReceiverEnable(__FrontendGetReceiver(Frontend));
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    status = ReceiverEnable(__FrontendGetReceiver(Frontend));
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
     status = TransmitterEnable(__FrontendGetTransmitter(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail3;
 
     Trace("<====\n");
     return STATUS_SUCCESS;
 
-fail4:
-    Error("fail4\n");
-
-    ReceiverDisable(__FrontendGetReceiver(Frontend));
-
 fail3:
     Error("fail3\n");
 
-    MacDisable(__FrontendGetMac(Frontend));
+    ReceiverDisable(__FrontendGetReceiver(Frontend));
 
 fail2:
     Error("fail2\n");
 
-    GranterDisable(__FrontendGetGranter(Frontend));
+    MacDisable(__FrontendGetMac(Frontend));
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -1630,7 +1608,6 @@ __FrontendDisable(
     TransmitterDisable(__FrontendGetTransmitter(Frontend));
     ReceiverDisable(__FrontendGetReceiver(Frontend));
     MacDisable(__FrontendGetMac(Frontend));
-    GranterDisable(__FrontendGetGranter(Frontend));
 
     Trace("<====\n");
 }
@@ -1981,64 +1958,57 @@ FrontendInitialize(
     FdoGetSuspendInterface(PdoGetFdo(Pdo), &(*Frontend)->SuspendInterface);
     FdoGetStoreInterface(PdoGetFdo(Pdo), &(*Frontend)->StoreInterface);
 
-    status = GranterInitialize(*Frontend, &(*Frontend)->Granter);
+    status = MacInitialize(*Frontend, &(*Frontend)->Mac);
     if (!NT_SUCCESS(status))
         goto fail6;
 
-    status = MacInitialize(*Frontend, &(*Frontend)->Mac);
+    status = ReceiverInitialize(*Frontend, &(*Frontend)->Receiver);
     if (!NT_SUCCESS(status))
         goto fail7;
 
-    status = ReceiverInitialize(*Frontend, &(*Frontend)->Receiver);
+    status = TransmitterInitialize(*Frontend, &(*Frontend)->Transmitter);
     if (!NT_SUCCESS(status))
         goto fail8;
 
-    status = TransmitterInitialize(*Frontend, &(*Frontend)->Transmitter);
+    status = ThreadCreate(FrontendEject, *Frontend, &(*Frontend)->EjectThread);
     if (!NT_SUCCESS(status))
         goto fail9;
 
-    status = ThreadCreate(FrontendEject, *Frontend, &(*Frontend)->EjectThread);
-    if (!NT_SUCCESS(status))
-        goto fail10;
-
     status = ThreadCreate(FrontendMib, *Frontend, &(*Frontend)->MibThread);
     if (!NT_SUCCESS(status))
-        goto fail11;
+        goto fail10;
 
     Trace("<====\n");
 
     return STATUS_SUCCESS;
 
-fail11:
-    Error("fail11\n");
+fail10:
+    Error("fail10\n");
 
     ThreadAlert((*Frontend)->EjectThread);
     ThreadJoin((*Frontend)->EjectThread);
     (*Frontend)->EjectThread = NULL;
 
-fail10:
-    Error("fail10\n");
+fail9:
+    Error("fail9\n");
 
     TransmitterTeardown(__FrontendGetTransmitter(*Frontend));
     (*Frontend)->Transmitter = NULL;
 
-fail9:
-    Error("fail9\n");
+fail8:
+    Error("fail8\n");
 
     ReceiverTeardown(__FrontendGetReceiver(*Frontend));
     (*Frontend)->Receiver = NULL;
 
-fail8:
-    Error("fail8\n");
+fail7:
+    Error("fail7\n");
 
     MacTeardown(__FrontendGetMac(*Frontend));
     (*Frontend)->Mac = NULL;
 
-fail7:
-    Error("fail7\n");
-
-    GranterTeardown(__FrontendGetGranter(*Frontend));
-    (*Frontend)->Granter = NULL;
+fail6:
+    Error("fail6\n");
 
     RtlZeroMemory(&(*Frontend)->StoreInterface,
                   sizeof (XENBUS_STORE_INTERFACE));
@@ -2048,9 +2018,6 @@ fail7:
 
     RtlZeroMemory(&(*Frontend)->DebugInterface,
                   sizeof (XENBUS_DEBUG_INTERFACE));
-
-fail6:
-    Error("fail6\n");
 
     (*Frontend)->State = FRONTEND_STATE_INVALID;
     RtlZeroMemory(&(*Frontend)->Lock, sizeof (KSPIN_LOCK));
@@ -2123,9 +2090,6 @@ FrontendTeardown(
 
     MacTeardown(__FrontendGetMac(Frontend));
     Frontend->Mac = NULL;
-
-    GranterTeardown(__FrontendGetGranter(Frontend));
-    Frontend->Granter = NULL;
 
     RtlZeroMemory(&Frontend->StoreInterface,
                   sizeof (XENBUS_STORE_INTERFACE));

@@ -124,7 +124,6 @@
     <ClCompile Include="../../src/xenvif/driver.c" />
     <ClCompile Include="../../src/xenvif/fdo.c" />
     <ClCompile Include="../../src/xenvif/frontend.c" />
-    <ClCompile Include="../../src/xenvif/granter.c" />
     <ClCompile Include="../../src/xenvif/link.c" />
     <ClCompile Include="../../src/xenvif/mac.c" />
     <ClCompile Include="../../src/xenvif/parse.c" />
