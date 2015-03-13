@@ -3706,6 +3706,7 @@ TransmitterConnect(
     )
 {
     PXENVIF_FRONTEND            Frontend;
+    CHAR                        Name[MAXNAMELEN];
     PCHAR                       Buffer;
     ULONG                       Index;
     ULONG                       Count;
@@ -3729,9 +3730,20 @@ TransmitterConnect(
     if (!NT_SUCCESS(status))
         goto fail4;
 
+    status = RtlStringCbPrintfA(Name,
+                                sizeof (Name),
+                                "%s_transmitter_packet",
+                                FrontendGetPath(Frontend));
+    if (!NT_SUCCESS(status))
+        goto fail5;
+
+    for (Index = 0; Name[Index] != '\0'; Index++)
+        if (Name[Index] == '/')
+            Name[Index] = '_';
+
     status = XENBUS_CACHE(Create,
                           &Transmitter->CacheInterface,
-                          "packet_cache",
+                          Name,
                           sizeof (XENVIF_TRANSMITTER_PACKET),
                           XENVIF_PACKET_CACHE_RESERVATION,
                           TransmitterPacketCtor,
@@ -3741,7 +3753,7 @@ TransmitterConnect(
                           Transmitter,
                           &Transmitter->PacketCache);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     status = XENBUS_STORE(Read,
                           &Transmitter->StoreInterface,
@@ -3771,7 +3783,7 @@ TransmitterConnect(
 
         status = __TransmitterRingConnect(Ring);
         if (!NT_SUCCESS(status))
-            goto fail6;
+            goto fail7;
     }    
 
     status = XENBUS_DEBUG(Register,
@@ -3781,15 +3793,15 @@ TransmitterConnect(
                           Transmitter,
                           &Transmitter->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail8;
 
     return STATUS_SUCCESS;
 
+fail8:
+    Error("fail8\n");
+
 fail7:
     Error("fail7\n");
-
-fail6:
-    Error("fail6\n");
 
     for (Index = 0; Index < MAXIMUM_PROCESSORS; ++Index) {
         PXENVIF_TRANSMITTER_RING    Ring;
@@ -3805,6 +3817,9 @@ fail6:
                  &Transmitter->CacheInterface,
                  Transmitter->PacketCache);
     Transmitter->PacketCache = NULL;
+
+fail6:
+    Error("fail6\n");
 
 fail5:
     Error("fail5\n");
