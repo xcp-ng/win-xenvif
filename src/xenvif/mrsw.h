@@ -35,6 +35,7 @@
 #include <ntddk.h>
 
 #include "assert.h"
+#include "util.h"
 
 #pragma warning(disable:4127)   // conditional expression is constant
 
