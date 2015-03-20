@@ -31,16 +31,17 @@
 
 #include <ntddk.h>
 #include <ntstrsafe.h>
-#include <util.h>
 #include <ethernet.h>
 #include <tcpip.h>
 #include <llc.h>
 #include <ipx.h>
+
 #include <vif_interface.h>
 
 #include "parse.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 
 static FORCEINLINE NTSTATUS
 __ParseTcpHeader(

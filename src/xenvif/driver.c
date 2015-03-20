@@ -30,7 +30,6 @@
  */
 
 #include <ntddk.h>
-#include <util.h>
 #include <version.h>
 
 #include "registry.h"
@@ -40,6 +39,7 @@
 #include "driver.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 
 extern PULONG       InitSafeBootMode;
 

@@ -33,7 +33,6 @@
 #include <ntstrsafe.h>
 #include <stdlib.h>
 #include <netioapi.h>
-#include <util.h>
 #include <xen.h>
 
 #include "driver.h"
@@ -50,6 +49,7 @@
 #include "link.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 
 struct _XENVIF_FRONTEND {
     PXENVIF_PDO                 Pdo;

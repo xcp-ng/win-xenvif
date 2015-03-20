@@ -32,8 +32,10 @@
 #include <ntddk.h>
 #include <ntstrsafe.h>
 #include <stdlib.h>
-#include <util.h>
 #include <xen.h>
+#include <ethernet.h>
+#include <tcpip.h>
+
 #include <debug_interface.h>
 #include <store_interface.h>
 #include <cache_interface.h>
@@ -44,8 +46,6 @@
 #define _NETRXF_gso_prefix     (4)
 #define  NETRXF_gso_prefix     (1U<<_NETRXF_gso_prefix)
 
-#include "ethernet.h"
-#include "tcpip.h"
 #include "pdo.h"
 #include "registry.h"
 #include "frontend.h"
@@ -59,6 +59,7 @@
 #include "driver.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 
 #define MAXNAMELEN  128
 

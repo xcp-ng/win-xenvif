@@ -33,8 +33,10 @@
 #include <ntstrsafe.h>
 #include <stdlib.h>
 #include <netioapi.h>
-#include <util.h>
 #include <xen.h>
+#include <ethernet.h>
+#include <tcpip.h>
+
 #include <debug_interface.h>
 #include <store_interface.h>
 #include <cache_interface.h>
@@ -42,8 +44,6 @@
 #include <range_set_interface.h>
 #include <evtchn_interface.h>
 
-#include "ethernet.h"
-#include "tcpip.h"
 #include "pdo.h"
 #include "frontend.h"
 #include "checksum.h"
@@ -55,6 +55,7 @@
 #include "registry.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 
 #ifndef XEN_NETIF_GSO_TYPE_TCPV6
 #define XEN_NETIF_GSO_TYPE_TCPV6    2

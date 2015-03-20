@@ -32,14 +32,15 @@
 #include <ntddk.h>
 #include <ntstrsafe.h>
 #include <stdlib.h>
-#include <util.h>
 #include <ethernet.h>
 #include <tcpip.h>
+
 #include <vif_interface.h>
 
 #include "checksum.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 
 static FORCEINLINE VOID
 __AccumulateChecksum(

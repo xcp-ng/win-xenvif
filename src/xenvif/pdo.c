@@ -38,8 +38,8 @@
 #include <stdlib.h>
 #include <netioapi.h>
 #include <bcrypt.h>
-#include <util.h>
 #include <xen.h>
+
 #include <store_interface.h>
 #include <emulated_interface.h>
 
@@ -55,6 +55,7 @@
 #include "link.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 
 #define PDO_POOL 'ODP'
 

@@ -32,13 +32,13 @@
 #include <ntddk.h>
 #include <stdarg.h>
 #include <xen.h>
-#include <util.h>
 
 #include "bus.h"
 #include "fdo.h"
 #include "pdo.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 
 typedef struct _XENVIF_BUS_CONTEXT {
     LONG                    References;

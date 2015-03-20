@@ -32,7 +32,6 @@
 #include <ntddk.h>
 #include <ntstrsafe.h>
 #include <stdlib.h>
-#include <util.h>
 #include <ethernet.h>
 
 #include "pdo.h"
@@ -41,6 +40,7 @@
 #include "thread.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 
 struct _XENVIF_MAC {
     PXENVIF_FRONTEND        Frontend;

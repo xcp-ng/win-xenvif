@@ -33,7 +33,6 @@
 #include <ntstrsafe.h>
 #include <stdarg.h>
 #include <xen.h>
-#include <util.h>
 
 #include "pdo.h"
 #include "vif.h"
@@ -41,6 +40,7 @@
 #include "thread.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 
 struct _XENVIF_VIF_CONTEXT {
     PXENVIF_PDO                 Pdo;

@@ -32,11 +32,11 @@
 #include <ntddk.h>
 #include <ntstrsafe.h>
 #include <aux_klib.h>
-#include <util.h>
 
 #include "link.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 
 #define LINK_TAG    'KNIL'
 
