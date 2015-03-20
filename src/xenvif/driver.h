@@ -52,11 +52,6 @@ DriverGetAliasesKey(
     VOID
     );
 
-extern ULONG
-DriverGetMaximumQueueCount(
-    VOID
-    );
-
 typedef struct _XENVIF_PDO  XENVIF_PDO, *PXENVIF_PDO;
 typedef struct _XENVIF_FDO  XENVIF_FDO, *PXENVIF_FDO;
 

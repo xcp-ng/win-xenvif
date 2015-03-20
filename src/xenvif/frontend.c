@@ -30,6 +30,7 @@
  */
 
 #include <ntddk.h>
+#include <procgrp.h>
 #include <ntstrsafe.h>
 #include <stdlib.h>
 #include <netioapi.h>
@@ -51,6 +52,10 @@
 #include "assert.h"
 #include "util.h"
 
+typedef struct _XENVIF_FRONTEND_STATISTICS {
+    ULONGLONG   Value[XENVIF_VIF_STATISTIC_COUNT];
+} XENVIF_FRONTEND_STATISTICS, *PXENVIF_FRONTEND_STATISTICS;
+
 struct _XENVIF_FRONTEND {
     PXENVIF_PDO                 Pdo;
     PCHAR                       Path;
@@ -62,7 +67,8 @@ struct _XENVIF_FRONTEND {
 
     PCHAR                       BackendPath;
     USHORT                      BackendDomain;
-    ULONG                       QueueCount;
+    ULONG                       MaxQueues;
+    ULONG                       NumQueues;
 
     PXENVIF_MAC                 Mac;
     PXENVIF_RECEIVER            Receiver;
@@ -76,7 +82,8 @@ struct _XENVIF_FRONTEND {
     PXENBUS_DEBUG_CALLBACK      DebugCallback;
     PXENBUS_STORE_WATCH         Watch;
 
-    ULONGLONG                   Statistic[XENVIF_VIF_STATISTIC_COUNT][MAXIMUM_PROCESSORS];
+    PXENVIF_FRONTEND_STATISTICS Statistics;
+    ULONG                       StatisticsCount;
 };
 
 static const PCHAR
@@ -201,28 +208,41 @@ FrontendGetBackendDomain(
 }
 
 static FORCEINLINE VOID
-__FrontendSetQueueCount(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Count
+__FrontendSetMaxQueues(
+    IN  PXENVIF_FRONTEND    Frontend
     )
 {
-    Frontend->QueueCount = Count;
+    HANDLE                  ParametersKey;
+    ULONG                   FrontendMaxQueues;
+    NTSTATUS                status;
+
+    Frontend->MaxQueues = KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
+
+    ParametersKey = DriverGetParametersKey();
+
+    status = RegistryQueryDwordValue(ParametersKey,
+                                     "FrontendMaxQueues",
+                                     &FrontendMaxQueues);
+    if (NT_SUCCESS(status) && FrontendMaxQueues < Frontend->MaxQueues)
+        Frontend->MaxQueues = FrontendMaxQueues;
+
+    Info("%u\n", Frontend->MaxQueues);
 }
 
 static FORCEINLINE ULONG
-__FrontendGetQueueCount(
+__FrontendGetMaxQueues(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
-    return Frontend->QueueCount;
+    return Frontend->MaxQueues;
 }
 
 ULONG
-FrontendGetQueueCount(
+FrontendGetMaxQueues(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
-    return __FrontendGetQueueCount(Frontend);
+    return __FrontendGetMaxQueues(Frontend);
 }
 
 PCHAR
@@ -1233,56 +1253,65 @@ fail1:
 static FORCEINLINE VOID
 __FrontendQueryStatistic(
     IN  PXENVIF_FRONTEND        Frontend,
-    IN  XENVIF_VIF_STATISTIC    Index,
+    IN  XENVIF_VIF_STATISTIC    Name,
     OUT PULONGLONG              Value
     )
 {
-    ULONG                       Cpu;
+    ULONG                       Index;
 
-    ASSERT(Index < XENVIF_VIF_STATISTIC_COUNT);
+    ASSERT(Name < XENVIF_VIF_STATISTIC_COUNT);
 
     *Value = 0;
-    for (Cpu = 0; Cpu < MAXIMUM_PROCESSORS; Cpu++)
-        *Value += Frontend->Statistic[Index][Cpu];
+    for (Index = 0; Index < Frontend->StatisticsCount; Index++) {
+        PXENVIF_FRONTEND_STATISTICS Statistics;
+
+        Statistics = &Frontend->Statistics[Index];
+        *Value += Statistics->Value[Name];
+    }
 }
 
 VOID
 FrontendQueryStatistic(
     IN  PXENVIF_FRONTEND        Frontend,
-    IN  XENVIF_VIF_STATISTIC    Index,
+    IN  XENVIF_VIF_STATISTIC    Name,
     OUT PULONGLONG              Value
     )
 {
-    __FrontendQueryStatistic(Frontend, Index, Value);
+    __FrontendQueryStatistic(Frontend, Name, Value);
 }
 
 VOID
 FrontendIncrementStatistic(
     IN  PXENVIF_FRONTEND        Frontend,
-    IN  XENVIF_VIF_STATISTIC    Index,
+    IN  XENVIF_VIF_STATISTIC    Name,
     IN  ULONGLONG               Delta
     )
 {
-    ULONG                       Cpu;
+    ULONG                       Index;
+    PXENVIF_FRONTEND_STATISTICS Statistics;
 
-    ASSERT(Index < XENVIF_VIF_STATISTIC_COUNT);
+    ASSERT(Name < XENVIF_VIF_STATISTIC_COUNT);
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
 
-    Cpu = KeGetCurrentProcessorNumber();
-    Frontend->Statistic[Index][Cpu] += Delta;
+    Index = KeGetCurrentProcessorNumberEx(NULL);
+
+    ASSERT3U(Index, <, Frontend->StatisticsCount);
+    Statistics = &Frontend->Statistics[Index];
+
+    Statistics->Value[Name] += Delta;
 }
 
 static FORCEINLINE const CHAR *
 __FrontendStatisticName(
-    IN  XENVIF_VIF_STATISTIC    Index
+    IN  XENVIF_VIF_STATISTIC    Name
     )
 {
-#define _FRONTEND_STATISTIC_NAME(_Index)    \
-    case XENVIF_ ## _Index:                 \
-        return #_Index;
+#define _FRONTEND_STATISTIC_NAME(_Name)     \
+    case XENVIF_ ## _Name:                  \
+        return #_Name;
 
-    switch (Index) {
+    switch (Name) {
     _FRONTEND_STATISTIC_NAME(TRANSMITTER_PACKETS_DROPPED);
     _FRONTEND_STATISTIC_NAME(TRANSMITTER_BACKEND_ERRORS);
     _FRONTEND_STATISTIC_NAME(TRANSMITTER_FRONTEND_ERRORS);
@@ -1317,7 +1346,7 @@ FrontendDebugCallback(
     )
 {
     PXENVIF_FRONTEND        Frontend = Argument;
-    XENVIF_VIF_STATISTIC    Index;
+    XENVIF_VIF_STATISTIC    Name;
 
     UNREFERENCED_PARAMETER(Crashing);
 
@@ -1330,32 +1359,27 @@ FrontendDebugCallback(
                  &Frontend->DebugInterface,
                  "STATISTICS:\n");
 
-    for (Index = 0; Index < XENVIF_VIF_STATISTIC_COUNT; Index++) {
+    for (Name = 0; Name < XENVIF_VIF_STATISTIC_COUNT; Name++) {
         ULONGLONG   Value;
 
-        __FrontendQueryStatistic(Frontend, Index, &Value);
+        __FrontendQueryStatistic(Frontend, Name, &Value);
 
         XENBUS_DEBUG(Printf,
                      &Frontend->DebugInterface,
                      " - %40s %lu\n",
-                     __FrontendStatisticName(Index),
+                     __FrontendStatisticName(Name),
                      Value);
     }
 }
 
 static FORCEINLINE VOID
-__FrontendReadQueueCount(
+__FrontendSetNumQueues(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
     PCHAR                   Buffer;
-    ULONG                   Value;
+    ULONG                   BackendMaxQueues;
     NTSTATUS                status;
-
-    // default to 1 queue.
-    // backend must advertise "multi-queue-max-queues" to enable
-    // multi-queue support.
-    Value = 1;
 
     status = XENBUS_STORE(Read,
                           &Frontend->StoreInterface,
@@ -1364,19 +1388,34 @@ __FrontendReadQueueCount(
                           "multi-queue-max-queues",
                           &Buffer);
     if (NT_SUCCESS(status)) {
-        Value = (ULONG)strtoul(Buffer, NULL, 10);
+        BackendMaxQueues = (ULONG)strtoul(Buffer, NULL, 10);
 
         XENBUS_STORE(Free,
                      &Frontend->StoreInterface,
                      Buffer);
-
-        // set value to minimum of what frontend supports (vCPUs) and
-        // what backend supports (Dom0 vCPUs)
-        if (Value > DriverGetMaximumQueueCount())
-            Value = DriverGetMaximumQueueCount();
+    } else {
+        BackendMaxQueues = 1;
     }
 
-    __FrontendSetQueueCount(Frontend, Value);
+    Frontend->NumQueues = __min(Frontend->MaxQueues, BackendMaxQueues);
+
+    Info("%u\n", Frontend->NumQueues);
+}
+
+static FORCEINLINE ULONG
+__FrontendGetNumQueues(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    return Frontend->NumQueues;
+}
+
+ULONG
+FrontendGetNumQueues(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    return __FrontendGetNumQueues(Frontend);
 }
 
 static FORCEINLINE NTSTATUS
@@ -1391,9 +1430,16 @@ __FrontendConnect(
 
     Trace("====>\n");
 
+    Frontend->StatisticsCount = KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
+    Frontend->Statistics = __FrontendAllocate(sizeof (XENVIF_FRONTEND_STATISTICS) * Frontend->StatisticsCount);
+
+    status = STATUS_NO_MEMORY;
+    if (Frontend->Statistics == NULL)
+        goto fail1;
+
     status = XENBUS_DEBUG(Acquire, &Frontend->DebugInterface);
     if (!NT_SUCCESS(status))
-        goto fail1;
+        goto fail2;
 
     status = XENBUS_DEBUG(Register,
                           &Frontend->DebugInterface,
@@ -1402,20 +1448,21 @@ __FrontendConnect(
                           Frontend,
                           &Frontend->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail3;
 
     status = MacConnect(__FrontendGetMac(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
-    __FrontendReadQueueCount(Frontend);
+    __FrontendSetNumQueues(Frontend);
+
     status = ReceiverConnect(__FrontendGetReceiver(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     status = TransmitterConnect(__FrontendGetTransmitter(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     Attempt = 0;
     do {
@@ -1443,7 +1490,7 @@ __FrontendConnect(
                               __FrontendGetPath(Frontend),
                               "multi-queue-num-queues",
                               "%u",
-                              __FrontendGetQueueCount(Frontend));
+                              __FrontendGetNumQueues(Frontend));
         if (!NT_SUCCESS(status))
             goto abort;
 
@@ -1465,7 +1512,7 @@ abort:
     } while (status == STATUS_RETRY);
 
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail7;
 
     status = XENBUS_STORE(Printf,
                           &Frontend->StoreInterface,
@@ -1475,21 +1522,24 @@ abort:
                           "%u",
                           XenbusStateConnected);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail8;
 
     State = XenbusStateInitWait;
     status = __FrontendWaitForStateChange(Frontend, Path, &State);
     if (!NT_SUCCESS(status))
-        goto fail8;
+        goto fail9;
 
     status = STATUS_UNSUCCESSFUL;
     if (State != XenbusStateConnected)
-        goto fail9;
+        goto fail10;
 
     ThreadWake(Frontend->MibThread);
 
     Trace("<====\n");
     return STATUS_SUCCESS;
+
+fail10:
+    Error("fail10\n");
 
 fail9:
     Error("fail9\n");
@@ -1500,33 +1550,38 @@ fail8:
 fail7:
     Error("fail7\n");
 
+    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
+
 fail6:
     Error("fail6\n");
 
-    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
+    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
 
 fail5:
     Error("fail5\n");
 
-    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
+    MacDisconnect(__FrontendGetMac(Frontend));
+
+    Frontend->NumQueues = 0;
 
 fail4:
     Error("fail4\n");
-
-    MacDisconnect(__FrontendGetMac(Frontend));
-
-fail3:
-    Error("fail3\n");
 
     XENBUS_DEBUG(Deregister,
                  &Frontend->DebugInterface,
                  Frontend->DebugCallback);
     Frontend->DebugCallback = NULL;
 
+fail3:
+    Error("fail3\n");
+
+    XENBUS_DEBUG(Release, &Frontend->DebugInterface);
+
 fail2:
     Error("fail2\n");
 
-    XENBUS_DEBUG(Release, &Frontend->DebugInterface);
+    __FrontendFree(Frontend->Statistics);
+    Frontend->StatisticsCount = 0;
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -1546,6 +1601,8 @@ __FrontendDisconnect(
     ReceiverDisconnect(__FrontendGetReceiver(Frontend));
     MacDisconnect(__FrontendGetMac(Frontend));
 
+    Frontend->NumQueues = 0;
+
     XENBUS_DEBUG(Deregister,
                  &Frontend->DebugInterface,
                  Frontend->DebugCallback);
@@ -1553,7 +1610,8 @@ __FrontendDisconnect(
 
     XENBUS_DEBUG(Release, &Frontend->DebugInterface);
 
-    RtlZeroMemory(&Frontend->Statistic, sizeof (Frontend->Statistic));
+    __FrontendFree(Frontend->Statistics);
+    Frontend->StatisticsCount = 0;
 
     Trace("<====\n");
 }
@@ -1958,6 +2016,8 @@ FrontendInitialize(
     FdoGetSuspendInterface(PdoGetFdo(Pdo), &(*Frontend)->SuspendInterface);
     FdoGetStoreInterface(PdoGetFdo(Pdo), &(*Frontend)->StoreInterface);
 
+    __FrontendSetMaxQueues(*Frontend);
+
     status = MacInitialize(*Frontend, &(*Frontend)->Mac);
     if (!NT_SUCCESS(status))
         goto fail6;
@@ -2010,6 +2070,8 @@ fail7:
 fail6:
     Error("fail6\n");
 
+    (*Frontend)->MaxQueues = 0;
+
     RtlZeroMemory(&(*Frontend)->StoreInterface,
                   sizeof (XENBUS_STORE_INTERFACE));
 
@@ -2020,6 +2082,7 @@ fail6:
                   sizeof (XENBUS_DEBUG_INTERFACE));
 
     (*Frontend)->State = FRONTEND_STATE_INVALID;
+
     RtlZeroMemory(&(*Frontend)->Lock, sizeof (KSPIN_LOCK));
 
     (*Frontend)->BackendDomain = 0;
@@ -2091,6 +2154,8 @@ FrontendTeardown(
     MacTeardown(__FrontendGetMac(Frontend));
     Frontend->Mac = NULL;
 
+    Frontend->MaxQueues = 0;
+
     RtlZeroMemory(&Frontend->StoreInterface,
                   sizeof (XENBUS_STORE_INTERFACE));
 
@@ -2101,10 +2166,10 @@ FrontendTeardown(
                   sizeof (XENBUS_DEBUG_INTERFACE));
 
     Frontend->State = FRONTEND_STATE_INVALID;
+
     RtlZeroMemory(&Frontend->Lock, sizeof (KSPIN_LOCK));
 
     Frontend->BackendDomain = 0;
-    __FrontendSetQueueCount(Frontend, 0);
 
     __FrontendFree(Frontend->Prefix);
     Frontend->Prefix = NULL;

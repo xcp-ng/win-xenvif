@@ -349,6 +349,8 @@ MacEnable(
     PXENVIF_THREAD      Thread;
     NTSTATUS            status;
 
+    Trace("====>\n");
+
     Frontend = Mac->Frontend;
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -370,6 +372,7 @@ MacEnable(
 
     KeReleaseSpinLockFromDpcLevel(&Mac->Lock);
 
+    Trace("<====\n");
     return STATUS_SUCCESS;
 
 fail1:
@@ -387,6 +390,8 @@ MacDisable(
 {
     PXENVIF_FRONTEND    Frontend;
 
+    Trace("====>\n");
+
     Frontend = Mac->Frontend;
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -401,6 +406,8 @@ MacDisable(
     Mac->Watch = NULL;
 
     KeReleaseSpinLockFromDpcLevel(&Mac->Lock);
+
+    Trace("<====\n");
 }
 
 VOID

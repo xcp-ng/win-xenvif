@@ -113,7 +113,12 @@ FrontendGetBackendDomain(
     );
 
 extern ULONG
-FrontendGetQueueCount(
+FrontendGetMaxQueues(
+    IN  PXENVIF_FRONTEND    Frontend
+    );
+
+extern ULONG
+FrontendGetNumQueues(
     IN  PXENVIF_FRONTEND    Frontend
     );
 
