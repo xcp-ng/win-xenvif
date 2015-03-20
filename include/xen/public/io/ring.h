@@ -1,6 +1,6 @@
 /******************************************************************************
  * ring.h
- * 
+ *
  * Shared producer-consumer ring macros.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -47,7 +47,7 @@ typedef unsigned int RING_IDX;
 /*
  * Calculate size of a shared ring, given the total available space for the
  * ring and indexes (_sz), and the name tag of the request/response structure.
- * A ring contains as many entries as will fit, rounded down to the nearest 
+ * A ring contains as many entries as will fit, rounded down to the nearest
  * power of two (so we can mask with (size-1) to loop around).
  */
 #define __CONST_RING_SIZE(_s, _sz) \
@@ -61,7 +61,7 @@ typedef unsigned int RING_IDX;
 
 /*
  * Macros to make the correct C datatypes for a new kind of ring.
- * 
+ *
  * To make a new ring datatype, you need to have two message structures,
  * let's say request_t, and response_t already defined.
  *
@@ -71,7 +71,7 @@ typedef unsigned int RING_IDX;
  *
  * These expand out to give you a set of types, as you can see below.
  * The most important of these are:
- * 
+ *
  *     mytag_sring_t      - The shared ring.
  *     mytag_front_ring_t - The 'front' half of the ring.
  *     mytag_back_ring_t  - The 'back' half of the ring.
@@ -139,15 +139,15 @@ typedef struct __name##_back_ring __name##_back_ring_t
 
 /*
  * Macros for manipulating rings.
- * 
- * FRONT_RING_whatever works on the "front end" of a ring: here 
+ *
+ * FRONT_RING_whatever works on the "front end" of a ring: here
  * requests are pushed on to the ring and responses taken off it.
- * 
- * BACK_RING_whatever works on the "back end" of a ring: here 
+ *
+ * BACK_RING_whatever works on the "back end" of a ring: here
  * requests are taken off the ring and responses put on.
- * 
- * N.B. these macros do NO INTERLOCKS OR FLOW CONTROL. 
- * This is OK in 1-for-1 request-response situations where the 
+ *
+ * N.B. these macros do NO INTERLOCKS OR FLOW CONTROL.
+ * This is OK in 1-for-1 request-response situations where the
  * requestor (front end) never has more than RING_SIZE()-1
  * outstanding requests.
  */
@@ -172,21 +172,6 @@ typedef struct __name##_back_ring __name##_back_ring_t
     (_r)->req_cons = 0;                                                 \
     (_r)->nr_ents = __RING_SIZE(_s, __size);                            \
     (_r)->sring = (_s);                                                 \
-} while (0)
-
-/* Initialize to existing shared indexes -- for recovery */
-#define FRONT_RING_ATTACH(_r, _s, __size) do {                          \
-    (_r)->sring = (_s);                                                 \
-    (_r)->req_prod_pvt = (_s)->req_prod;                                \
-    (_r)->rsp_cons = (_s)->rsp_prod;                                    \
-    (_r)->nr_ents = __RING_SIZE(_s, __size);                            \
-} while (0)
-
-#define BACK_RING_ATTACH(_r, _s, __size) do {                           \
-    (_r)->sring = (_s);                                                 \
-    (_r)->rsp_prod_pvt = (_s)->rsp_prod;                                \
-    (_r)->req_cons = (_s)->req_prod;                                    \
-    (_r)->nr_ents = __RING_SIZE(_s, __size);                            \
 } while (0)
 
 /* How big is this ring? */
@@ -234,6 +219,10 @@ typedef struct __name##_back_ring __name##_back_ring_t
 #define RING_REQUEST_CONS_OVERFLOW(_r, _cons)                           \
     (((_cons) - (_r)->rsp_prod_pvt) >= RING_SIZE(_r))
 
+/* Ill-behaved frontend determination: Can there be this many requests? */
+#define RING_REQUEST_PROD_OVERFLOW(_r, _prod)                           \
+    (((_prod) - (_r)->rsp_prod_pvt) > RING_SIZE(_r))
+
 #define RING_PUSH_REQUESTS(_r) do {                                     \
     xen_wmb(); /* back sees requests /before/ updated producer index */ \
     (_r)->sring->req_prod = (_r)->req_prod_pvt;                         \
@@ -246,26 +235,26 @@ typedef struct __name##_back_ring __name##_back_ring_t
 
 /*
  * Notification hold-off (req_event and rsp_event):
- * 
+ *
  * When queueing requests or responses on a shared ring, it may not always be
  * necessary to notify the remote end. For example, if requests are in flight
  * in a backend, the front may be able to queue further requests without
  * notifying the back (if the back checks for new requests when it queues
  * responses).
- * 
+ *
  * When enqueuing requests or responses:
- * 
+ *
  *  Use RING_PUSH_{REQUESTS,RESPONSES}_AND_CHECK_NOTIFY(). The second argument
  *  is a boolean return value. True indicates that the receiver requires an
  *  asynchronous notification.
- * 
+ *
  * After dequeuing requests or responses (before sleeping the connection):
- * 
+ *
  *  Use RING_FINAL_CHECK_FOR_REQUESTS() or RING_FINAL_CHECK_FOR_RESPONSES().
  *  The second argument is a boolean return value. True indicates that there
  *  are pending messages on the ring (i.e., the connection should not be put
  *  to sleep).
- * 
+ *
  *  These macros will set the req_event/rsp_event field to trigger a
  *  notification on the very next message that is enqueued. If you want to
  *  create batches of work (i.e., only receive a notification after several
@@ -315,7 +304,7 @@ typedef struct __name##_back_ring __name##_back_ring_t
 /*
  * Local variables:
  * mode: C
- * c-set-style: "BSD"
+ * c-file-style: "BSD"
  * c-basic-offset: 4
  * tab-width: 4
  * indent-tabs-mode: nil
