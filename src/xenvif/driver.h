@@ -48,7 +48,7 @@ DriverGetAddressesKey(
     );
 
 extern HANDLE
-DriverGetAliasesKey(
+DriverGetStatusKey(
     VOID
     );
 

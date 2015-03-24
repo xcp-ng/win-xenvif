@@ -1207,6 +1207,26 @@ PdoS3ToS4(
     Trace("(%s) <====\n", __PdoGetName(Pdo));
 }
 
+static VOID
+PdoRequestReboot(
+    IN  PXENVIF_PDO     Pdo
+    )
+{
+    HANDLE              StatusKey;
+
+    UNREFERENCED_PARAMETER(Pdo);
+
+    Info("<===>\n");
+
+    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
+
+    StatusKey = DriverGetStatusKey();
+
+    (VOID) RegistryUpdateDwordValue(StatusKey,
+                                    "NeedReboot",
+                                    1);
+}
+
 static DECLSPEC_NOINLINE NTSTATUS
 PdoStartDevice(
     IN  PXENVIF_PDO     Pdo,
@@ -1292,9 +1312,12 @@ fail6:
 fail5:
     Error("fail5\n");
 
+    goto fail3;
+
 fail4:
     Error("fail4\n");
 
+    PdoRequestReboot(Pdo);
     __FreeMibTable(Table);
 
 fail3:
