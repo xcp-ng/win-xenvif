@@ -2758,6 +2758,8 @@ ReceiverConnect(
     PCHAR                   Buffer;
     NTSTATUS                status;
 
+    Trace("====>\n");
+
     Frontend = Receiver->Frontend;
 
     status = XENBUS_DEBUG(Acquire, &Receiver->DebugInterface);
@@ -2815,6 +2817,7 @@ ReceiverConnect(
     if (!NT_SUCCESS(status))
         goto fail6;
 
+    Trace("<====\n");
     return STATUS_SUCCESS;
 
 fail6:
@@ -3091,6 +3094,8 @@ ReceiverDisconnect(
     PXENVIF_FRONTEND        Frontend;
     LONG                    Index;
 
+    Trace("=====>\n");
+
     Frontend = Receiver->Frontend;
 
     Receiver->Split = FALSE;
@@ -3116,6 +3121,8 @@ ReceiverDisconnect(
     XENBUS_STORE(Release, &Receiver->StoreInterface);
 
     XENBUS_DEBUG(Release, &Receiver->DebugInterface);
+
+    Trace("<====\n");
 }
 
 VOID
@@ -3142,7 +3149,7 @@ ReceiverTeardown(
 
     __ReceiverFree(Receiver->Ring);
     Receiver->Ring = NULL;
-    Receiver->MaxQueues;
+    Receiver->MaxQueues = 0;
 
     XENBUS_CACHE(Release, &Receiver->CacheInterface);
 

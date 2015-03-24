@@ -3724,6 +3724,8 @@ TransmitterConnect(
     LONG                        Index;
     NTSTATUS                    status;
 
+    Trace("====>\n");
+
     Frontend = Transmitter->Frontend;
 
     status = XENBUS_DEBUG(Acquire, &Transmitter->DebugInterface);
@@ -3806,6 +3808,7 @@ TransmitterConnect(
     if (!NT_SUCCESS(status))
         goto fail8;
 
+    Trace("<====\n");
     return STATUS_SUCCESS;
 
 fail8:
@@ -3934,7 +3937,9 @@ TransmitterDisconnect(
     )
 {
     PXENVIF_FRONTEND        Frontend;
-    ULONG                   Index;
+    LONG                    Index;
+
+    Trace("====>\n");
 
     Frontend = Transmitter->Frontend;
 
@@ -3946,7 +3951,7 @@ TransmitterDisconnect(
     Transmitter->DebugCallback = NULL;
 
     Index = Transmitter->NumQueues;
-    while (--Index >- 0) {
+    while (--Index >= 0) {
         PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
 
         __TransmitterRingDisconnect(Ring);
@@ -3966,6 +3971,8 @@ TransmitterDisconnect(
     XENBUS_STORE(Release, &Transmitter->StoreInterface);
 
     XENBUS_DEBUG(Release, &Transmitter->DebugInterface);
+
+    Trace("<====\n");
 }
 
 VOID
@@ -3973,7 +3980,7 @@ TransmitterTeardown(
     IN  PXENVIF_TRANSMITTER Transmitter
     )
 {
-    ULONG                   Index;
+    LONG                    Index;
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
     KeFlushQueuedDpcs();
@@ -3982,7 +3989,7 @@ TransmitterTeardown(
                   sizeof (LONG_PTR) *  XENVIF_TRANSMITTER_PACKET_OFFSET_COUNT); 
 
     Index = Transmitter->MaxQueues;
-    while (--Index >- 0) {
+    while (--Index >= 0) {
         PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
 
         Transmitter->Ring[Index] = NULL;
@@ -3991,7 +3998,7 @@ TransmitterTeardown(
 
     __TransmitterFree(Transmitter->Ring);
     Transmitter->Ring = NULL;
-    Transmitter->MaxQueues;
+    Transmitter->MaxQueues = 0;
 
     XENBUS_CACHE(Release, &Transmitter->CacheInterface);
 
