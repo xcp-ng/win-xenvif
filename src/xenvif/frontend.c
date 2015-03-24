@@ -1581,6 +1581,7 @@ fail2:
     Error("fail2\n");
 
     __FrontendFree(Frontend->Statistics);
+    Frontend->Statistics = NULL;
     Frontend->StatisticsCount = 0;
 
 fail1:
@@ -1611,6 +1612,7 @@ __FrontendDisconnect(
     XENBUS_DEBUG(Release, &Frontend->DebugInterface);
 
     __FrontendFree(Frontend->Statistics);
+    Frontend->Statistics = NULL;
     Frontend->StatisticsCount = 0;
 
     Trace("<====\n");
