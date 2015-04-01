@@ -3321,6 +3321,8 @@ __TransmitterRingDisable(
         Attempt++;
         ASSERT(Attempt < 100);
 
+        // Try to move things along
+        __TransmitterRingSend(Ring);
         TransmitterRingPoll(Ring);
 
         if (State != XenbusStateConnected)
