@@ -3271,9 +3271,15 @@ ReceiverWaitForPackets(
 
     Loaned = Receiver->Loaned;
 
-    while (Receiver->Returned != Loaned) {
-        Trace("waiting for packets\n");
+    if (Receiver->Returned != Loaned) {
+        PXENVIF_FRONTEND    Frontend;
 
+        Frontend = Receiver->Frontend;
+
+        Info("%s\n", FrontendGetPath(Frontend));
+    }
+
+    while (Receiver->Returned != Loaned) {
         (VOID) KeWaitForSingleObject(&Receiver->Event,
                                      Executive,
                                      KernelMode,
