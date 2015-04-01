@@ -103,8 +103,8 @@ __Log(
 #define Log(_Format, ...) \
         __Log(__MODULE__ "|" __FUNCTION__ ": " _Format, __VA_ARGS__)
 
-static FORCEINLINE PTCHAR
-__GetErrorMessage(
+static PTCHAR
+GetErrorMessage(
     IN  DWORD   Error
     )
 {
@@ -338,7 +338,7 @@ fail1:
     {
         PTCHAR  Message;
 
-        Message = __GetErrorMessage(Error);
+        Message = GetErrorMessage(Error);
         Log("fail1 (%s)", Message);
         LocalFree(Message);
     }
@@ -476,7 +476,7 @@ fail1:
     {
         PTCHAR  Message;
 
-        Message = __GetErrorMessage(Error);
+        Message = GetErrorMessage(Error);
         Log("fail1 (%s)", Message);
         LocalFree(Message);
     }
@@ -612,7 +612,7 @@ fail1:
     {
         PTCHAR  Message;
 
-        Message = __GetErrorMessage(Error);
+        Message = GetErrorMessage(Error);
         Log("fail1 (%s)", Message);
         LocalFree(Message);
     }
@@ -741,7 +741,7 @@ fail1:
     {
         PTCHAR  Message;
 
-        Message = __GetErrorMessage(Error);
+        Message = GetErrorMessage(Error);
         Log("fail1 (%s)", Message);
         LocalFree(Message);
     }
@@ -789,7 +789,7 @@ fail1:
 
     {
         PTCHAR  Message;
-        Message = __GetErrorMessage(Error);
+        Message = GetErrorMessage(Error);
         Log("fail1 (%s)", Message);
         LocalFree(Message);
     }
@@ -860,7 +860,7 @@ fail1:
 
     {
         PTCHAR  Message;
-        Message = __GetErrorMessage(Error);
+        Message = GetErrorMessage(Error);
         Log("fail1 (%s)", Message);
         LocalFree(Message);
     }
@@ -911,7 +911,7 @@ fail1:
 
     {
         PTCHAR  Message;
-        Message = __GetErrorMessage(Error);
+        Message = GetErrorMessage(Error);
         Log("fail1 (%s)", Message);
         LocalFree(Message);
     }
@@ -919,8 +919,8 @@ fail1:
     return FALSE;
 }
 
-static FORCEINLINE HRESULT
-__DifInstallPreProcess(
+static HRESULT
+DifInstallPreProcess(
     IN  HDEVINFO                    DeviceInfoSet,
     IN  PSP_DEVINFO_DATA            DeviceInfoData,
     IN  PCOINSTALLER_CONTEXT_DATA   Context
@@ -949,7 +949,7 @@ fail1:
     {
         PTCHAR  Message;
 
-        Message = __GetErrorMessage(Error);
+        Message = GetErrorMessage(Error);
         Log("fail1 (%s)", Message);
         LocalFree(Message);
     }
@@ -957,8 +957,8 @@ fail1:
     return Error;
 }
 
-static FORCEINLINE HRESULT
-__DifInstallPostProcess(
+static HRESULT
+DifInstallPostProcess(
     IN  HDEVINFO                    DeviceInfoSet,
     IN  PSP_DEVINFO_DATA            DeviceInfoData,
     IN  PCOINSTALLER_CONTEXT_DATA   Context
@@ -1005,7 +1005,7 @@ DifInstall(
     Log("Flags = %08x", DeviceInstallParams.Flags);
 
     if (!Context->PostProcessing) {
-        Error = __DifInstallPreProcess(DeviceInfoSet, DeviceInfoData, Context);
+        Error = DifInstallPreProcess(DeviceInfoSet, DeviceInfoData, Context);
 
         if (Error == NO_ERROR)
             Error = ERROR_DI_POSTPROCESSING_REQUIRED; 
@@ -1013,12 +1013,12 @@ DifInstall(
         Error = Context->InstallResult;
         
         if (Error == NO_ERROR) {
-            (VOID) __DifInstallPostProcess(DeviceInfoSet, DeviceInfoData, Context);
+            (VOID) DifInstallPostProcess(DeviceInfoSet, DeviceInfoData, Context);
         } else {
             PTCHAR  Message;
 
-            Message = __GetErrorMessage(Error);
-            Log("NOT RUNNING (__DifInstallPreProcess Error: %s)", Message);
+            Message = GetErrorMessage(Error);
+            Log("NOT RUNNING (DifInstallPreProcess Error: %s)", Message);
             LocalFree(Message);
         }
 
@@ -1033,7 +1033,7 @@ fail1:
     {
         PTCHAR  Message;
 
-        Message = __GetErrorMessage(Error);
+        Message = GetErrorMessage(Error);
         Log("fail1 (%s)", Message);
         LocalFree(Message);
     }
@@ -1041,8 +1041,8 @@ fail1:
     return Error;
 }
 
-static FORCEINLINE HRESULT
-__DifRemovePreProcess(
+static HRESULT
+DifRemovePreProcess(
     IN  HDEVINFO                    DeviceInfoSet,
     IN  PSP_DEVINFO_DATA            DeviceInfoData,
     IN  PCOINSTALLER_CONTEXT_DATA   Context
@@ -1063,8 +1063,8 @@ __DifRemovePreProcess(
     return NO_ERROR; 
 }
 
-static FORCEINLINE HRESULT
-__DifRemovePostProcess(
+static HRESULT
+DifRemovePostProcess(
     IN  HDEVINFO                    DeviceInfoSet,
     IN  PSP_DEVINFO_DATA            DeviceInfoData,
     IN  PCOINSTALLER_CONTEXT_DATA   Context
@@ -1099,7 +1099,7 @@ DifRemove(
     Log("Flags = %08x", DeviceInstallParams.Flags);
 
     if (!Context->PostProcessing) {
-        Error = __DifRemovePreProcess(DeviceInfoSet, DeviceInfoData, Context);
+        Error = DifRemovePreProcess(DeviceInfoSet, DeviceInfoData, Context);
 
         if (Error == NO_ERROR)
             Error = ERROR_DI_POSTPROCESSING_REQUIRED; 
@@ -1107,12 +1107,12 @@ DifRemove(
         Error = Context->InstallResult;
         
         if (Error == NO_ERROR) {
-            (VOID) __DifRemovePostProcess(DeviceInfoSet, DeviceInfoData, Context);
+            (VOID) DifRemovePostProcess(DeviceInfoSet, DeviceInfoData, Context);
         } else {
             PTCHAR  Message;
 
-            Message = __GetErrorMessage(Error);
-            Log("NOT RUNNING (__DifRemovePreProcess Error: %s)", Message);
+            Message = GetErrorMessage(Error);
+            Log("NOT RUNNING (DifRemovePreProcess Error: %s)", Message);
             LocalFree(Message);
         }
 
@@ -1127,7 +1127,7 @@ fail1:
     {
         PTCHAR  Message;
 
-        Message = __GetErrorMessage(Error);
+        Message = GetErrorMessage(Error);
         Log("fail1 (%s)", Message);
         LocalFree(Message);
     }
