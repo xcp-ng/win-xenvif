@@ -144,7 +144,7 @@ PdoCreate(
     IN  PCHAR       Address
     );
 
-extern VOID
+extern NTSTATUS
 PdoResume(
     IN  PXENVIF_PDO Pdo
     );

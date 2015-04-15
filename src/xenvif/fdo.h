@@ -55,7 +55,7 @@ FdoGetName(
     IN  PXENVIF_FDO Fdo
     );
 
-extern VOID
+extern NTSTATUS
 FdoAddPhysicalDeviceObject(
     IN  PXENVIF_FDO     Fdo,
     IN  PXENVIF_PDO     Pdo

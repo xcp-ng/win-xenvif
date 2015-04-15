@@ -614,7 +614,7 @@ FdoForwardIrpSynchronously(
     return status;
 }
 
-VOID
+NTSTATUS
 FdoAddPhysicalDeviceObject(
     IN  PXENVIF_FDO     Fdo,
     IN  PXENVIF_PDO     Pdo
@@ -622,17 +622,30 @@ FdoAddPhysicalDeviceObject(
 {
     PDEVICE_OBJECT      DeviceObject;
     PXENVIF_DX          Dx;
+    NTSTATUS            status;
 
     DeviceObject = PdoGetDeviceObject(Pdo);
     Dx = (PXENVIF_DX)DeviceObject->DeviceExtension;
     ASSERT3U(Dx->Type, ==, PHYSICAL_DEVICE_OBJECT);
 
+    if (__FdoGetDevicePowerState(Fdo) == PowerDeviceD3)
+        goto done;
+
+    status = PdoResume(Pdo);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+done:
     InsertTailList(&Fdo->Dx->ListEntry, &Dx->ListEntry);
     ASSERT3U(Fdo->References, !=, 0);
     Fdo->References++;
 
-    if (__FdoGetDevicePowerState(Fdo) == PowerDeviceD0)
-        PdoResume(Pdo);
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
 }
 
 VOID
@@ -648,9 +661,12 @@ FdoRemovePhysicalDeviceObject(
     Dx = (PXENVIF_DX)DeviceObject->DeviceExtension;
     ASSERT3U(Dx->Type, ==, PHYSICAL_DEVICE_OBJECT);
 
-    if (__FdoGetDevicePowerState(Fdo) == PowerDeviceD0)
-        PdoSuspend(Pdo);
+    if (__FdoGetDevicePowerState(Fdo) == PowerDeviceD3)
+        goto done;
 
+    PdoSuspend(Pdo);
+
+done:
     RemoveEntryList(&Dx->ListEntry);
     ASSERT3U(Fdo->References, !=, 0);
     --Fdo->References;
@@ -1176,7 +1192,8 @@ FdoD3ToD0(
 
         ASSERT3U(Dx->Type, ==, PHYSICAL_DEVICE_OBJECT);
 
-        PdoResume(Pdo);
+        status = PdoResume(Pdo);
+        ASSERT(NT_SUCCESS(status));
     }
 
     __FdoReleaseMutex(Fdo);
@@ -2881,6 +2898,8 @@ FdoCreate(
     if (!NT_SUCCESS(status))
         goto fail13;
 
+    Dx->Fdo = Fdo;
+
     InitializeMutex(&Fdo->Mutex);
     InitializeListHead(&Dx->ListEntry);
     Fdo->References = 1;
@@ -2889,9 +2908,7 @@ FdoCreate(
          FunctionDeviceObject,
          __FdoGetName(Fdo));
 
-    Dx->Fdo = Fdo;
     FunctionDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
-
     return STATUS_SUCCESS;
 
 fail13:
@@ -2996,9 +3013,9 @@ FdoDestroy(
          FunctionDeviceObject,
          __FdoGetName(Fdo));
 
-    Dx->Fdo = NULL;
-
     RtlZeroMemory(&Fdo->Mutex, sizeof (MUTEX));
+
+    Dx->Fdo = NULL;
 
     RtlZeroMemory(&Fdo->GnttabInterface,
                   sizeof (XENBUS_GNTTAB_INTERFACE));

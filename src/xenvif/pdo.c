@@ -2552,16 +2552,12 @@ PdoDispatch(
     return status;
 }
 
-VOID
+NTSTATUS
 PdoResume(
-    IN  PXENVIF_PDO     Pdo
+    IN  PXENVIF_PDO Pdo
     )
 {
-    Trace("====>\n");
-
-    FrontendResume(__PdoGetFrontend(Pdo));
-
-    Trace("<====\n");
+    return FrontendResume(__PdoGetFrontend(Pdo));
 }
 
 VOID
@@ -2569,11 +2565,7 @@ PdoSuspend(
     IN  PXENVIF_PDO     Pdo
     )
 {
-    Trace("====>\n");
-
     FrontendSuspend(__PdoGetFrontend(Pdo));
-
-    Trace("<====\n");
 }
 
 NTSTATUS
@@ -2654,6 +2646,14 @@ PdoCreate(
 
     FdoGetSuspendInterface(Fdo,&Pdo->SuspendInterface);
 
+    Dx->Pdo = Pdo;
+
+    KeInitializeSpinLock(&Pdo->EjectLock);
+
+    status = FdoAddPhysicalDeviceObject(Fdo, Pdo);
+    if (!NT_SUCCESS(status))
+        goto fail11;
+
     for (Index = 0; Index < Pdo->Count; Index++) {
         Info("%p (%s %08X)\n",
              PhysicalDeviceObject,
@@ -2661,14 +2661,22 @@ PdoCreate(
              Pdo->Revision[Index]);
     }
 
-    Dx->Pdo = Pdo;
     PhysicalDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
-
-    KeInitializeSpinLock(&Pdo->EjectLock);
-
-    FdoAddPhysicalDeviceObject(Fdo, Pdo);
-
     return STATUS_SUCCESS;
+
+fail11:
+    Error("fail11\n");
+
+    (VOID) __PdoClearEjectRequested(Pdo);
+    RtlZeroMemory(&Pdo->EjectLock, sizeof (KSPIN_LOCK));
+
+    Dx->Pdo = NULL;
+
+    RtlZeroMemory(&Pdo->SuspendInterface,
+                  sizeof (XENBUS_SUSPEND_INTERFACE));
+
+    FrontendTeardown(__PdoGetFrontend(Pdo));
+    Pdo->Frontend = NULL;
 
 fail10:
     Error("fail10\n");
@@ -2762,16 +2770,19 @@ PdoDestroy(
 
     FdoRemovePhysicalDeviceObject(Fdo, Pdo);
 
+    (VOID) __PdoClearEjectRequested(Pdo);
+    RtlZeroMemory(&Pdo->EjectLock, sizeof (KSPIN_LOCK));
+
     Dx->Pdo = NULL;
 
     RtlZeroMemory(&Pdo->SuspendInterface,
                   sizeof (XENBUS_SUSPEND_INTERFACE));
 
-    VifTeardown(Pdo->VifContext);
-    Pdo->VifContext = NULL;
-    
     FrontendTeardown(__PdoGetFrontend(Pdo));
     Pdo->Frontend = NULL;    
+
+    VifTeardown(Pdo->VifContext);
+    Pdo->VifContext = NULL;
 
     BusTeardown(&Pdo->BusInterface);
 
