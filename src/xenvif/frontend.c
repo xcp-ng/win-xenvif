@@ -207,8 +207,8 @@ FrontendGetBackendDomain(
     return __FrontendGetBackendDomain(Frontend);
 }
 
-static FORCEINLINE VOID
-__FrontendSetMaxQueues(
+static VOID
+FrontendSetMaxQueues(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
@@ -486,8 +486,8 @@ fail1:
     KeReleaseSpinLock(&Frontend->Lock, Irql);
 }
 
-static FORCEINLINE NTSTATUS
-__FrontendInsertAddress(
+static NTSTATUS
+FrontendInsertAddress(
     IN OUT  PSOCKADDR_INET      *AddressTable,
     IN      const SOCKADDR_INET *Address,
     IN OUT  PULONG              AddressCount
@@ -540,8 +540,8 @@ fail1:
     return status;
 }
 
-static FORCEINLINE NTSTATUS
-__FrontendProcessAddressTable(
+static NTSTATUS
+FrontendProcessAddressTable(
     IN  PXENVIF_FRONTEND            Frontend,
     IN  PMIB_UNICASTIPADDRESS_TABLE MibTable,
     OUT PSOCKADDR_INET              *AddressTable,
@@ -570,9 +570,9 @@ __FrontendProcessAddressTable(
             Row->Address.si_family != AF_INET6)
             continue;
 
-        status = __FrontendInsertAddress(AddressTable,
-                                         &Row->Address,
-                                         AddressCount);
+        status = FrontendInsertAddress(AddressTable,
+                                       &Row->Address,
+                                       AddressCount);
         if (!NT_SUCCESS(status))
             goto fail1;
     }
@@ -588,8 +588,8 @@ fail1:
     return status;
 }
 
-static FORCEINLINE NTSTATUS
-__FrontendDumpAddressTable(
+static NTSTATUS
+FrontendDumpAddressTable(
     IN  PXENVIF_FRONTEND        Frontend,
     IN  PSOCKADDR_INET          AddressTable,
     IN  ULONG                   AddressCount
@@ -825,10 +825,10 @@ FrontendMib(
             Frontend->State != FRONTEND_ENABLED)
             goto loop;
 
-        status = __FrontendProcessAddressTable(Frontend,
-                                               MibTable,
-                                               &AddressTable,
-                                               &AddressCount);
+        status = FrontendProcessAddressTable(Frontend,
+                                             MibTable,
+                                             &AddressTable,
+                                             &AddressCount);
         if (!NT_SUCCESS(status))
             goto loop;
 
@@ -836,9 +836,9 @@ FrontendMib(
                                       AddressTable,
                                       AddressCount);
 
-        (VOID) __FrontendDumpAddressTable(Frontend,
-                                          AddressTable,
-                                          AddressCount);
+        (VOID) FrontendDumpAddressTable(Frontend,
+                                        AddressTable,
+                                        AddressCount);
 
         if (AddressCount != 0)
             __FrontendFree(AddressTable);
@@ -874,8 +874,8 @@ fail1:
     return status;
 }
 
-static FORCEINLINE NTSTATUS
-__FrontendWaitForStateChange(
+static NTSTATUS
+FrontendWaitForStateChange(
     IN  PXENVIF_FRONTEND    Frontend,
     IN  PCHAR               Path,
     IN  XenbusState         *State
@@ -984,8 +984,8 @@ fail1:
     return status;
 }
 
-static FORCEINLINE NTSTATUS
-__FrontendClose(
+static NTSTATUS
+FrontendClose(
     IN  PXENVIF_FRONTEND    Frontend,
     IN  BOOLEAN             Force            
     )
@@ -1024,7 +1024,7 @@ __FrontendClose(
         goto fail1;
 
     State = XenbusStateInitialising;
-    status = __FrontendWaitForStateChange(Frontend, Path, &State);
+    status = FrontendWaitForStateChange(Frontend, Path, &State);
     if (!NT_SUCCESS(status))
         goto fail2;
 
@@ -1038,7 +1038,7 @@ __FrontendClose(
                             "state",
                             "%u",
                             XenbusStateClosing);
-        status = __FrontendWaitForStateChange(Frontend, Path, &State);
+        status = FrontendWaitForStateChange(Frontend, Path, &State);
         if (!NT_SUCCESS(status))
             goto fail2;
     }
@@ -1052,7 +1052,7 @@ __FrontendClose(
                             "state",
                             "%u",
                             XenbusStateClosed);
-        status = __FrontendWaitForStateChange(Frontend, Path, &State);
+        status = FrontendWaitForStateChange(Frontend, Path, &State);
         if (!NT_SUCCESS(status))
             goto fail3;
     }
@@ -1085,8 +1085,8 @@ fail1:
     return status;
 }
 
-static FORCEINLINE NTSTATUS
-__FrontendPrepare(
+static NTSTATUS
+FrontendPrepare(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
@@ -1111,7 +1111,7 @@ __FrontendPrepare(
         goto fail2;
 
     State = XenbusStateUnknown;
-    status = __FrontendWaitForStateChange(Frontend, Path, &State);
+    status = FrontendWaitForStateChange(Frontend, Path, &State);
     if (!NT_SUCCESS(status))
         goto fail3;
 
@@ -1123,7 +1123,7 @@ __FrontendPrepare(
                             "state",
                             "%u",
                             XenbusStateClosing);
-        status = __FrontendWaitForStateChange(Frontend, Path, &State);
+        status = FrontendWaitForStateChange(Frontend, Path, &State);
         if (!NT_SUCCESS(status))
             goto fail4;
     }
@@ -1136,7 +1136,7 @@ __FrontendPrepare(
                             "state",
                             "%u",
                             XenbusStateClosed);
-        status = __FrontendWaitForStateChange(Frontend, Path, &State);
+        status = FrontendWaitForStateChange(Frontend, Path, &State);
         if (!NT_SUCCESS(status))
             goto fail5;
     }
@@ -1145,7 +1145,7 @@ __FrontendPrepare(
            State != XenbusStateInitialising &&
            State != XenbusStateInitWait &&
            State != XenbusStateUnknown) {
-        status = __FrontendWaitForStateChange(Frontend, Path, &State);
+        status = FrontendWaitForStateChange(Frontend, Path, &State);
         if (!NT_SUCCESS(status))
             goto fail6;
     }
@@ -1166,7 +1166,7 @@ __FrontendPrepare(
 
     while (State == XenbusStateClosed ||
            State == XenbusStateInitialising) {
-        status = __FrontendWaitForStateChange(Frontend, Path, &State);
+        status = FrontendWaitForStateChange(Frontend, Path, &State);
         if (!NT_SUCCESS(status))
             goto fail9;
     }
@@ -1372,8 +1372,8 @@ FrontendDebugCallback(
     }
 }
 
-static FORCEINLINE VOID
-__FrontendSetNumQueues(
+static VOID
+FrontendSetNumQueues(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
@@ -1418,8 +1418,8 @@ FrontendGetNumQueues(
     return __FrontendGetNumQueues(Frontend);
 }
 
-static FORCEINLINE NTSTATUS
-__FrontendConnect(
+static NTSTATUS
+FrontendConnect(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
@@ -1454,7 +1454,7 @@ __FrontendConnect(
     if (!NT_SUCCESS(status))
         goto fail4;
 
-    __FrontendSetNumQueues(Frontend);
+    FrontendSetNumQueues(Frontend);
 
     status = ReceiverConnect(__FrontendGetReceiver(Frontend));
     if (!NT_SUCCESS(status))
@@ -1525,7 +1525,7 @@ abort:
         goto fail8;
 
     State = XenbusStateInitWait;
-    status = __FrontendWaitForStateChange(Frontend, Path, &State);
+    status = FrontendWaitForStateChange(Frontend, Path, &State);
     if (!NT_SUCCESS(status))
         goto fail9;
 
@@ -1591,8 +1591,8 @@ fail1:
     return status;
 }
 
-static FORCEINLINE VOID
-__FrontendDisconnect(
+static VOID
+FrontendDisconnect(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
@@ -1618,8 +1618,8 @@ __FrontendDisconnect(
     Trace("<====\n");
 }
 
-static FORCEINLINE NTSTATUS
-__FrontendEnable(
+static NTSTATUS
+FrontendEnable(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
@@ -1658,8 +1658,8 @@ fail1:
     return status;
 }
 
-static FORCEINLINE VOID
-__FrontendDisable(
+static VOID
+FrontendDisable(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
@@ -1698,7 +1698,7 @@ FrontendSetState(
             case FRONTEND_PREPARED:
             case FRONTEND_CONNECTED:
             case FRONTEND_ENABLED:
-                status = __FrontendPrepare(Frontend);
+                status = FrontendPrepare(Frontend);
                 if (NT_SUCCESS(status)) {
                     Frontend->State = FRONTEND_PREPARED;
                 } else {
@@ -1716,11 +1716,11 @@ FrontendSetState(
             switch (State) {
             case FRONTEND_CONNECTED:
             case FRONTEND_ENABLED:
-                status = __FrontendConnect(Frontend);
+                status = FrontendConnect(Frontend);
                 if (NT_SUCCESS(status)) {
                     Frontend->State = FRONTEND_CONNECTED;
                 } else {
-                    status = __FrontendClose(Frontend, FALSE);
+                    status = FrontendClose(Frontend, FALSE);
                     if (NT_SUCCESS(status))
                         Frontend->State = FRONTEND_CLOSED;
                     else
@@ -1731,7 +1731,7 @@ FrontendSetState(
                 break;
 
             case FRONTEND_CLOSED:
-                status = __FrontendClose(Frontend, FALSE);
+                status = FrontendClose(Frontend, FALSE);
                 if (NT_SUCCESS(status)) {
                     Frontend->State = FRONTEND_CLOSED;
                 } else {
@@ -1750,24 +1750,24 @@ FrontendSetState(
         case FRONTEND_CONNECTED:
             switch (State) {
             case FRONTEND_ENABLED:
-                status = __FrontendEnable(Frontend);
+                status = FrontendEnable(Frontend);
                 if (NT_SUCCESS(status)) {
                     Frontend->State = FRONTEND_ENABLED;
                 } else {
-                    status = __FrontendClose(Frontend, FALSE);
+                    status = FrontendClose(Frontend, FALSE);
                     if (NT_SUCCESS(status))
                         Frontend->State = FRONTEND_CLOSED;
                     else
                         Frontend->State = FRONTEND_STATE_INVALID;
 
-                    __FrontendDisconnect(Frontend);
+                    FrontendDisconnect(Frontend);
                     Failed = TRUE;
                 }
                 break;
 
             case FRONTEND_PREPARED:
             case FRONTEND_CLOSED:
-                status = __FrontendClose(Frontend, FALSE);
+                status = FrontendClose(Frontend, FALSE);
                 if (NT_SUCCESS(status)) {
                     Frontend->State = FRONTEND_CLOSED;
                 } else {
@@ -1775,7 +1775,7 @@ FrontendSetState(
                     Failed = TRUE;
                 }
 
-                __FrontendDisconnect(Frontend);
+                FrontendDisconnect(Frontend);
 
                 break;
 
@@ -1790,7 +1790,7 @@ FrontendSetState(
             case FRONTEND_CONNECTED:
             case FRONTEND_PREPARED:
             case FRONTEND_CLOSED:
-                __FrontendDisable(Frontend);
+                FrontendDisable(Frontend);
                 Frontend->State = FRONTEND_CONNECTED;
                 break;
 
@@ -2018,7 +2018,7 @@ FrontendInitialize(
     FdoGetSuspendInterface(PdoGetFdo(Pdo), &(*Frontend)->SuspendInterface);
     FdoGetStoreInterface(PdoGetFdo(Pdo), &(*Frontend)->StoreInterface);
 
-    __FrontendSetMaxQueues(*Frontend);
+    FrontendSetMaxQueues(*Frontend);
 
     status = MacInitialize(*Frontend, &(*Frontend)->Mac);
     if (!NT_SUCCESS(status))
@@ -2132,7 +2132,7 @@ FrontendTeardown(
     ASSERT(Frontend->State != FRONTEND_CONNECTED);
 
     if (Frontend->State == FRONTEND_PREPARED) {
-        (VOID) __FrontendClose(Frontend, TRUE);
+        (VOID) FrontendClose(Frontend, TRUE);
         Frontend->State = FRONTEND_CLOSED;
     }
 
