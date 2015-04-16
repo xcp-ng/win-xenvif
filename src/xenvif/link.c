@@ -223,11 +223,11 @@ LinkGetRoutineAddress(
 found:
     *Address = Function;
 
-    Info("%s:%s (%04X) @ %p\n",
-         ModuleName,
-         FunctionName,
-         Ordinal,
-         Function);
+    Trace("%s:%s (%04X) @ %p\n",
+          ModuleName,
+          FunctionName,
+          Ordinal,
+          Function);
 
     Trace("<====\n");
 
