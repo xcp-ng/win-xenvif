@@ -61,9 +61,11 @@ struct _XENVIF_FRONTEND {
     PCHAR                       Path;
     PCHAR                       Prefix;
     XENVIF_FRONTEND_STATE       State;
+    BOOLEAN                     Online;
     KSPIN_LOCK                  Lock;
     PXENVIF_THREAD              MibThread;
     PXENVIF_THREAD              EjectThread;
+    KEVENT                      EjectEvent;
 
     PCHAR                       BackendPath;
     USHORT                      BackendDomain;
@@ -96,6 +98,7 @@ FrontendStateName(
         return #_State;
 
     switch (State) {
+    _STATE_NAME(UNKNOWN);
     _STATE_NAME(CLOSED);
     _STATE_NAME(PREPARED);
     _STATE_NAME(CONNECTED);
@@ -312,6 +315,42 @@ DEFINE_FRONTEND_GET_FUNCTION(Mac, PXENVIF_MAC)
 DEFINE_FRONTEND_GET_FUNCTION(Transmitter, PXENVIF_TRANSMITTER)
 DEFINE_FRONTEND_GET_FUNCTION(Receiver, PXENVIF_RECEIVER)
 
+static BOOLEAN
+FrontendIsOnline(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    return Frontend->Online;
+}
+
+static BOOLEAN
+FrontendIsBackendOnline(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    PCHAR                   Buffer;
+    BOOLEAN                 Online;
+    NTSTATUS                status;
+
+    status = XENBUS_STORE(Read,
+                          &Frontend->StoreInterface,
+                          NULL,
+                          __FrontendGetBackendPath(Frontend),
+                          "online",
+                          &Buffer);
+    if (!NT_SUCCESS(status)) {
+        Online = FALSE;
+    } else {
+        Online = (BOOLEAN)strtol(Buffer, NULL, 2);
+
+        XENBUS_STORE(Free,
+                     &Frontend->StoreInterface,
+                     Buffer);
+    }
+
+    return Online;
+}
+
 static DECLSPEC_NOINLINE NTSTATUS
 FrontendEject(
     IN  PXENVIF_THREAD  Self,
@@ -326,11 +365,7 @@ FrontendEject(
     Event = ThreadGetEvent(Self);
 
     for (;;) {
-        BOOLEAN             Online;
-        XenbusState         State;
-        ULONG               Attempt;
-        KIRQL               Irql;
-        NTSTATUS            status;
+        KIRQL       Irql;
 
         KeWaitForSingleObject(Event,
                               Executive,
@@ -345,90 +380,23 @@ FrontendEject(
         KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
         // It is not safe to use interfaces before this point
-        if (Frontend->State == FRONTEND_CLOSED) {
-            KeReleaseSpinLock(&Frontend->Lock, Irql);
-            continue;
-        }
+        if (Frontend->State == FRONTEND_UNKNOWN ||
+            Frontend->State == FRONTEND_CLOSED)
+            goto loop;
 
-        Online = TRUE;
-        State = XenbusStateUnknown;
+        if (!FrontendIsOnline(Frontend))
+            goto loop;
 
-        Attempt = 0;
-        for (;;) {
-            PXENBUS_STORE_TRANSACTION   Transaction;
-            PCHAR                       Buffer;
+        if (!FrontendIsBackendOnline(Frontend))
+            PdoRequestEject(__FrontendGetPdo(Frontend));
 
-            status = STATUS_UNSUCCESSFUL;
-            if (__FrontendGetBackendPath(Frontend) == NULL)
-                break;
-
-            status = XENBUS_STORE(TransactionStart,
-                                  &Frontend->StoreInterface,
-                                  &Transaction);
-            if (!NT_SUCCESS(status))
-                break;
-
-            status = XENBUS_STORE(Read,
-                                  &Frontend->StoreInterface,
-                                  Transaction,
-                                  __FrontendGetBackendPath(Frontend),
-                                  "online",
-                                  &Buffer);
-            if (!NT_SUCCESS(status))
-                goto abort;
-
-            Online = (BOOLEAN)strtol(Buffer, NULL, 2);
-
-            XENBUS_STORE(Free,
-                         &Frontend->StoreInterface,
-                         Buffer);
-
-            status = XENBUS_STORE(Read,
-                                  &Frontend->StoreInterface,
-                                  Transaction,
-                                  __FrontendGetBackendPath(Frontend),
-                                  "state",
-                                  &Buffer);
-            if (!NT_SUCCESS(status))
-                goto abort;
-
-            State = (XenbusState)strtol(Buffer, NULL, 10);
-
-            XENBUS_STORE(Free,
-                         &Frontend->StoreInterface,
-                         Buffer);
-
-            status = XENBUS_STORE(TransactionEnd,
-                                  &Frontend->StoreInterface,
-                                  Transaction,
-                                  TRUE);
-            if (status != STATUS_RETRY || ++Attempt > 10)
-                break;
-
-            continue;
-
-abort:
-            (VOID) XENBUS_STORE(TransactionEnd,
-                                &Frontend->StoreInterface,
-                                Transaction,
-                                FALSE);
-            break;
-        }
-
-        if (!NT_SUCCESS(status)) {
-            Online = TRUE;
-            State = XenbusStateUnknown;
-        }
-
-        if (!Online && State == XenbusStateClosing) {
-            Info("%s: requesting device eject\n",
-                 __FrontendGetPath(Frontend));
-
-            PdoRequestEject(Frontend->Pdo);
-        }
-
+loop:
         KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+        KeSetEvent(&Frontend->EjectEvent, IO_NO_INCREMENT, FALSE);
     }
+
+    KeSetEvent(&Frontend->EjectEvent, IO_NO_INCREMENT, FALSE);
 
     Trace("%s: <====\n", __FrontendGetPath(Frontend));
 
@@ -555,7 +523,7 @@ FrontendProcessAddressTable(
     *AddressTable = NULL;
     *AddressCount = 0;
 
-    Luid = PdoGetLuid(Frontend->Pdo);
+    Luid = PdoGetLuid(__FrontendGetPdo(Frontend));
 
     for (Index = 0; Index < MibTable->NumEntries; Index++) {
         PMIB_UNICASTIPADDRESS_ROW   Row = &MibTable->Table[Index];
@@ -874,308 +842,84 @@ fail1:
     return status;
 }
 
-static NTSTATUS
-FrontendWaitForStateChange(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PCHAR               Path,
-    IN  XenbusState         *State
-    )
-{
-    KEVENT                  Event;
-    PXENBUS_STORE_WATCH     Watch;
-    LARGE_INTEGER           Start;
-    ULONGLONG               TimeDelta;
-    LARGE_INTEGER           Timeout;
-    XenbusState             Old = *State;
-    NTSTATUS                status;
-
-    Trace("%s: ====> (%s)\n", Path, XenbusStateName(*State));
-
-    KeInitializeEvent(&Event, NotificationEvent, FALSE);
-
-    status = XENBUS_STORE(WatchAdd,
-                          &Frontend->StoreInterface,
-                          Path,
-                          "state",
-                          &Event,
-                          &Watch);
-    if (!NT_SUCCESS(status))
-        goto fail1;
-
-    KeQuerySystemTime(&Start);
-    TimeDelta = 0;
-
-    Timeout.QuadPart = 0;
-
-    while (*State == Old && TimeDelta < 120000) {
-        ULONG           Attempt;
-        PCHAR           Buffer;
-        LARGE_INTEGER   Now;
-
-        Attempt = 0;
-        while (++Attempt < 1000) {
-            status = KeWaitForSingleObject(&Event,
-                                           Executive,
-                                           KernelMode,
-                                           FALSE,
-                                           &Timeout);
-            if (status != STATUS_TIMEOUT)
-                break;
-
-            // We are waiting for a watch event at DISPATCH_LEVEL so
-            // it is our responsibility to poll the store ring.
-            XENBUS_STORE(Poll,
-                         &Frontend->StoreInterface);
-
-            KeStallExecutionProcessor(1000);   // 1ms
-        }
-
-        KeClearEvent(&Event);
-
-        status = XENBUS_STORE(Read,
-                              &Frontend->StoreInterface,
-                              NULL,
-                              Path,
-                              "state",
-                              &Buffer);
-        if (!NT_SUCCESS(status)) {
-            if (status != STATUS_OBJECT_NAME_NOT_FOUND)
-                goto fail2;
-
-            *State = XenbusStateUnknown;
-        } else {
-            *State = (XenbusState)strtol(Buffer, NULL, 10);
-
-            XENBUS_STORE(Free,
-                         &Frontend->StoreInterface,
-                         Buffer);
-        }
-
-        KeQuerySystemTime(&Now);
-
-        TimeDelta = (Now.QuadPart - Start.QuadPart) / 10000ull;
-    }
-
-    status = STATUS_UNSUCCESSFUL;
-    if (*State == Old)
-        goto fail3;
-
-    (VOID) XENBUS_STORE(WatchRemove,
-                        &Frontend->StoreInterface,
-                        Watch);
-
-    Trace("%s: <==== (%s)\n", Path, XenbusStateName(*State));
-
-    return STATUS_SUCCESS;
-
-fail3:
-    Error("fail3\n");
-
-fail2:
-    Error("fail2\n");
-
-    (VOID) XENBUS_STORE(WatchRemove,
-                        &Frontend->StoreInterface,
-                        Watch);
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-                   
-    return status;
-}
-
-static NTSTATUS
-FrontendClose(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  BOOLEAN             Force            
-    )
-{
-    PCHAR                   Path;
-    XenbusState             State;
-    NTSTATUS                status;
-
-    Trace("====>\n");
-
-    ASSERT(Frontend->Watch != NULL);
-    (VOID) XENBUS_STORE(WatchRemove,
-                        &Frontend->StoreInterface,
-                        Frontend->Watch);
-    Frontend->Watch = NULL;
-
-    // Release cached information about the backend
-    ASSERT(Frontend->BackendPath != NULL);
-    XENBUS_STORE(Free,
-                 &Frontend->StoreInterface,
-                 Frontend->BackendPath);
-    Frontend->BackendPath = NULL;
-
-    Frontend->BackendDomain = DOMID_INVALID;
-
-    if (Force)
-        goto done;
-
-    status = XENBUS_STORE(Read,
-                          &Frontend->StoreInterface,
-                          NULL,
-                          __FrontendGetPath(Frontend),
-                          "backend",
-                   &Path);
-    if (!NT_SUCCESS(status))
-        goto fail1;
-
-    State = XenbusStateInitialising;
-    status = FrontendWaitForStateChange(Frontend, Path, &State);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
-    while (State != XenbusStateClosing &&
-           State != XenbusStateClosed &&
-           State != XenbusStateUnknown) {
-        (VOID) XENBUS_STORE(Printf,
-                            &Frontend->StoreInterface,
-                            NULL,
-                            __FrontendGetPath(Frontend),
-                            "state",
-                            "%u",
-                            XenbusStateClosing);
-        status = FrontendWaitForStateChange(Frontend, Path, &State);
-        if (!NT_SUCCESS(status))
-            goto fail2;
-    }
-
-    while (State != XenbusStateClosed &&
-           State != XenbusStateUnknown) {
-        (VOID) XENBUS_STORE(Printf,
-                            &Frontend->StoreInterface,
-                            NULL,
-                            __FrontendGetPath(Frontend),
-                            "state",
-                            "%u",
-                            XenbusStateClosed);
-        status = FrontendWaitForStateChange(Frontend, Path, &State);
-        if (!NT_SUCCESS(status))
-            goto fail3;
-    }
-
-    XENBUS_STORE(Free,
-                 &Frontend->StoreInterface,
-                 Path);
-
-done:
-    XENBUS_STORE(Release, &Frontend->StoreInterface);
-
-    Trace("<====\n");
-    return STATUS_SUCCESS;
-
-fail3:
-    Error("fail3\n");
-
-fail2:
-    Error("fail2\n");
-
-    XENBUS_STORE(Free,
-                 &Frontend->StoreInterface,
-                 Path);
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-
-    XENBUS_STORE(Release, &Frontend->StoreInterface);
-
-    return status;
-}
-
-static NTSTATUS
-FrontendPrepare(
+static VOID
+FrontendSetOnline(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
-    PCHAR                   Path;
-    XenbusState             State;
+    Trace("====>\n");
+
+    Frontend->Online = TRUE;
+
+    Trace("<====\n");
+}
+
+static VOID
+FrontendSetOffline(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    Trace("====>\n");
+
+    Frontend->Online = FALSE;
+    PdoRequestEject(__FrontendGetPdo(Frontend));
+
+    Trace("<====\n");
+}
+
+static VOID
+FrontendSetXenbusState(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  XenbusState         State
+    )
+{
+    BOOLEAN                 Online;
+
+    Trace("%s: ====> %s\n",
+          __FrontendGetPath(Frontend),
+          XenbusStateName(State));
+
+    ASSERT(FrontendIsOnline(Frontend));
+
+    Online = !PdoIsEjectRequested(__FrontendGetPdo(Frontend)) &&
+             FrontendIsBackendOnline(Frontend);
+
+    (VOID) XENBUS_STORE(Printf,
+                        &Frontend->StoreInterface,
+                        NULL,
+                        __FrontendGetPath(Frontend),
+                        "state",
+                        "%u",
+                        State);
+
+    if (State == XenbusStateClosed && !Online)
+        FrontendSetOffline(Frontend);
+
+    Trace("%s: <==== %s\n",
+          __FrontendGetPath(Frontend),
+          XenbusStateName(State));
+}
+
+static NTSTATUS
+FrontendAcquireBackend(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
     PCHAR                   Buffer;
     NTSTATUS                status;
 
-    Trace("====>\n");
-
-    status = XENBUS_STORE(Acquire, &Frontend->StoreInterface);
-    if (!NT_SUCCESS(status))
-        goto fail1;
+    Trace("=====>\n");
 
     status = XENBUS_STORE(Read,
                           &Frontend->StoreInterface,
                           NULL,
                           __FrontendGetPath(Frontend),
                           "backend",
-                          &Path);
+                          &Buffer);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail1;
 
-    State = XenbusStateUnknown;
-    status = FrontendWaitForStateChange(Frontend, Path, &State);
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
-    while (State == XenbusStateConnected) {
-        (VOID) XENBUS_STORE(Printf,
-                            &Frontend->StoreInterface,
-                            NULL,
-                            __FrontendGetPath(Frontend),
-                            "state",
-                            "%u",
-                            XenbusStateClosing);
-        status = FrontendWaitForStateChange(Frontend, Path, &State);
-        if (!NT_SUCCESS(status))
-            goto fail4;
-    }
-
-    while (State == XenbusStateClosing) {
-        (VOID) XENBUS_STORE(Printf,
-                            &Frontend->StoreInterface,
-                            NULL,
-                            __FrontendGetPath(Frontend),
-                            "state",
-                            "%u",
-                            XenbusStateClosed);
-        status = FrontendWaitForStateChange(Frontend, Path, &State);
-        if (!NT_SUCCESS(status))
-            goto fail5;
-    }
-
-    while (State != XenbusStateClosed &&
-           State != XenbusStateInitialising &&
-           State != XenbusStateInitWait &&
-           State != XenbusStateUnknown) {
-        status = FrontendWaitForStateChange(Frontend, Path, &State);
-        if (!NT_SUCCESS(status))
-            goto fail6;
-    }
-
-    status = STATUS_UNSUCCESSFUL;
-    if (State == XenbusStateUnknown)
-        goto fail7;
-
-    status = XENBUS_STORE(Printf,
-                          &Frontend->StoreInterface,
-                          NULL,
-                          __FrontendGetPath(Frontend),
-                          "state",
-                          "%u",
-                          XenbusStateInitialising);
-    if (!NT_SUCCESS(status))
-        goto fail8;
-
-    while (State == XenbusStateClosed ||
-           State == XenbusStateInitialising) {
-        status = FrontendWaitForStateChange(Frontend, Path, &State);
-        if (!NT_SUCCESS(status))
-            goto fail9;
-    }
-
-    status = STATUS_UNSUCCESSFUL;
-    if (State != XenbusStateInitWait)
-        goto fail10;
-
-    Frontend->BackendPath = Path;
+    Frontend->BackendPath = Buffer;
 
     status = XENBUS_STORE(Read,
                           &Frontend->StoreInterface,
@@ -1193,6 +937,241 @@ FrontendPrepare(
                      Buffer);
     }
 
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    Trace("<====\n");
+    return status;
+}
+
+static VOID
+FrontendWaitForBackendXenbusStateChange(
+    IN      PXENVIF_FRONTEND    Frontend,
+    IN OUT  XenbusState         *State
+    )
+{
+    KEVENT                      Event;
+    PXENBUS_STORE_WATCH         Watch;
+    LARGE_INTEGER               Start;
+    ULONGLONG                   TimeDelta;
+    LARGE_INTEGER               Timeout;
+    XenbusState                 Old = *State;
+    NTSTATUS                    status;
+
+    Trace("%s: ====> %s\n",
+          __FrontendGetBackendPath(Frontend),
+          XenbusStateName(*State));
+
+    ASSERT(FrontendIsOnline(Frontend));
+
+    KeInitializeEvent(&Event, NotificationEvent, FALSE);
+
+    status = XENBUS_STORE(WatchAdd,
+                          &Frontend->StoreInterface,
+                          __FrontendGetBackendPath(Frontend),
+                          "state",
+                          &Event,
+                          &Watch);
+    if (!NT_SUCCESS(status))
+        Watch = NULL;
+
+    KeQuerySystemTime(&Start);
+    TimeDelta = 0;
+
+    Timeout.QuadPart = 0;
+
+    while (*State == Old && TimeDelta < 120000) {
+        PCHAR           Buffer;
+        LARGE_INTEGER   Now;
+
+        if (Watch != NULL) {
+            ULONG   Attempt = 0;
+
+            while (++Attempt < 1000) {
+                status = KeWaitForSingleObject(&Event,
+                                               Executive,
+                                               KernelMode,
+                                               FALSE,
+                                               &Timeout);
+                if (status != STATUS_TIMEOUT)
+                    break;
+
+                // We are waiting for a watch event at DISPATCH_LEVEL so
+                // it is our responsibility to poll the store ring.
+                XENBUS_STORE(Poll,
+                             &Frontend->StoreInterface);
+
+                KeStallExecutionProcessor(1000);   // 1ms
+            }
+
+            KeClearEvent(&Event);
+        }
+
+        status = XENBUS_STORE(Read,
+                              &Frontend->StoreInterface,
+                              NULL,
+                              __FrontendGetBackendPath(Frontend),
+                              "state",
+                              &Buffer);
+        if (!NT_SUCCESS(status)) {
+            *State = XenbusStateUnknown;
+        } else {
+            *State = (XenbusState)strtol(Buffer, NULL, 10);
+
+            XENBUS_STORE(Free,
+                         &Frontend->StoreInterface,
+                         Buffer);
+        }
+
+        KeQuerySystemTime(&Now);
+
+        TimeDelta = (Now.QuadPart - Start.QuadPart) / 10000ull;
+    }
+
+    if (Watch != NULL)
+        (VOID) XENBUS_STORE(WatchRemove,
+                            &Frontend->StoreInterface,
+                            Watch);
+
+    Trace("%s: <==== (%s)\n",
+          __FrontendGetBackendPath(Frontend),
+          XenbusStateName(*State));
+}
+
+static VOID
+FrontendReleaseBackend(
+    IN      PXENVIF_FRONTEND    Frontend
+    )
+{
+    Trace("=====>\n");
+
+    ASSERT(Frontend->BackendDomain != DOMID_INVALID);
+    ASSERT(Frontend->BackendPath != NULL);
+
+    Frontend->BackendDomain = DOMID_INVALID;
+
+    XENBUS_STORE(Free,
+                 &Frontend->StoreInterface,
+                 Frontend->BackendPath);
+    Frontend->BackendPath = NULL;
+
+    Trace("<=====\n");
+}
+
+static VOID
+FrontendClose(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    XenbusState             State;
+
+    Trace("====> %s\n");
+
+    ASSERT(Frontend->Watch != NULL);
+    (VOID) XENBUS_STORE(WatchRemove,
+                        &Frontend->StoreInterface,
+                        Frontend->Watch);
+    Frontend->Watch = NULL;
+
+    State = XenbusStateUnknown;
+    while (State != XenbusStateClosed) {
+        if (!FrontendIsOnline(Frontend))
+            break;
+
+        FrontendWaitForBackendXenbusStateChange(Frontend,
+                                                &State);
+
+        switch (State) {
+        case XenbusStateUnknown:
+            FrontendSetOffline(Frontend);
+            break;
+
+        case XenbusStateConnected:
+        case XenbusStateInitWait:
+            FrontendSetXenbusState(Frontend,
+                                   XenbusStateClosing);
+            break;
+
+        case XenbusStateClosing:
+            FrontendSetXenbusState(Frontend,
+                                   XenbusStateClosed);
+            break;
+
+        case XenbusStateClosed:
+            break;
+
+        default:
+            ASSERT(FALSE);
+            break;
+        }
+    }
+
+    FrontendReleaseBackend(Frontend);
+
+    XENBUS_STORE(Release, &Frontend->StoreInterface);
+
+    Trace("<====\n");
+}
+
+static NTSTATUS
+FrontendPrepare(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    XenbusState             State;
+    NTSTATUS                status;
+
+    Trace("====>\n");
+
+    status = XENBUS_STORE(Acquire, &Frontend->StoreInterface);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    FrontendSetOnline(Frontend);
+
+    status = FrontendAcquireBackend(Frontend);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    State = XenbusStateUnknown;
+    while (State != XenbusStateInitWait) {
+        if (!FrontendIsOnline(Frontend))
+            break;
+
+        FrontendWaitForBackendXenbusStateChange(Frontend,
+                                                &State);
+
+        status = STATUS_SUCCESS;
+        switch (State) {
+        case XenbusStateUnknown:
+            FrontendSetOffline(Frontend);
+            break;
+
+        case XenbusStateClosed:
+            FrontendSetXenbusState(Frontend,
+                                   XenbusStateInitialising);
+            break;
+
+        case XenbusStateClosing:
+            FrontendSetXenbusState(Frontend,
+                                   XenbusStateClosed);
+            break;
+
+        case XenbusStateInitWait:
+            break;
+
+        default:
+            ASSERT(FALSE);
+            break;
+        }
+    }
+
+    status = STATUS_UNSUCCESSFUL;
+    if (State != XenbusStateInitWait)
+        goto fail3;
+
     status = XENBUS_STORE(WatchAdd,
                           &Frontend->StoreInterface,
                           __FrontendGetBackendPath(Frontend),
@@ -1200,34 +1179,10 @@ FrontendPrepare(
                           ThreadGetEvent(Frontend->EjectThread),
                           &Frontend->Watch);
     if (!NT_SUCCESS(status))
-        goto fail11;
+        goto fail4;
 
     Trace("<====\n");
     return STATUS_SUCCESS;
-
-fail11:
-    Error("fail11\n");
-
-    Frontend->BackendDomain = DOMID_INVALID;
-    Frontend->BackendPath = NULL;
-
-fail10:
-    Error("fail10\n");
-
-fail9:
-    Error("fail9\n");
-
-fail8:
-    Error("fail8\n");
-
-fail7:
-    Error("fail7\n");
-
-fail6:
-    Error("fail6\n");
-
-fail5:
-    Error("fail5\n");
 
 fail4:
     Error("fail4\n");
@@ -1235,11 +1190,12 @@ fail4:
 fail3:
     Error("fail3\n");
 
-    XENBUS_STORE(Free,
-                 &Frontend->StoreInterface,
-                 Path);
+    FrontendReleaseBackend(Frontend);
+
 fail2:
     Error("fail2\n");
+
+    FrontendSetOffline(Frontend);
 
     XENBUS_STORE(Release, &Frontend->StoreInterface);
 
@@ -1423,7 +1379,6 @@ FrontendConnect(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
-    PCHAR                   Path = __FrontendGetBackendPath(Frontend);
     XenbusState             State;
     ULONG                   Attempt;
     NTSTATUS                status;
@@ -1514,35 +1469,48 @@ abort:
     if (!NT_SUCCESS(status))
         goto fail7;
 
-    status = XENBUS_STORE(Printf,
-                          &Frontend->StoreInterface,
-                          NULL,
-                          __FrontendGetPath(Frontend),
-                          "state",
-                          "%u",
-                          XenbusStateConnected);
-    if (!NT_SUCCESS(status))
-        goto fail8;
+    State = XenbusStateUnknown;
+    while (State != XenbusStateConnected) {
+        if (!FrontendIsOnline(Frontend))
+            break;
 
-    State = XenbusStateInitWait;
-    status = FrontendWaitForStateChange(Frontend, Path, &State);
-    if (!NT_SUCCESS(status))
-        goto fail9;
+        FrontendWaitForBackendXenbusStateChange(Frontend,
+                                                &State);
+
+        status = STATUS_SUCCESS;
+        switch (State) {
+        case XenbusStateUnknown:
+            FrontendSetOffline(Frontend);
+            break;
+
+        case XenbusStateInitWait:
+        case XenbusStateInitialised:
+            FrontendSetXenbusState(Frontend,
+                                   XenbusStateConnected);
+            break;
+
+        case XenbusStateClosing:
+            FrontendSetXenbusState(Frontend,
+                                   XenbusStateClosed);
+            break;
+
+        case XenbusStateConnected:
+            break;
+
+        default:
+            ASSERT(FALSE);
+            break;
+        }
+    }
 
     status = STATUS_UNSUCCESSFUL;
     if (State != XenbusStateConnected)
-        goto fail10;
+        goto fail8;
 
     ThreadWake(Frontend->MibThread);
 
     Trace("<====\n");
     return STATUS_SUCCESS;
-
-fail10:
-    Error("fail10\n");
-
-fail9:
-    Error("fail9\n");
 
 fail8:
     Error("fail8\n");
@@ -1693,8 +1661,9 @@ FrontendSetState(
         NTSTATUS    status;
 
         switch (Frontend->State) {
-        case FRONTEND_CLOSED:
+        case FRONTEND_UNKNOWN:
             switch (State) {
+            case FRONTEND_CLOSED:
             case FRONTEND_PREPARED:
             case FRONTEND_CONNECTED:
             case FRONTEND_ENABLED:
@@ -1712,6 +1681,29 @@ FrontendSetState(
             }
             break;
 
+        case FRONTEND_CLOSED:
+            switch (State) {
+            case FRONTEND_PREPARED:
+            case FRONTEND_CONNECTED:
+            case FRONTEND_ENABLED:
+                status = FrontendPrepare(Frontend);
+                if (NT_SUCCESS(status)) {
+                    Frontend->State = FRONTEND_PREPARED;
+                } else {
+                    Failed = TRUE;
+                }
+                break;
+
+            case FRONTEND_UNKNOWN:
+                Frontend->State = FRONTEND_UNKNOWN;
+                break;
+
+            default:
+                ASSERT(FALSE);
+                break;
+            }
+            break;
+
         case FRONTEND_PREPARED:
             switch (State) {
             case FRONTEND_CONNECTED:
@@ -1720,25 +1712,17 @@ FrontendSetState(
                 if (NT_SUCCESS(status)) {
                     Frontend->State = FRONTEND_CONNECTED;
                 } else {
-                    status = FrontendClose(Frontend, FALSE);
-                    if (NT_SUCCESS(status))
-                        Frontend->State = FRONTEND_CLOSED;
-                    else
-                        Frontend->State = FRONTEND_STATE_INVALID;
+                    FrontendClose(Frontend);
+                    Frontend->State = FRONTEND_CLOSED;
 
                     Failed = TRUE;
                 }
                 break;
 
             case FRONTEND_CLOSED:
-                status = FrontendClose(Frontend, FALSE);
-                if (NT_SUCCESS(status)) {
-                    Frontend->State = FRONTEND_CLOSED;
-                } else {
-                    Frontend->State = FRONTEND_STATE_INVALID;
-                    Failed = TRUE;
-                }
-
+            case FRONTEND_UNKNOWN:
+                FrontendClose(Frontend);
+                Frontend->State = FRONTEND_CLOSED;
                 break;
 
             default:
@@ -1754,11 +1738,8 @@ FrontendSetState(
                 if (NT_SUCCESS(status)) {
                     Frontend->State = FRONTEND_ENABLED;
                 } else {
-                    status = FrontendClose(Frontend, FALSE);
-                    if (NT_SUCCESS(status))
-                        Frontend->State = FRONTEND_CLOSED;
-                    else
-                        Frontend->State = FRONTEND_STATE_INVALID;
+                    FrontendClose(Frontend);
+                    Frontend->State = FRONTEND_CLOSED;
 
                     FrontendDisconnect(Frontend);
                     Failed = TRUE;
@@ -1767,16 +1748,11 @@ FrontendSetState(
 
             case FRONTEND_PREPARED:
             case FRONTEND_CLOSED:
-                status = FrontendClose(Frontend, FALSE);
-                if (NT_SUCCESS(status)) {
-                    Frontend->State = FRONTEND_CLOSED;
-                } else {
-                    Frontend->State = FRONTEND_STATE_INVALID;
-                    Failed = TRUE;
-                }
+            case FRONTEND_UNKNOWN:
+                FrontendClose(Frontend);
+                Frontend->State = FRONTEND_CLOSED;
 
                 FrontendDisconnect(Frontend);
-
                 break;
 
             default:
@@ -1790,6 +1766,7 @@ FrontendSetState(
             case FRONTEND_CONNECTED:
             case FRONTEND_PREPARED:
             case FRONTEND_CLOSED:
+            case FRONTEND_UNKNOWN:
                 FrontendDisable(Frontend);
                 Frontend->State = FRONTEND_CONNECTED;
                 break;
@@ -1798,10 +1775,6 @@ FrontendSetState(
                 ASSERT(FALSE);
                 break;
             }
-            break;
-
-        case FRONTEND_STATE_INVALID:
-            Failed = TRUE;
             break;
 
         default:
@@ -1821,34 +1794,15 @@ FrontendSetState(
     return (!Failed) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }
 
-static FORCEINLINE NTSTATUS
+static FORCEINLINE VOID
 __FrontendResume(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
-    NTSTATUS                status;
-
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
 
-    status = FrontendSetState(Frontend, FRONTEND_PREPARED);
-    if (!NT_SUCCESS(status))
-        goto fail1;
-
-    status = FrontendSetState(Frontend, FRONTEND_CLOSED);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
-    return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
-
-    Frontend->State = FRONTEND_CLOSED;
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-
-    return status;
+    ASSERT3U(Frontend->State, ==, FRONTEND_UNKNOWN);
+    (VOID) FrontendSetState(Frontend, FRONTEND_CLOSED);
 }
 
 static FORCEINLINE VOID
@@ -1856,9 +1810,9 @@ __FrontendSuspend(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
-    UNREFERENCED_PARAMETER(Frontend);
-
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+    (VOID) FrontendSetState(Frontend, FRONTEND_UNKNOWN);
 }
 
 static DECLSPEC_NOINLINE VOID
@@ -1867,12 +1821,9 @@ FrontendSuspendCallbackLate(
     )
 {
     PXENVIF_FRONTEND    Frontend = Argument;
-    NTSTATUS            status;
 
     __FrontendSuspend(Frontend);
-
-    status = __FrontendResume(Frontend);
-    ASSERT(NT_SUCCESS(status));
+    __FrontendResume(Frontend);
 }
 
 NTSTATUS
@@ -1891,9 +1842,7 @@ FrontendResume(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = __FrontendResume(Frontend);
-    if (!NT_SUCCESS(status))
-        goto fail2;
+    __FrontendResume(Frontend);
 
     status = XENBUS_SUSPEND(Register,
                             &Frontend->SuspendInterface,
@@ -1902,21 +1851,29 @@ FrontendResume(
                             Frontend,
                             &Frontend->SuspendCallbackLate);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail2;
 
     KeLowerIrql(Irql);
+
+    KeClearEvent(&Frontend->EjectEvent);
+    ThreadWake(Frontend->EjectThread);
+
+    Trace("waiting for eject thread\n");
+
+    (VOID) KeWaitForSingleObject(&Frontend->EjectEvent,
+                                 Executive,
+                                 KernelMode,
+                                 FALSE,
+                                 NULL);
 
     Trace("<====\n");
 
     return STATUS_SUCCESS;
     
-fail3:
-    Error("fail3\n");
-
-    __FrontendSuspend(Frontend);
-
 fail2:
     Error("fail2\n");
+
+    __FrontendSuspend(Frontend);
 
     XENBUS_SUSPEND(Release, &Frontend->SuspendInterface);
 
@@ -1949,6 +1906,17 @@ FrontendSuspend(
     XENBUS_SUSPEND(Release, &Frontend->SuspendInterface);
 
     KeLowerIrql(Irql);
+
+    KeClearEvent(&Frontend->EjectEvent);
+    ThreadWake(Frontend->EjectThread);
+
+    Trace("waiting for eject thread\n");
+
+    (VOID) KeWaitForSingleObject(&Frontend->EjectEvent,
+                                 Executive,
+                                 KernelMode,
+                                 FALSE,
+                                 NULL);
 
     Trace("<====\n");
 }
@@ -2012,7 +1980,7 @@ FrontendInitialize(
 
     KeInitializeSpinLock(&(*Frontend)->Lock);
 
-    (*Frontend)->State = FRONTEND_CLOSED;
+    (*Frontend)->Online = TRUE;
 
     FdoGetDebugInterface(PdoGetFdo(Pdo), &(*Frontend)->DebugInterface);
     FdoGetSuspendInterface(PdoGetFdo(Pdo), &(*Frontend)->SuspendInterface);
@@ -2031,6 +1999,8 @@ FrontendInitialize(
     status = TransmitterInitialize(*Frontend, &(*Frontend)->Transmitter);
     if (!NT_SUCCESS(status))
         goto fail8;
+
+    KeInitializeEvent(&(*Frontend)->EjectEvent, NotificationEvent, FALSE);
 
     status = ThreadCreate(FrontendEject, *Frontend, &(*Frontend)->EjectThread);
     if (!NT_SUCCESS(status))
@@ -2053,6 +2023,8 @@ fail10:
 
 fail9:
     Error("fail9\n");
+
+    RtlZeroMemory(&(*Frontend)->EjectEvent, sizeof (KEVENT));
 
     TransmitterTeardown(__FrontendGetTransmitter(*Frontend));
     (*Frontend)->Transmitter = NULL;
@@ -2083,7 +2055,7 @@ fail6:
     RtlZeroMemory(&(*Frontend)->DebugInterface,
                   sizeof (XENBUS_DEBUG_INTERFACE));
 
-    (*Frontend)->State = FRONTEND_STATE_INVALID;
+    (*Frontend)->Online = FALSE;
 
     RtlZeroMemory(&(*Frontend)->Lock, sizeof (KSPIN_LOCK));
 
@@ -2128,16 +2100,7 @@ FrontendTeardown(
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
-    ASSERT(Frontend->State != FRONTEND_ENABLED);
-    ASSERT(Frontend->State != FRONTEND_CONNECTED);
-
-    if (Frontend->State == FRONTEND_PREPARED) {
-        (VOID) FrontendClose(Frontend, TRUE);
-        Frontend->State = FRONTEND_CLOSED;
-    }
-
-    ASSERT(Frontend->State == FRONTEND_CLOSED ||
-           Frontend->State == FRONTEND_STATE_INVALID);
+    ASSERT(Frontend->State == FRONTEND_UNKNOWN);
 
     ThreadAlert(Frontend->MibThread);
     ThreadJoin(Frontend->MibThread);
@@ -2146,6 +2109,8 @@ FrontendTeardown(
     ThreadAlert(Frontend->EjectThread);
     ThreadJoin(Frontend->EjectThread);
     Frontend->EjectThread = NULL;
+
+    RtlZeroMemory(&Frontend->EjectEvent, sizeof (KEVENT));
 
     TransmitterTeardown(__FrontendGetTransmitter(Frontend));
     Frontend->Transmitter = NULL;
@@ -2167,7 +2132,7 @@ FrontendTeardown(
     RtlZeroMemory(&Frontend->DebugInterface,
                   sizeof (XENBUS_DEBUG_INTERFACE));
 
-    Frontend->State = FRONTEND_STATE_INVALID;
+    Frontend->Online = FALSE;
 
     RtlZeroMemory(&Frontend->Lock, sizeof (KSPIN_LOCK));
 

@@ -70,8 +70,7 @@ struct _XENVIF_PDO {
     PXENVIF_FDO                 Fdo;
     BOOLEAN                     Missing;
     const CHAR                  *Reason;
-    BOOLEAN                     EjectRequested;
-    KSPIN_LOCK                  EjectLock;
+    LONG                        Eject;
 
     UNICODE_STRING              ContainerID;
 
@@ -241,55 +240,20 @@ PdoIsMissing(
     return __PdoIsMissing(Pdo);
 }
 
-static FORCEINLINE VOID
-__PdoSetEjectRequested(
+static FORCEINLINE PXENVIF_FDO
+__PdoGetFdo(
     IN  PXENVIF_PDO Pdo
     )
 {
-    KIRQL           Irql;
-
-    KeAcquireSpinLock(&Pdo->EjectLock, &Irql);
-    Pdo->EjectRequested = TRUE;
-    KeReleaseSpinLock(&Pdo->EjectLock, Irql);
+    return Pdo->Fdo;
 }
 
-static FORCEINLINE BOOLEAN
-__PdoClearEjectRequested(
+PXENVIF_FDO
+PdoGetFdo(
     IN  PXENVIF_PDO Pdo
     )
 {
-    KIRQL           Irql;
-    BOOLEAN         EjectRequested;
-
-    KeAcquireSpinLock(&Pdo->EjectLock, &Irql);
-    EjectRequested = Pdo->EjectRequested;
-    Pdo->EjectRequested = FALSE;
-    KeReleaseSpinLock(&Pdo->EjectLock, Irql);
-
-    return EjectRequested;
-}
-
-static FORCEINLINE BOOLEAN
-__PdoIsEjectRequested(
-    IN  PXENVIF_PDO Pdo
-    )
-{
-    KIRQL           Irql;
-    BOOLEAN         EjectRequested;
-
-    KeAcquireSpinLock(&Pdo->EjectLock, &Irql);
-    EjectRequested = Pdo->EjectRequested;
-    KeReleaseSpinLock(&Pdo->EjectLock, Irql);
-
-    return EjectRequested;
-}
-
-BOOLEAN
-PdoIsEjectRequested(
-    IN  PXENVIF_PDO Pdo
-    )
-{
-    return __PdoIsEjectRequested(Pdo);
+    return __PdoGetFdo(Pdo);
 }
 
 static FORCEINLINE VOID
@@ -324,6 +288,59 @@ PdoGetName(
     )
 {
     return __PdoGetName(Pdo);
+}
+
+static FORCEINLINE BOOLEAN
+__PdoSetEjectRequested(
+    IN  PXENVIF_PDO Pdo
+    )
+{
+    return (InterlockedBitTestAndSet(&Pdo->Eject, 0) == 0) ? TRUE : FALSE;
+}
+
+VOID
+PdoRequestEject(
+    IN  PXENVIF_PDO Pdo
+    )
+{
+    PXENVIF_DX      Dx = Pdo->Dx;
+    PDEVICE_OBJECT  PhysicalDeviceObject = Dx->DeviceObject;
+    PXENVIF_FDO     Fdo = __PdoGetFdo(Pdo);
+
+    if (!__PdoSetEjectRequested(Pdo))
+        return;
+
+    Info("%p (%s)\n",
+         PhysicalDeviceObject,
+         __PdoGetName(Pdo));
+
+    IoInvalidateDeviceRelations(FdoGetPhysicalDeviceObject(Fdo),
+                                BusRelations);
+}
+
+static FORCEINLINE BOOLEAN
+__PdoClearEjectRequested(
+    IN  PXENVIF_PDO Pdo
+    )
+{
+    return (InterlockedBitTestAndReset(&Pdo->Eject, 0) != 0) ? TRUE : FALSE;
+}
+
+static FORCEINLINE BOOLEAN
+__PdoIsEjectRequested(
+    IN  PXENVIF_PDO Pdo
+    )
+{
+    KeMemoryBarrier();
+    return (Pdo->Eject & 1) ? TRUE : FALSE;
+}
+
+BOOLEAN
+PdoIsEjectRequested(
+    IN  PXENVIF_PDO Pdo
+    )
+{
+    return __PdoIsEjectRequested(Pdo);
 }
 
 // {2A597D5E-8864-4428-A110-F568F316D4E4}
@@ -510,22 +527,6 @@ fail1:
 }
 
 #define MAXTEXTLEN  1024
-
-static FORCEINLINE PXENVIF_FDO
-__PdoGetFdo(
-    IN  PXENVIF_PDO Pdo
-    )
-{
-    return Pdo->Fdo;
-}
-
-PXENVIF_FDO
-PdoGetFdo(
-    IN  PXENVIF_PDO Pdo
-    )
-{
-    return __PdoGetFdo(Pdo);
-}
 
 static NTSTATUS
 PdoAddRevision(
@@ -1018,15 +1019,6 @@ PdoGetBusData(
                          Length);
 }
 
-VOID
-PdoRequestEject(
-    IN  PXENVIF_PDO Pdo
-    )
-{
-    __PdoSetEjectRequested(Pdo);
-    IoRequestDeviceEject(__PdoGetDeviceObject(Pdo));
-}
-
 static FORCEINLINE NTSTATUS
 __PdoD3ToD0(
     IN  PXENVIF_PDO             Pdo
@@ -1474,17 +1466,17 @@ done:
 
     FdoAcquireMutex(Fdo);
 
-    if (__PdoIsMissing(Pdo) ||
-        __PdoGetDevicePnpState(Pdo) == SurpriseRemovePending)
-        __PdoSetDevicePnpState(Pdo, Deleted);
-    else
-        __PdoSetDevicePnpState(Pdo, Enumerated);
-
     if (__PdoIsMissing(Pdo)) {
-        if (__PdoGetDevicePnpState(Pdo) == Deleted)
+        DEVICE_PNP_STATE    State = __PdoGetDevicePnpState(Pdo);
+
+        __PdoSetDevicePnpState(Pdo, Deleted);
+
+        if (State == SurpriseRemovePending)
             PdoDestroy(Pdo);
         else
             NeedInvalidate = TRUE;
+    } else {
+        __PdoSetDevicePnpState(Pdo, Enumerated);
     }
 
     FdoReleaseMutex(Fdo);
@@ -2088,16 +2080,15 @@ PdoEject(
 
     Trace("%s\n", __PdoGetName(Pdo));
 
-    __PdoClearEjectRequested(Pdo);
-
     FdoAcquireMutex(Fdo);
 
     __PdoSetDevicePnpState(Pdo, Deleted);
     __PdoSetMissing(Pdo, "device ejected");
 
-    PdoDestroy(Pdo);
-
     FdoReleaseMutex(Fdo);
+
+    IoInvalidateDeviceRelations(FdoGetPhysicalDeviceObject(Fdo),
+                                BusRelations);
 
     status = STATUS_SUCCESS;
 
@@ -2648,11 +2639,13 @@ PdoCreate(
 
     Dx->Pdo = Pdo;
 
-    KeInitializeSpinLock(&Pdo->EjectLock);
-
     status = FdoAddPhysicalDeviceObject(Fdo, Pdo);
     if (!NT_SUCCESS(status))
         goto fail11;
+
+    status = STATUS_UNSUCCESSFUL;
+    if (__PdoIsEjectRequested(Pdo))
+        goto fail12;
 
     for (Index = 0; Index < Pdo->Count; Index++) {
         Info("%p (%s %08X)\n",
@@ -2664,11 +2657,15 @@ PdoCreate(
     PhysicalDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
     return STATUS_SUCCESS;
 
+fail12:
+    Error("fail12\n");
+
+    FdoRemovePhysicalDeviceObject(Fdo, Pdo);
+
 fail11:
     Error("fail11\n");
 
     (VOID) __PdoClearEjectRequested(Pdo);
-    RtlZeroMemory(&Pdo->EjectLock, sizeof (KSPIN_LOCK));
 
     Dx->Pdo = NULL;
 
@@ -2771,7 +2768,6 @@ PdoDestroy(
     FdoRemovePhysicalDeviceObject(Fdo, Pdo);
 
     (VOID) __PdoClearEjectRequested(Pdo);
-    RtlZeroMemory(&Pdo->EjectLock, sizeof (KSPIN_LOCK));
 
     Dx->Pdo = NULL;
 

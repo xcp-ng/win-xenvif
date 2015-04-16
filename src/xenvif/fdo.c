@@ -766,20 +766,22 @@ __FdoEnumerate(
             }
         }
 
-        if (Missing &&
-            !PdoIsMissing(Pdo) &&
-            !PdoIsEjectRequested(Pdo) &&
-            PdoGetDevicePnpState(Pdo) != Deleted) {
-            PdoSetMissing(Pdo, "device disappeared");
+        if (!PdoIsMissing(Pdo) && PdoGetDevicePnpState(Pdo) != Deleted) {
+            if (PdoIsEjectRequested(Pdo)) {
+                IoRequestDeviceEject(PdoGetDeviceObject(Pdo));
+            } else if (Missing) {
+                PdoSetMissing(Pdo, "device disappeared");
 
-            // If the PDO has not yet been enumerated then we can go ahead
-            // and mark it as deleted, otherwise we need to notify PnP manager and
-            // wait for the REMOVE_DEVICE IRP.
-            if (PdoGetDevicePnpState(Pdo) == Present) {
-                PdoSetDevicePnpState(Pdo, Deleted);
-                PdoDestroy(Pdo);
-            } else {
-                NeedInvalidate = TRUE;
+                // If the PDO has not yet been enumerated then we can
+                // go ahead and mark it as deleted, otherwise we need
+                // to notify PnP manager and wait for the REMOVE_DEVICE
+                // IRP.
+                if (PdoGetDevicePnpState(Pdo) == Present) {
+                    PdoSetDevicePnpState(Pdo, Deleted);
+                    PdoDestroy(Pdo);
+                } else {
+                    NeedInvalidate = TRUE;
+                }
             }
         }
 
@@ -1611,6 +1613,11 @@ FdoQueryDeviceRelations(
         goto done;
     }
 
+    KeClearEvent(&Fdo->ScanEvent);
+    ThreadWake(Fdo->ScanThread);
+
+    Trace("waiting for scan thread\n");
+
     (VOID) KeWaitForSingleObject(&Fdo->ScanEvent,
                                  Executive,
                                  KernelMode,
@@ -1642,10 +1649,6 @@ FdoQueryDeviceRelations(
         PXENVIF_PDO Pdo = Dx->Pdo;
 
         ASSERT3U(Dx->Type, ==, PHYSICAL_DEVICE_OBJECT);
-
-        if (PdoGetDevicePnpState(Pdo) == Deleted &&
-            !PdoIsMissing(Pdo))
-            PdoSetMissing(Pdo, "surprise remove");
 
         if (PdoIsMissing(Pdo))
             continue;

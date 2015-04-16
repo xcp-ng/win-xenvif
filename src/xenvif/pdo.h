@@ -61,6 +61,11 @@ PdoIsMissing(
     IN  PXENVIF_PDO Pdo
     );
 
+extern VOID
+PdoRequestEject(
+    IN  PXENVIF_PDO Pdo
+    );
+
 extern BOOLEAN
 PdoIsEjectRequested(
     IN  PXENVIF_PDO Pdo
@@ -200,11 +205,6 @@ PdoGetSuspendInterface(
 
 extern PXENVIF_VIF_INTERFACE
 PdoGetVifInterface(
-    IN  PXENVIF_PDO Pdo
-    );
-
-extern VOID
-PdoRequestEject(
     IN  PXENVIF_PDO Pdo
     );
 
