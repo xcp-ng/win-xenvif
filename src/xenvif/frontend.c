@@ -1067,7 +1067,7 @@ FrontendClose(
 {
     XenbusState             State;
 
-    Trace("====> %s\n");
+    Trace("====>\n");
 
     ASSERT(Frontend->Watch != NULL);
     (VOID) XENBUS_STORE(WatchRemove,
