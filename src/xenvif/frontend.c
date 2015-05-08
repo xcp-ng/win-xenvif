@@ -1821,6 +1821,12 @@ FrontendSuspendCallbackLate(
     )
 {
     PXENVIF_FRONTEND    Frontend = Argument;
+    NTSTATUS            status;
+
+    FrontendReleaseBackend(Frontend);
+
+    status = FrontendAcquireBackend(Frontend);
+    ASSERT(NT_SUCCESS(status));
 
     __FrontendSuspend(Frontend);
     __FrontendResume(Frontend);
