@@ -2683,11 +2683,10 @@ TransmitterRingDpc(
     ASSERT(Ring != NULL);
 
     Transmitter = Ring->Transmitter;
+    ASSERT(Transmitter->Split);
 
-    if (Ring->Enabled) {
-        ASSERT(Transmitter->Split);
+    if (Ring->Enabled)
         __TransmitterRingNotify(Ring);
-    }
 
     __TransmitterRingUnmask(Ring);
 }
@@ -2696,15 +2695,19 @@ KSERVICE_ROUTINE    TransmitterRingEvtchnCallback;
 
 BOOLEAN
 TransmitterRingEvtchnCallback(
-    IN  PKINTERRUPT         InterruptObject,
-    IN  PVOID               Argument
+    IN  PKINTERRUPT             InterruptObject,
+    IN  PVOID                   Argument
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Argument;
+    PXENVIF_TRANSMITTER         Transmitter;
 
     UNREFERENCED_PARAMETER(InterruptObject);
 
     ASSERT(Ring != NULL);
+
+    Transmitter = Ring->Transmitter;
+    ASSERT(Transmitter->Split);
 
     Ring->Events++;
 
@@ -3256,12 +3259,17 @@ __TransmitterRingEnable(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
 {
+    PXENVIF_TRANSMITTER             Transmitter;
+
+    Transmitter = Ring->Transmitter;
+
     __TransmitterRingAcquireLock(Ring);
 
     ASSERT(!Ring->Enabled);
     Ring->Enabled = TRUE;
 
-    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
+    if (Transmitter->Split &&
+        KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
         Ring->Dpcs++;
 
     __TransmitterRingReleaseLock(Ring);
