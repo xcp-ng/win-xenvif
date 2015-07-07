@@ -53,6 +53,7 @@
 #include "registry.h"
 #include "thread.h"
 #include "link.h"
+#include "settings.h"
 #include "dbg_print.h"
 #include "assert.h"
 #include "util.h"
@@ -1071,6 +1072,51 @@ PdoS3ToS4(
     Trace("(%s) <====\n", __PdoGetName(Pdo));
 }
 
+static NTSTATUS
+PdoGetInterfaceGuid(
+    IN  PXENVIF_PDO Pdo,
+    IN  HANDLE      Key,
+    OUT LPGUID      Guid
+    )
+{
+    PANSI_STRING    Ansi;
+    UNICODE_STRING  Unicode;
+    NTSTATUS        status;
+
+    UNREFERENCED_PARAMETER(Pdo);
+
+    status = RegistryQuerySzValue(Key,
+                                  "NetCfgInstanceId",
+                                  &Ansi);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = RtlAnsiStringToUnicodeString(&Unicode, &Ansi[0], TRUE);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = RtlGUIDFromString(&Unicode, Guid);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    return STATUS_SUCCESS;
+
+fail3:
+    Error("fail3\n");
+
+    RtlFreeUnicodeString(&Unicode);
+
+fail2:
+    Error("fail2\n");
+
+    RegistryFreeSzValue(Ansi);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
 static DECLSPEC_NOINLINE NTSTATUS
 PdoStartDevice(
     IN  PXENVIF_PDO     Pdo,
@@ -1081,8 +1127,10 @@ PdoStartDevice(
     VOID                (*__FreeMibTable)(PVOID);
     PMIB_IF_TABLE2      Table;
     ULONG               Index;
+    PMIB_IF_ROW2        Row;
     PIO_STACK_LOCATION  StackLocation;
     HANDLE              Key;
+    GUID                Guid;
     NTSTATUS            status;
 
     status = STATUS_UNSUCCESSFUL;
@@ -1115,8 +1163,13 @@ PdoStartDevice(
     if (!NT_SUCCESS(status))
         goto fail6;
 
+    //
+    // Look for a network interface with the same permanent address
+    // that is already up. If there is one then it must be an
+    // aliasing emulated device, so save its settings.
+    //
     for (Index = 0; Index < Table->NumEntries; Index++) {
-        PMIB_IF_ROW2    Row = &Table->Table[Index];
+        Row = &Table->Table[Index];
 
         if (!(Row->InterfaceAndOperStatusFlags.HardwareInterface) ||
             !(Row->InterfaceAndOperStatusFlags.ConnectorPresent))
@@ -1128,11 +1181,34 @@ PdoStartDevice(
         if (Row->PhysicalAddressLength != sizeof (ETHERNET_ADDRESS))
             continue;
 
-        status = STATUS_UNSUCCESSFUL;
         if (memcmp(Row->PermanentPhysicalAddress,
                    __PdoGetPermanentAddress(Pdo),
-                   sizeof (ETHERNET_ADDRESS)) == 0)
-            goto fail7;
+                   sizeof (ETHERNET_ADDRESS)) != 0)
+            continue;
+
+        status = STATUS_UNSUCCESSFUL;
+        goto fail7;
+    }
+
+    //
+    // If there is a stack bound then restore any settings that
+    // may have been saved from an aliasing emulated device.
+    //
+    status = PdoGetInterfaceGuid(Pdo, Key, &Guid);
+    if (NT_SUCCESS(status)) {
+        for (Index = 0; Index < Table->NumEntries; Index++) {
+            Row = &Table->Table[Index];
+
+            if (!IsEqualGUID(&Row->InterfaceGuid, &Guid))
+                continue;
+
+            (VOID) SettingsRestore(Key,
+                                   Row->Alias,
+                                   Row->Description,
+                                   &Row->InterfaceGuid,
+                                   &Row->InterfaceLuid);
+            break;
+        }
     }
 
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
@@ -1156,10 +1232,17 @@ fail8:
     Error("fail8\n");
 
     __FreeMibTable(Table);
+
     goto fail6;
 
 fail7:
     Error("fail7\n");
+
+    (VOID) SettingsSave(Key,
+                        Row->Alias,
+                        Row->Description,
+                        &Row->InterfaceGuid,
+                        &Row->InterfaceLuid);
 
     DriverRequestReboot();
     __FreeMibTable(Table);
