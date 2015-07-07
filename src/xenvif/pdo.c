@@ -682,42 +682,31 @@ PdoGetVifContext(
 
 static FORCEINLINE NTSTATUS
 __PdoSetLuid(
-    IN  PXENVIF_PDO Pdo
+    IN  PXENVIF_PDO Pdo,
+    IN  HANDLE      Key
     )
 {
-    HANDLE          Key;
     ULONG           IfType;
     ULONG           NetLuidIndex;
     NTSTATUS        status;
 
-    status = RegistryOpenSoftwareKey(__PdoGetDeviceObject(Pdo),
-                                     KEY_READ,
-                                     &Key);
+    status = RegistryQueryDwordValue(Key, "*IfType", &IfType);
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = RegistryQueryDwordValue(Key, "*IfType", &IfType);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
     status = RegistryQueryDwordValue(Key, "NetLuidIndex", &NetLuidIndex);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail2;
 
     Pdo->Luid.Info.IfType = IfType;
     Pdo->Luid.Info.NetLuidIndex = NetLuidIndex;
 
-    RegistryCloseKey(Key);
+    Info("%s: %016llX\n", __PdoGetName(Pdo), Pdo->Luid.Value);
 
     return STATUS_SUCCESS;
 
-fail3:
-    Error("fail3\n");
-
 fail2:
     Error("fail2\n");
-
-    RegistryCloseKey(Key);
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -834,22 +823,16 @@ PdoGetPermanentAddress(
 
 static FORCEINLINE NTSTATUS
 __PdoSetCurrentAddress(
-    IN  PXENVIF_PDO Pdo
+    IN  PXENVIF_PDO Pdo,
+    IN  HANDLE      Key
     )
 {
-    HANDLE          SoftwareKey;
     PANSI_STRING    Ansi;
     NTSTATUS        status;
 
-    status = RegistryOpenSoftwareKey(__PdoGetDeviceObject(Pdo),
-                                     KEY_READ,
-                                     &SoftwareKey);
-    if (!NT_SUCCESS(status))
-        goto fail1;
-
     RtlFillMemory(Pdo->CurrentAddress.Byte, ETHERNET_ADDRESS_LENGTH, 0xFF);
 
-    status = RegistryQuerySzValue(SoftwareKey,
+    status = RegistryQuerySzValue(Key,
                                   "NetworkAddress",
                                   &Ansi);
     if (!NT_SUCCESS(status))
@@ -857,26 +840,19 @@ __PdoSetCurrentAddress(
 
     status = __PdoParseAddress(Ansi[0].Buffer, &Pdo->CurrentAddress);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail1;
 
     Info("%s: %Z\n", __PdoGetName(Pdo), &Ansi[0]);
 
     RegistryFreeSzValue(Ansi);
 
 done:
-    RegistryCloseKey(SoftwareKey);
-
     return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
-
-    RegistryFreeSzValue(Ansi);
-
-    RegistryCloseKey(SoftwareKey);
 
 fail1:
     Error("fail1 (%08x)\n", status);
+
+    RegistryFreeSzValue(Ansi);
 
     return status;
 }
@@ -1168,23 +1144,38 @@ PdoStartDevice(
     PMIB_IF_TABLE2      Table;
     ULONG               Index;
     PIO_STACK_LOCATION  StackLocation;
+    HANDLE              Key;
     NTSTATUS            status;
+
+    status = RegistryOpenSoftwareKey(__PdoGetDeviceObject(Pdo),
+                                     KEY_ALL_ACCESS,
+                                     &Key);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = __PdoSetCurrentAddress(Pdo, Key);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = __PdoSetLuid(Pdo, Key);
+    if (!NT_SUCCESS(status))
+        goto fail3;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "GetIfTable2",
                                    (PVOID *)&__GetIfTable2);
     if (!NT_SUCCESS(status))
-        goto fail1;
+        goto fail4;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "FreeMibTable",
                                    (PVOID *)&__FreeMibTable);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail5;
 
     status = __GetIfTable2(&Table);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail6;
 
     for (Index = 0; Index < Table->NumEntries; Index++) {
         PMIB_IF_ROW2    Row = &Table->Table[Index];
@@ -1203,22 +1194,14 @@ PdoStartDevice(
         if (memcmp(Row->PhysicalAddress,
                    &Pdo->PermanentAddress,
                    sizeof (ETHERNET_ADDRESS)) == 0)
-            goto fail4;
+            goto fail7;
     }
-
-    status = __PdoSetCurrentAddress(Pdo);
-    if (!NT_SUCCESS(status))
-        goto fail5;
-
-    status = __PdoSetLuid(Pdo);
-    if (!NT_SUCCESS(status))
-        goto fail6;
 
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
 
     status = PdoD3ToD0(Pdo);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail8;
 
     __PdoSetDevicePnpState(Pdo, Started);
 
@@ -1227,34 +1210,42 @@ PdoStartDevice(
 
     __FreeMibTable(Table);
 
+    RegistryCloseKey(Key);
+
     return STATUS_SUCCESS;
+
+fail8:
+    Error("fail8\n");
+
+    __FreeMibTable(Table);
+    goto fail6;
 
 fail7:
     Error("fail7\n");
 
-    RtlZeroMemory(&Pdo->Luid, sizeof (NET_LUID));
+    PdoRequestReboot(Pdo);
+    __FreeMibTable(Table);
 
 fail6:
     Error("fail6\n");
 
-    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
-
 fail5:
     Error("fail5\n");
-
-    goto fail3;
 
 fail4:
     Error("fail4\n");
 
-    PdoRequestReboot(Pdo);
-    __FreeMibTable(Table);
+    RtlZeroMemory(&Pdo->Luid, sizeof (NET_LUID));
 
 fail3:
     Error("fail3\n");
 
+    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
+
 fail2:
     Error("fail2\n");
+
+    RegistryCloseKey(Key);
 
 fail1:
     Error("fail1 (%08x)\n", status);
