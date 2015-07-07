@@ -347,7 +347,7 @@ fail1:
 NTSTATUS
 RegistryEnumerateSubKeys(
     IN  HANDLE              Key,
-    IN  NTSTATUS            (*Callback)(PVOID, HANDLE, PCHAR),
+    IN  NTSTATUS            (*Callback)(PVOID, HANDLE, PANSI_STRING),
     IN  PVOID               Context
     )
 {
@@ -390,6 +390,7 @@ RegistryEnumerateSubKeys(
         goto fail4;
 
     for (Index = 0; Index < Full->SubKeys; Index++) {
+        ULONG           Ignore;
         UNICODE_STRING  Unicode;
         ANSI_STRING     Ansi;
 
@@ -398,7 +399,7 @@ RegistryEnumerateSubKeys(
                                 KeyBasicInformation,
                                 Basic,
                                 Size,
-                                &Size);
+                                &Ignore);
         if (!NT_SUCCESS(status))
             goto fail5;
 
@@ -418,7 +419,7 @@ RegistryEnumerateSubKeys(
 
         Ansi.Length = (USHORT)(strlen(Ansi.Buffer) * sizeof (CHAR));        
 
-        status = Callback(Context, Key, Ansi.Buffer);
+        status = Callback(Context, Key, &Ansi);
 
         __RegistryFree(Ansi.Buffer);
         Ansi.Buffer = NULL;
@@ -450,7 +451,7 @@ fail1:
 NTSTATUS
 RegistryEnumerateValues(
     IN  HANDLE                      Key,
-    IN  NTSTATUS                    (*Callback)(PVOID, HANDLE, PCHAR),
+    IN  NTSTATUS                    (*Callback)(PVOID, HANDLE, PANSI_STRING, ULONG),
     IN  PVOID                       Context
     )
 {
@@ -493,6 +494,7 @@ RegistryEnumerateValues(
         goto fail4;
 
     for (Index = 0; Index < Full->Values; Index++) {
+        ULONG           Ignore;
         UNICODE_STRING  Unicode;
         ANSI_STRING     Ansi;
 
@@ -501,7 +503,7 @@ RegistryEnumerateValues(
                                      KeyValueBasicInformation,
                                      Basic,
                                      Size,
-                                     &Size);
+                                     &Ignore);
         if (!NT_SUCCESS(status))
             goto fail5;
 
@@ -517,7 +519,7 @@ RegistryEnumerateValues(
 
         Ansi.Length = (USHORT)(strlen(Ansi.Buffer) * sizeof (CHAR));        
 
-        status = Callback(Context, Key, Ansi.Buffer);
+        status = Callback(Context, Key, &Ansi, Basic->Type);
 
         __RegistryFree(Ansi.Buffer);
 

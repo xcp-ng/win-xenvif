@@ -97,14 +97,14 @@ RegistryDeleteSubKey(
 extern NTSTATUS
 RegistryEnumerateSubKeys(
     IN  HANDLE      Key,
-    IN  NTSTATUS    (*Callback)(PVOID, HANDLE, PCHAR),
+    IN  NTSTATUS    (*Callback)(PVOID, HANDLE, PANSI_STRING),
     IN  PVOID       Context
     );
 
 extern NTSTATUS
 RegistryEnumerateValues(
     IN  HANDLE      Key,
-    IN  NTSTATUS    (*Callback)(PVOID, HANDLE, PCHAR),
+    IN  NTSTATUS    (*Callback)(PVOID, HANDLE, PANSI_STRING, ULONG),
     IN  PVOID       Context
     );
 
