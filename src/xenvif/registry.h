@@ -136,6 +136,22 @@ RegistryQuerySzValue(
     );
 
 extern NTSTATUS
+RegistryQueryBinaryValue(
+    IN  HANDLE          Key,
+    IN  PCHAR           Name,
+    OUT PVOID           *Buffer,
+    OUT PULONG          Length
+    );
+
+extern NTSTATUS
+RegistryUpdateBinaryValue(
+    IN  HANDLE          Key,
+    IN  PCHAR           Name,
+    IN  PVOID           Buffer,
+    IN  ULONG           Length
+    );
+
+extern NTSTATUS
 RegistryQueryKeyName(
     IN  HANDLE              Key,
     OUT PANSI_STRING        *Array
@@ -150,6 +166,11 @@ RegistryQuerySystemStartOption(
 extern VOID
 RegistryFreeSzValue(
     IN  PANSI_STRING    Array
+    );
+
+extern VOID
+RegistryFreeBinaryValue(
+    IN  PVOID           Buffer
     );
 
 extern NTSTATUS

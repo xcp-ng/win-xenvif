@@ -886,6 +886,148 @@ fail1:
 }
 
 NTSTATUS
+RegistryQueryBinaryValue(
+    IN  HANDLE                      Key,
+    IN  PCHAR                       Name,
+    OUT PVOID                       *Buffer,
+    OUT PULONG                      Length
+    )
+{
+    ANSI_STRING                     Ansi;
+    UNICODE_STRING                  Unicode;
+    PKEY_VALUE_PARTIAL_INFORMATION  Partial;
+    ULONG                           Size;
+    NTSTATUS                        status;
+
+    RtlInitAnsiString(&Ansi, Name);
+
+    status = RtlAnsiStringToUnicodeString(&Unicode, &Ansi, TRUE);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = ZwQueryValueKey(Key,
+                             &Unicode,
+                             KeyValuePartialInformation,
+                             NULL,
+                             0,
+                             &Size);
+    if (status != STATUS_BUFFER_OVERFLOW &&
+        status != STATUS_BUFFER_TOO_SMALL)
+        goto fail2;
+
+#pragma prefast(suppress:6102)
+    Partial = __RegistryAllocate(Size);
+
+    status = STATUS_NO_MEMORY;
+    if (Partial == NULL)
+        goto fail3;
+
+    status = ZwQueryValueKey(Key,
+                             &Unicode,
+                             KeyValuePartialInformation,
+                             Partial,
+                             Size,
+                             &Size);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
+    switch (Partial->Type) {
+    case REG_BINARY:
+        *Buffer = __RegistryAllocate(Partial->DataLength);
+
+        status = STATUS_NO_MEMORY;
+        if (*Buffer == NULL)
+            break;
+
+        *Length = Partial->DataLength;
+        RtlCopyMemory(*Buffer, Partial->Data, Partial->DataLength);
+        break;
+
+    default:
+        status = STATUS_INVALID_PARAMETER;
+        *Buffer = NULL;
+        break;
+    }
+
+    if (*Buffer == NULL)
+        goto fail5;
+
+    __RegistryFree(Partial);
+
+    RtlFreeUnicodeString(&Unicode);
+
+    return STATUS_SUCCESS;
+
+fail5:
+fail4:
+    __RegistryFree(Partial);
+
+fail3:
+fail2:
+    RtlFreeUnicodeString(&Unicode);
+
+fail1:
+    return status;
+}
+
+NTSTATUS
+RegistryUpdateBinaryValue(
+    IN  HANDLE                      Key,
+    IN  PCHAR                       Name,
+    IN  PVOID                       Buffer,
+    IN  ULONG                       Length
+    )
+{
+    ANSI_STRING                     Ansi;
+    UNICODE_STRING                  Unicode;
+    PKEY_VALUE_PARTIAL_INFORMATION  Partial;
+    NTSTATUS                        status;
+
+    RtlInitAnsiString(&Ansi, Name);
+
+    status = RtlAnsiStringToUnicodeString(&Unicode, &Ansi, TRUE);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    Partial = __RegistryAllocate(FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data) +
+                                 Length);
+
+    status = STATUS_NO_MEMORY;
+    if (Partial == NULL)
+        goto fail2;
+
+    Partial->TitleIndex = 0;
+    Partial->Type = REG_BINARY;
+    Partial->DataLength = Length;
+    RtlCopyMemory(Partial->Data, Buffer, Partial->DataLength);
+
+    status = ZwSetValueKey(Key,
+                           &Unicode,
+                           Partial->TitleIndex,
+                           Partial->Type,
+                           Partial->Data,
+                           Partial->DataLength);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    __RegistryFree(Partial);
+
+    RtlFreeUnicodeString(&Unicode);
+
+    return STATUS_SUCCESS;
+
+fail3:
+    __RegistryFree(Partial);
+
+fail2:
+    RtlFreeUnicodeString(&Unicode);
+
+fail1:
+
+    return status;
+}
+
+NTSTATUS
 RegistryQueryKeyName(
     IN  HANDLE              Key,
     OUT PANSI_STRING        *Array
@@ -1199,6 +1341,14 @@ RegistryFreeSzValue(
         __RegistryFree(Array[Index].Buffer);
 
     __RegistryFree(Array);
+}
+
+VOID
+RegistryFreeBinaryValue(
+    IN  PVOID   Buffer
+    )
+{
+    __RegistryFree(Buffer);
 }
 
 VOID
