@@ -1258,13 +1258,12 @@ NTSTATUS
 RegistryUpdateSzValue(
     IN  HANDLE                      Key,
     IN  PCHAR                       Name,
-    IN  ULONG                       Type,
-    ...
+    IN  PANSI_STRING                Array
     )
 {
     ANSI_STRING                     Ansi;
     UNICODE_STRING                  Unicode;
-    va_list                         Arguments;
+    ULONG                           Type;
     PKEY_VALUE_PARTIAL_INFORMATION  Partial;
     NTSTATUS                        status;
 
@@ -1273,33 +1272,25 @@ RegistryUpdateSzValue(
     status = RtlAnsiStringToUnicodeString(&Unicode, &Ansi, TRUE);
     if (!NT_SUCCESS(status))
         goto fail1;
-        
-    va_start(Arguments, Type);
+
+    Type = (Array[1].Buffer != NULL) ? REG_MULTI_SZ : REG_SZ;
+
     switch (Type) {
-    case REG_SZ: {
-        PANSI_STRING    Argument;
-
-        Argument = va_arg(Arguments, PANSI_STRING);
-
+    case REG_SZ:
         status = STATUS_NO_MEMORY;
-        Partial = RegistryAnsiToSz(Argument);        
+        Partial = RegistryAnsiToSz(Array);
         break;
-    }
-    case REG_MULTI_SZ: {
-        PANSI_STRING    Argument;
 
-        Argument = va_arg(Arguments, PANSI_STRING);
-
+    case REG_MULTI_SZ:
         status = STATUS_NO_MEMORY;
-        Partial = RegistryAnsiToMultiSz(Argument);        
+        Partial = RegistryAnsiToMultiSz(Array);
         break;
-    }
+
     default:
         status = STATUS_INVALID_PARAMETER;
         Partial = NULL;
         break;
     }
-    va_end(Arguments);
 
     if (Partial == NULL)
         goto fail2;

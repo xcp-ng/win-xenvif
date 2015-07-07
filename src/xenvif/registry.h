@@ -177,8 +177,7 @@ extern NTSTATUS
 RegistryUpdateSzValue(
     IN  HANDLE          Key,
     IN  PCHAR           Name,
-    IN  ULONG           Type,
-    ...
+    IN  PANSI_STRING    Array
     );
 
 extern VOID
