@@ -808,35 +808,15 @@ __PdoSetPermanentAddress(
     IN  PCHAR       Buffer
     )
 {
-    HANDLE          AddressesKey;
-    ANSI_STRING     Ansi;
-    ULONG           Index;
     NTSTATUS        status;
 
     status = __PdoParseAddress(Buffer, &Pdo->PermanentAddress);
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    AddressesKey = DriverGetAddressesKey();
-
-    RtlInitAnsiString(&Ansi, Buffer);
-
-    for (Index = 0; Index < Ansi.Length; Index++)
-        Ansi.Buffer[Index] = (CHAR)toupper(Ansi.Buffer[Index]);
-
-    Info("%s %Z\n", __PdoGetName(Pdo), &Ansi);
-
-    status = RegistryUpdateSzValue(AddressesKey,
-                                   __PdoGetName(Pdo),
-                                   REG_SZ,
-                                   &Ansi);
-    if (!NT_SUCCESS(status))
-        goto fail2;
+    Info("%s: %s\n", __PdoGetName(Pdo), Buffer);
 
     return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -878,6 +858,8 @@ __PdoSetCurrentAddress(
     status = __PdoParseAddress(Ansi[0].Buffer, &Pdo->CurrentAddress);
     if (!NT_SUCCESS(status))
         goto fail2;
+
+    Info("%s: %Z\n", __PdoGetName(Pdo), &Ansi[0]);
 
     RegistryFreeSzValue(Ansi);
 

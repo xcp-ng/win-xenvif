@@ -47,7 +47,6 @@ extern PULONG       InitSafeBootMode;
 typedef struct _XENVIF_DRIVER {
     PDRIVER_OBJECT      DriverObject;
     HANDLE              ParametersKey;
-    HANDLE              AddressesKey;
     HANDLE              StatusKey;
 } XENVIF_DRIVER, *PXENVIF_DRIVER;
 
@@ -102,30 +101,6 @@ DriverGetParametersKey(
 }
 
 static FORCEINLINE VOID
-__DriverSetAddressesKey(
-    IN  HANDLE  Key
-    )
-{
-    Driver.AddressesKey = Key;
-}
-
-static FORCEINLINE HANDLE
-__DriverGetAddressesKey(
-    VOID
-    )
-{
-    return Driver.AddressesKey;
-}
-
-HANDLE
-DriverGetAddressesKey(
-    VOID
-    )
-{
-    return __DriverGetAddressesKey();
-}
-
-static FORCEINLINE VOID
 __DriverSetStatusKey(
     IN  HANDLE  Key
     )
@@ -156,7 +131,6 @@ DriverUnload(
     IN  PDRIVER_OBJECT  DriverObject
     )
 {
-    HANDLE              AddressesKey;
     HANDLE              ParametersKey;
     HANDLE              StatusKey;
 
@@ -171,11 +145,6 @@ DriverUnload(
     __DriverSetStatusKey(NULL);
 
     RegistryCloseKey(StatusKey);
-
-    AddressesKey = __DriverGetAddressesKey();
-    __DriverSetAddressesKey(NULL);
-
-    RegistryCloseKey(AddressesKey);
 
     ParametersKey = __DriverGetParametersKey();
     __DriverSetParametersKey(NULL);
@@ -284,7 +253,6 @@ DriverEntry(
 {
     HANDLE              ServiceKey;
     HANDLE              ParametersKey;
-    HANDLE              AddressesKey;
     HANDLE              StatusKey;
     ULONG               Index;
     NTSTATUS            status;
@@ -331,21 +299,12 @@ DriverEntry(
 
     __DriverSetParametersKey(ParametersKey);
 
-    status = RegistryCreateSubKey(ServiceKey, 
-                                  "Addresses", 
-                                  REG_OPTION_VOLATILE, 
-                                  &AddressesKey);
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
-    __DriverSetAddressesKey(AddressesKey);
-
     status = RegistryCreateSubKey(ServiceKey,
                                   "Status",
                                   REG_OPTION_VOLATILE,
                                   &StatusKey);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail4;
 
     __DriverSetStatusKey(StatusKey);
 
@@ -363,13 +322,6 @@ done:
     Trace("<====\n");
 
     return STATUS_SUCCESS;
-
-fail5:
-    Error("fail5\n");
-
-    __DriverSetAddressesKey(NULL);
-
-    RegistryCloseKey(AddressesKey);
 
 fail4:
     Error("fail4\n");
