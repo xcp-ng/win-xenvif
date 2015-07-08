@@ -42,8 +42,13 @@ DriverGetParametersKey(
     VOID
     );
 
-extern HANDLE
-DriverGetStatusKey(
+extern VOID
+DriverRequestReboot(
+    VOID
+    );
+
+BOOLEAN
+DriverIsRebootRequested(
     VOID
     );
 

@@ -48,6 +48,7 @@ typedef struct _XENVIF_DRIVER {
     PDRIVER_OBJECT      DriverObject;
     HANDLE              ParametersKey;
     HANDLE              StatusKey;
+    BOOLEAN             NeedReboot;
 } XENVIF_DRIVER, *PXENVIF_DRIVER;
 
 static XENVIF_DRIVER    Driver;
@@ -116,12 +117,27 @@ __DriverGetStatusKey(
     return Driver.StatusKey;
 }
 
-HANDLE
-DriverGetStatusKey(
+VOID
+DriverRequestReboot(
     VOID
     )
 {
-    return __DriverGetStatusKey();
+    Info("<===>\n");
+
+    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
+
+    (VOID) RegistryUpdateDwordValue(__DriverGetStatusKey(),
+                                    "NeedReboot",
+                                    1);
+    Driver.NeedReboot = TRUE;
+}
+
+BOOLEAN
+DriverIsRebootRequested(
+    VOID
+    )
+{
+    return Driver.NeedReboot;
 }
 
 DRIVER_UNLOAD       DriverUnload;

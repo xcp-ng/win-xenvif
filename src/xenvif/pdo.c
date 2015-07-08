@@ -1113,26 +1113,6 @@ PdoS3ToS4(
     Trace("(%s) <====\n", __PdoGetName(Pdo));
 }
 
-static VOID
-PdoRequestReboot(
-    IN  PXENVIF_PDO     Pdo
-    )
-{
-    HANDLE              StatusKey;
-
-    UNREFERENCED_PARAMETER(Pdo);
-
-    Info("<===>\n");
-
-    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
-
-    StatusKey = DriverGetStatusKey();
-
-    (VOID) RegistryUpdateDwordValue(StatusKey,
-                                    "NeedReboot",
-                                    1);
-}
-
 static DECLSPEC_NOINLINE NTSTATUS
 PdoStartDevice(
     IN  PXENVIF_PDO     Pdo,
@@ -1147,35 +1127,39 @@ PdoStartDevice(
     HANDLE              Key;
     NTSTATUS            status;
 
+    status = STATUS_UNSUCCESSFUL;
+    if (DriverIsRebootRequested())
+        goto fail1;
+
     status = RegistryOpenSoftwareKey(__PdoGetDeviceObject(Pdo),
                                      KEY_ALL_ACCESS,
                                      &Key);
     if (!NT_SUCCESS(status))
-        goto fail1;
+        goto fail2;
 
     status = __PdoSetCurrentAddress(Pdo, Key);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail3;
 
     status = __PdoSetLuid(Pdo, Key);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "GetIfTable2",
                                    (PVOID *)&__GetIfTable2);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "FreeMibTable",
                                    (PVOID *)&__FreeMibTable);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     status = __GetIfTable2(&Table);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail7;
 
     for (Index = 0; Index < Table->NumEntries; Index++) {
         PMIB_IF_ROW2    Row = &Table->Table[Index];
@@ -1194,14 +1178,14 @@ PdoStartDevice(
         if (memcmp(Row->PhysicalAddress,
                    &Pdo->PermanentAddress,
                    sizeof (ETHERNET_ADDRESS)) == 0)
-            goto fail7;
+            goto fail8;
     }
 
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
 
     status = PdoD3ToD0(Pdo);
     if (!NT_SUCCESS(status))
-        goto fail8;
+        goto fail9;
 
     __PdoSetDevicePnpState(Pdo, Started);
 
@@ -1214,17 +1198,20 @@ PdoStartDevice(
 
     return STATUS_SUCCESS;
 
-fail8:
-    Error("fail8\n");
+fail9:
+    Error("fail9\n");
 
     __FreeMibTable(Table);
     goto fail6;
 
+fail8:
+    Error("fail8\n");
+
+    DriverRequestReboot();
+    __FreeMibTable(Table);
+
 fail7:
     Error("fail7\n");
-
-    PdoRequestReboot(Pdo);
-    __FreeMibTable(Table);
 
 fail6:
     Error("fail6\n");
@@ -1232,20 +1219,20 @@ fail6:
 fail5:
     Error("fail5\n");
 
+    RtlZeroMemory(&Pdo->Luid, sizeof (NET_LUID));
+
 fail4:
     Error("fail4\n");
 
-    RtlZeroMemory(&Pdo->Luid, sizeof (NET_LUID));
+    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
 
 fail3:
     Error("fail3\n");
 
-    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
+    RegistryCloseKey(Key);
 
 fail2:
     Error("fail2\n");
-
-    RegistryCloseKey(Key);
 
 fail1:
     Error("fail1 (%08x)\n", status);
