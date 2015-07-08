@@ -57,6 +57,7 @@
 #include "dbg_print.h"
 #include "assert.h"
 #include "util.h"
+#include "version.h"
 
 #define PDO_POOL 'ODP'
 
@@ -576,7 +577,7 @@ PdoSetRevisions(
     ULONG           Revision;
     NTSTATUS        status;
 
-    Revision = 0;
+    Revision = MAJOR_VERSION << 24;
 
     // Enumerate all possible combinations of exported interface versions since v1
     // and add a PDO revsion for each combination that's currently supported. Note that
