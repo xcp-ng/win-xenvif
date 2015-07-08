@@ -455,6 +455,37 @@ fail1:
 }
 
 static NTSTATUS
+FrontendGetLuid(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  PMIB_IF_TABLE2      Table,
+    OUT PNET_LUID           Luid
+    )
+{
+    ETHERNET_ADDRESS        PermanentPhysicalAddress;
+    ULONG                   Index;
+    PMIB_IF_ROW2            Row;
+
+    MacQueryPermanentAddress(__FrontendGetMac(Frontend),
+                             &PermanentPhysicalAddress);
+
+    for (Index = 0; Index < Table->NumEntries; Index++) {
+        Row = &Table->Table[Index];
+
+        if (memcmp(Row->PermanentPhysicalAddress,
+                   &PermanentPhysicalAddress,
+                   sizeof (ETHERNET_ADDRESS)) == 0)
+            goto found;
+    }
+
+    return STATUS_UNSUCCESSFUL;
+
+found:
+    *Luid = Row->InterfaceLuid;
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 FrontendInsertAddress(
     IN OUT  PSOCKADDR_INET      *AddressTable,
     IN      const SOCKADDR_INET *Address,
@@ -511,22 +542,22 @@ fail1:
 static NTSTATUS
 FrontendProcessAddressTable(
     IN  PXENVIF_FRONTEND            Frontend,
-    IN  PMIB_UNICASTIPADDRESS_TABLE MibTable,
+    IN  PMIB_UNICASTIPADDRESS_TABLE Table,
+    IN  PNET_LUID                   Luid,
     OUT PSOCKADDR_INET              *AddressTable,
     OUT PULONG                      AddressCount
     )
 {
-    PNET_LUID                       Luid;
     ULONG                           Index;
     NTSTATUS                        status;
+
+    UNREFERENCED_PARAMETER(Frontend);
 
     *AddressTable = NULL;
     *AddressCount = 0;
 
-    Luid = PdoGetLuid(__FrontendGetPdo(Frontend));
-
-    for (Index = 0; Index < MibTable->NumEntries; Index++) {
-        PMIB_UNICASTIPADDRESS_ROW   Row = &MibTable->Table[Index];
+    for (Index = 0; Index < Table->NumEntries; Index++) {
+        PMIB_UNICASTIPADDRESS_ROW   Row = &Table->Table[Index];
 
         if (Row->InterfaceLuid.Info.IfType != Luid->Info.IfType)
             continue;
@@ -717,6 +748,7 @@ FrontendMib(
 {
     PXENVIF_FRONTEND    Frontend = Context;
     PKEVENT             Event;
+    NTSTATUS            (*__GetIfTable2)(PMIB_IF_TABLE2 *);
     NTSTATUS            (*__NotifyUnicastIpAddressChange)(ADDRESS_FAMILY,
                                                           PUNICAST_IPADDRESS_CHANGE_CALLBACK,
                                                           PVOID,    
@@ -733,28 +765,34 @@ FrontendMib(
     Trace("====>\n");
 
     status = LinkGetRoutineAddress("netio.sys",
+                                   "GetIfTable2",
+                                   (PVOID *)&__GetIfTable2);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = LinkGetRoutineAddress("netio.sys",
                                    "NotifyUnicastIpAddressChange",
                                    (PVOID *)&__NotifyUnicastIpAddressChange);
     if (!NT_SUCCESS(status))
-        goto fail1;
+        goto fail2;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "GetUnicastIpAddressTable",
                                    (PVOID *)&__GetUnicastIpAddressTable);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail3;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "FreeMibTable",
                                    (PVOID *)&__FreeMibTable);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "CancelMibChangeNotify2",
                                    (PVOID *)&__CancelMibChangeNotify2);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     status = __NotifyUnicastIpAddressChange(AF_UNSPEC,
                                             FrontendIpAddressChange,
@@ -762,12 +800,14 @@ FrontendMib(
                                             TRUE,
                                             &Handle);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     Event = ThreadGetEvent(Self);
 
     for (;;) { 
-        PMIB_UNICASTIPADDRESS_TABLE MibTable;
+        PMIB_IF_TABLE2              IfTable;
+        NET_LUID                    Luid;
+        PMIB_UNICASTIPADDRESS_TABLE UnicastIpAddressTable;
         KIRQL                       Irql;
         PSOCKADDR_INET              AddressTable;
         ULONG                       AddressCount;
@@ -782,23 +822,38 @@ FrontendMib(
         if (ThreadIsAlerted(Self))
             break;
 
-        status = __GetUnicastIpAddressTable(AF_UNSPEC, &MibTable);
+        IfTable = NULL;
+        UnicastIpAddressTable = NULL;
+
+        status = __GetIfTable2(&IfTable);
         if (!NT_SUCCESS(status))
-            continue;
+            goto loop;
+
+        status = FrontendGetLuid(Frontend,
+                                 IfTable,
+                                 &Luid);
+        if (!NT_SUCCESS(status))
+            goto loop;
+
+        status = __GetUnicastIpAddressTable(AF_UNSPEC,
+                                            &UnicastIpAddressTable);
+        if (!NT_SUCCESS(status))
+            goto loop;
 
         KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
         // It is not safe to use interfaces before this point
         if (Frontend->State != FRONTEND_CONNECTED &&
             Frontend->State != FRONTEND_ENABLED)
-            goto loop;
+            goto unlock;
 
         status = FrontendProcessAddressTable(Frontend,
-                                             MibTable,
+                                             UnicastIpAddressTable,
+                                             &Luid,
                                              &AddressTable,
                                              &AddressCount);
         if (!NT_SUCCESS(status))
-            goto loop;
+            goto unlock;
 
         TransmitterUpdateAddressTable(__FrontendGetTransmitter(Frontend),
                                       AddressTable,
@@ -811,10 +866,15 @@ FrontendMib(
         if (AddressCount != 0)
             __FrontendFree(AddressTable);
 
-loop:
+unlock:
         KeReleaseSpinLock(&Frontend->Lock, Irql);
 
-        __FreeMibTable(MibTable);
+loop:
+        if (UnicastIpAddressTable != NULL)
+            __FreeMibTable(UnicastIpAddressTable);
+
+        if (IfTable != NULL)
+            __FreeMibTable(IfTable);
     }
 
     status = __CancelMibChangeNotify2(Handle);
@@ -823,6 +883,9 @@ loop:
     Trace("<====\n");
 
     return STATUS_SUCCESS;
+
+fail6:
+    Error("fail6\n");
 
 fail5:
     Error("fail5\n");

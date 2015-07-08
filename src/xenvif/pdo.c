@@ -681,56 +681,6 @@ PdoGetVifContext(
 }
 
 static FORCEINLINE NTSTATUS
-__PdoSetLuid(
-    IN  PXENVIF_PDO Pdo,
-    IN  HANDLE      Key
-    )
-{
-    ULONG           IfType;
-    ULONG           NetLuidIndex;
-    NTSTATUS        status;
-
-    status = RegistryQueryDwordValue(Key, "*IfType", &IfType);
-    if (!NT_SUCCESS(status))
-        goto fail1;
-
-    status = RegistryQueryDwordValue(Key, "NetLuidIndex", &NetLuidIndex);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
-    Pdo->Luid.Info.IfType = IfType;
-    Pdo->Luid.Info.NetLuidIndex = NetLuidIndex;
-
-    Info("%s: %016llX\n", __PdoGetName(Pdo), Pdo->Luid.Value);
-
-    return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-
-    return status;
-}
-
-static FORCEINLINE PNET_LUID
-__PdoGetLuid(
-    IN  PXENVIF_PDO Pdo
-    )
-{
-    return &Pdo->Luid;
-}
-
-PNET_LUID
-PdoGetLuid(
-    IN  PXENVIF_PDO Pdo
-    )
-{
-    return __PdoGetLuid(Pdo);
-}
-
-static FORCEINLINE NTSTATUS
 __PdoParseAddress(
     IN  PCHAR               Buffer,
     OUT PETHERNET_ADDRESS   Address
@@ -813,12 +763,20 @@ fail1:
     return status;
 }
 
+static FORCEINLINE PETHERNET_ADDRESS
+__PdoGetPermanentAddress(
+    IN  PXENVIF_PDO Pdo
+    )
+{
+    return &Pdo->PermanentAddress;
+}
+
 PETHERNET_ADDRESS
 PdoGetPermanentAddress(
     IN  PXENVIF_PDO Pdo
     )
 {
-    return &Pdo->PermanentAddress;
+    return __PdoGetPermanentAddress(Pdo);
 }
 
 static FORCEINLINE NTSTATUS
@@ -1141,25 +1099,21 @@ PdoStartDevice(
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    status = __PdoSetLuid(Pdo, Key);
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
     status = LinkGetRoutineAddress("netio.sys",
                                    "GetIfTable2",
                                    (PVOID *)&__GetIfTable2);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail4;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "FreeMibTable",
                                    (PVOID *)&__FreeMibTable);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail5;
 
     status = __GetIfTable2(&Table);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail6;
 
     for (Index = 0; Index < Table->NumEntries; Index++) {
         PMIB_IF_ROW2    Row = &Table->Table[Index];
@@ -1175,17 +1129,17 @@ PdoStartDevice(
             continue;
 
         status = STATUS_UNSUCCESSFUL;
-        if (memcmp(Row->PhysicalAddress,
-                   &Pdo->PermanentAddress,
+        if (memcmp(Row->PermanentPhysicalAddress,
+                   __PdoGetPermanentAddress(Pdo),
                    sizeof (ETHERNET_ADDRESS)) == 0)
-            goto fail8;
+            goto fail7;
     }
 
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
 
     status = PdoD3ToD0(Pdo);
     if (!NT_SUCCESS(status))
-        goto fail9;
+        goto fail8;
 
     __PdoSetDevicePnpState(Pdo, Started);
 
@@ -1198,28 +1152,23 @@ PdoStartDevice(
 
     return STATUS_SUCCESS;
 
-fail9:
-    Error("fail9\n");
+fail8:
+    Error("fail8\n");
 
     __FreeMibTable(Table);
     goto fail6;
 
-fail8:
-    Error("fail8\n");
+fail7:
+    Error("fail7\n");
 
     DriverRequestReboot();
     __FreeMibTable(Table);
-
-fail7:
-    Error("fail7\n");
 
 fail6:
     Error("fail6\n");
 
 fail5:
     Error("fail5\n");
-
-    RtlZeroMemory(&Pdo->Luid, sizeof (NET_LUID));
 
 fail4:
     Error("fail4\n");

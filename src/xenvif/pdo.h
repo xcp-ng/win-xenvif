@@ -127,11 +127,6 @@ PdoGetBusData(
     IN  ULONG           Length
     );
 
-extern PNET_LUID
-PdoGetLuid(
-    IN  PXENVIF_PDO Pdo
-    );
-
 extern PETHERNET_ADDRESS
 PdoGetPermanentAddress(
     IN  PXENVIF_PDO Pdo
