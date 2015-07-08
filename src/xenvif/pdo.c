@@ -1100,6 +1100,10 @@ PdoGetInterfaceGuid(
     if (!NT_SUCCESS(status))
         goto fail3;
 
+    RtlFreeUnicodeString(&Unicode);
+
+    RegistryFreeSzValue(Ansi);
+
     return STATUS_SUCCESS;
 
 fail3:
