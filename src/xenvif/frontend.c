@@ -455,10 +455,10 @@ fail1:
 }
 
 static NTSTATUS
-FrontendGetLuid(
+FrontendGetInterfaceIndex(
     IN  PXENVIF_FRONTEND    Frontend,
     IN  PMIB_IF_TABLE2      Table,
-    OUT PNET_LUID           Luid
+    OUT PNET_IFINDEX        InterfaceIndex
     )
 {
     ETHERNET_ADDRESS        PermanentPhysicalAddress;
@@ -471,16 +471,33 @@ FrontendGetLuid(
     for (Index = 0; Index < Table->NumEntries; Index++) {
         Row = &Table->Table[Index];
 
+        if (!(Row->InterfaceAndOperStatusFlags.HardwareInterface) ||
+            !(Row->InterfaceAndOperStatusFlags.ConnectorPresent))
+            continue;
+
+        if (Row->OperStatus != IfOperStatusUp)
+            continue;
+
+        if (Row->PhysicalAddressLength != sizeof (ETHERNET_ADDRESS))
+            continue;
+
         if (memcmp(Row->PermanentPhysicalAddress,
                    &PermanentPhysicalAddress,
-                   sizeof (ETHERNET_ADDRESS)) == 0)
-            goto found;
+                   sizeof (ETHERNET_ADDRESS)) != 0)
+            continue;
+
+        goto found;
     }
 
     return STATUS_UNSUCCESSFUL;
 
 found:
-    *Luid = Row->InterfaceLuid;
+    *InterfaceIndex = Row->InterfaceIndex;
+
+    Trace("[%u]: %ws (%ws)",
+          Row->InterfaceIndex,
+          Row->Alias,
+          Row->Description);
 
     return STATUS_SUCCESS;
 }
@@ -495,6 +512,8 @@ FrontendInsertAddress(
     ULONG                       Index;
     PSOCKADDR_INET              Table;
     NTSTATUS                    status;
+
+    Trace("====>\n");
 
     for (Index = 0; Index < *AddressCount; Index++) {
         if ((*AddressTable)[Index].si_family != Address->si_family)
@@ -531,6 +550,8 @@ FrontendInsertAddress(
     *AddressTable = Table;
 
 done:
+    Trace("<====\n");
+
     return STATUS_SUCCESS;
 
 fail1:
@@ -543,7 +564,7 @@ static NTSTATUS
 FrontendProcessAddressTable(
     IN  PXENVIF_FRONTEND            Frontend,
     IN  PMIB_UNICASTIPADDRESS_TABLE Table,
-    IN  PNET_LUID                   Luid,
+    IN  NET_IFINDEX                 InterfaceIndex,
     OUT PSOCKADDR_INET              *AddressTable,
     OUT PULONG                      AddressCount
     )
@@ -559,10 +580,7 @@ FrontendProcessAddressTable(
     for (Index = 0; Index < Table->NumEntries; Index++) {
         PMIB_UNICASTIPADDRESS_ROW   Row = &Table->Table[Index];
 
-        if (Row->InterfaceLuid.Info.IfType != Luid->Info.IfType)
-            continue;
-
-        if (Row->InterfaceLuid.Info.NetLuidIndex != Luid->Info.NetLuidIndex)
+        if (Row->InterfaceIndex != InterfaceIndex)
             continue;
 
         if (Row->Address.si_family != AF_INET &&
@@ -599,6 +617,8 @@ FrontendDumpAddressTable(
     ULONG                       IpVersion4Count;
     ULONG                       IpVersion6Count;
     NTSTATUS                    status;
+
+    Trace("====>\n");
 
     status = XENBUS_STORE(TransactionStart,
                           &Frontend->StoreInterface,
@@ -656,6 +676,13 @@ FrontendDumpAddressTable(
             if (!NT_SUCCESS(status))
                 goto fail4;
 
+            Trace("%s: %u.%u.%u.%u\n",
+                  __FrontendGetPrefix(Frontend),
+                  Address.Byte[0],
+                  Address.Byte[1],
+                  Address.Byte[2],
+                  Address.Byte[3]);
+
             IpVersion4Count++;
             break;
         }
@@ -690,6 +717,17 @@ FrontendDumpAddressTable(
             if (!NT_SUCCESS(status))
                 goto fail4;
 
+            Trace("%s: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
+                  __FrontendGetPrefix(Frontend),
+                  NTOHS(Address.Word[0]),
+                  NTOHS(Address.Word[1]),
+                  NTOHS(Address.Word[2]),
+                  NTOHS(Address.Word[3]),
+                  NTOHS(Address.Word[4]),
+                  NTOHS(Address.Word[5]),
+                  NTOHS(Address.Word[6]),
+                  NTOHS(Address.Word[7]));
+
             IpVersion6Count++;
             break;
         }
@@ -702,6 +740,8 @@ FrontendDumpAddressTable(
                           &Frontend->StoreInterface,
                           Transaction,
                           TRUE);
+
+    Trace("<====\n");
 
     return status;
 
@@ -806,11 +846,13 @@ FrontendMib(
 
     for (;;) { 
         PMIB_IF_TABLE2              IfTable;
-        NET_LUID                    Luid;
+        NET_IFINDEX                 InterfaceIndex;
         PMIB_UNICASTIPADDRESS_TABLE UnicastIpAddressTable;
         KIRQL                       Irql;
         PSOCKADDR_INET              AddressTable;
         ULONG                       AddressCount;
+
+        Trace("waiting...\n");
 
         (VOID) KeWaitForSingleObject(Event,
                                      Executive,
@@ -818,6 +860,8 @@ FrontendMib(
                                      FALSE,
                                      NULL);
         KeClearEvent(Event);
+
+        Trace("awake\n");
 
         if (ThreadIsAlerted(Self))
             break;
@@ -829,9 +873,9 @@ FrontendMib(
         if (!NT_SUCCESS(status))
             goto loop;
 
-        status = FrontendGetLuid(Frontend,
-                                 IfTable,
-                                 &Luid);
+        status = FrontendGetInterfaceIndex(Frontend,
+                                           IfTable,
+                                           &InterfaceIndex);
         if (!NT_SUCCESS(status))
             goto loop;
 
@@ -849,7 +893,7 @@ FrontendMib(
 
         status = FrontendProcessAddressTable(Frontend,
                                              UnicastIpAddressTable,
-                                             &Luid,
+                                             InterfaceIndex,
                                              &AddressTable,
                                              &AddressCount);
         if (!NT_SUCCESS(status))
