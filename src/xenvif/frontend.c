@@ -471,8 +471,7 @@ FrontendGetInterfaceIndex(
     for (Index = 0; Index < Table->NumEntries; Index++) {
         Row = &Table->Table[Index];
 
-        if (!(Row->InterfaceAndOperStatusFlags.HardwareInterface) ||
-            !(Row->InterfaceAndOperStatusFlags.ConnectorPresent))
+        if (!Row->InterfaceAndOperStatusFlags.ConnectorPresent)
             continue;
 
         if (Row->OperStatus != IfOperStatusUp)
@@ -494,7 +493,7 @@ FrontendGetInterfaceIndex(
 found:
     *InterfaceIndex = Row->InterfaceIndex;
 
-    Trace("[%u]: %ws (%ws)",
+    Trace("[%u]: %ws (%ws)\n",
           Row->InterfaceIndex,
           Row->Alias,
           Row->Description);
