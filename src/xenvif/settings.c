@@ -268,8 +268,10 @@ SettingsCopyIpVersion6Addresses(
                                 IPV6_PATH,
                                 (Save) ? KEY_READ : KEY_ALL_ACCESS,
                                 &ValueKey);
-    if (!NT_SUCCESS(status))
+    if (!NT_SUCCESS(status)) {
+        Info("NOT FOUND\n");
         goto done;
+    }
 
     Trace("%s %s\\%s\n",
           (Save) ? "FROM" : "TO",
