@@ -79,7 +79,6 @@ struct _XENVIF_PDO {
     PULONG                      Revision;
     ULONG                       Count;
 
-    NET_LUID                    Luid;
     ETHERNET_ADDRESS            PermanentAddress;
     ETHERNET_ADDRESS            CurrentAddress;
 
@@ -1325,8 +1324,6 @@ PdoStopDevice(
 
     PdoD0ToD3(Pdo);
 
-    RtlZeroMemory(&Pdo->Luid, sizeof (NET_LUID));
-
     RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
 
     __PdoSetDevicePnpState(Pdo, Stopped);
@@ -1411,8 +1408,6 @@ PdoRemoveDevice(
     PdoD0ToD3(Pdo);
 
 done:
-    RtlZeroMemory(&Pdo->Luid, sizeof (NET_LUID));
-
     RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
 
     NeedInvalidate = FALSE;
