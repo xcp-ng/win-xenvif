@@ -58,6 +58,7 @@
 #include "assert.h"
 #include "util.h"
 #include "version.h"
+#include "revision.h"
 
 #define PDO_POOL 'ODP'
 
@@ -75,9 +76,6 @@ struct _XENVIF_PDO {
     LONG                        Eject;
 
     UNICODE_STRING              ContainerID;
-
-    PULONG                      Revision;
-    ULONG                       Count;
 
     ETHERNET_ADDRESS            PermanentAddress;
     ETHERNET_ADDRESS            CurrentAddress;
@@ -528,99 +526,52 @@ fail1:
 
 #define MAXTEXTLEN  1024
 
-static NTSTATUS
-PdoAddRevision(
-    IN  PXENVIF_PDO Pdo,
-    IN  ULONG       Revision
-    )
-{
-    PVOID           Buffer;
-    ULONG           Count;
-    NTSTATUS        status;
+typedef struct _XENVIF_PDO_REVISION {
+    ULONG   Number;
+    ULONG   CacheInterfaceVersion;
+    ULONG   VifInterfaceVersion;
+} XENVIF_PDO_REVISION, *PXENVIF_PDO_REVISION;
 
-    Count = Pdo->Count + 1;
+#define DEFINE_REVISION(_N, _C, _V) \
+    { (_N), (_C), (_V) }
 
-    Buffer = __PdoAllocate(sizeof (ULONG) * Count);
+static XENVIF_PDO_REVISION PdoRevision[] = {
+    DEFINE_REVISION_TABLE
+};
 
-    status = STATUS_NO_MEMORY;
-    if (Buffer == NULL)
-        goto fail1;
+#undef DEFINE_REVISION
 
-    if (Pdo->Revision != NULL) {
-        RtlCopyMemory(Buffer,
-                      Pdo->Revision,
-                      sizeof (ULONG) * Pdo->Count);
-        __PdoFree(Pdo->Revision);
-    }
-
-    Pdo->Revision = Buffer;
-    Pdo->Revision[Pdo->Count] = Revision;
-
-    Pdo->Count++;
-    ASSERT3U(Pdo->Count, <=, 64);
-
-    return STATUS_SUCCESS;
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-
-    return status;
-}
-
-static NTSTATUS
-PdoSetRevisions(
+static VOID
+PdoDumpRevisions(
     IN  PXENVIF_PDO Pdo
     )
 {
-    ULONG           Cache;
-    ULONG           Revision;
-    NTSTATUS        status;
+    ULONG           Index;
 
-    Revision = MAJOR_VERSION << 24;
+    UNREFERENCED_PARAMETER(Pdo);
 
-    // Enumerate all possible combinations of exported interface versions since v1
-    // and add a PDO revsion for each combination that's currently supported. Note that
-    // the exported interfaces include any interface queries we pass through.
-    // We must enumerate from v1 to ensure that revision numbers don't change
-    // even when a particular combination of interface versions becomes
-    // unsupported. (See README.md for API versioning policy).
+    for (Index = 0; Index < ARRAYSIZE(PdoRevision); Index++) {
+        PXENVIF_PDO_REVISION Revision = &PdoRevision[Index];
 
-    for (Cache = 1; Cache <= XENBUS_CACHE_INTERFACE_VERSION_MAX; Cache++) {
-        ULONG       Vif;
+        ASSERT3U(Revision->CacheInterfaceVersion, >=, XENBUS_CACHE_INTERFACE_VERSION_MIN);
+        ASSERT3U(Revision->CacheInterfaceVersion, <=, XENBUS_CACHE_INTERFACE_VERSION_MAX);
+        ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
+                     Revision->CacheInterfaceVersion == XENBUS_CACHE_INTERFACE_VERSION_MAX));
 
-        for (Vif = 1; Vif <= XENVIF_VIF_INTERFACE_VERSION_MAX; Vif++) {
-            Revision++;
+        ASSERT3U(Revision->VifInterfaceVersion, >=, XENVIF_VIF_INTERFACE_VERSION_MIN);
+        ASSERT3U(Revision->VifInterfaceVersion, <=, XENVIF_VIF_INTERFACE_VERSION_MAX);
+        ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
+                     Revision->VifInterfaceVersion == XENVIF_VIF_INTERFACE_VERSION_MAX));
 
-            if (Cache >= XENBUS_CACHE_INTERFACE_VERSION_MIN &&
-                Vif >= XENVIF_VIF_INTERFACE_VERSION_MIN) {
-                Info("%08X -> "
-                     "CACHE v%u "
-                     "VIF v%u\n",
-                     Revision,
-                     Cache,
-                     Vif);
+        ASSERT3U(Revision->Number >> 24, ==, MAJOR_VERSION);
 
-                status = PdoAddRevision(Pdo, Revision);
-                if (!NT_SUCCESS(status))
-                    goto fail1;
-            }
-        }
+        Info("%08X -> "
+             "CACHE v%u "
+             "VIF v%u\n",
+             Revision->Number,
+             Revision->CacheInterfaceVersion,
+             Revision->VifInterfaceVersion);
     }
-
-    ASSERT(Pdo->Count > 0);
-    return STATUS_SUCCESS;
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-
-    if (Pdo->Revision != NULL) {
-        __PdoFree(Pdo->Revision);
-        Pdo->Revision = NULL;
-    }
-
-    Pdo->Count = 0;
-
-    return status;
 }
 
 static FORCEINLINE PDEVICE_OBJECT
@@ -1823,12 +1774,12 @@ PdoQueryId(
 
     case BusQueryHardwareIDs:
         Trace("BusQueryHardwareIDs\n");
-        Id.MaximumLength = (USHORT)(MAX_DEVICE_ID_LEN * Pdo->Count) * sizeof (WCHAR);
+        Id.MaximumLength = (USHORT)(MAX_DEVICE_ID_LEN * ARRAYSIZE(PdoRevision)) * sizeof (WCHAR);
         break;
 
     case BusQueryCompatibleIDs:
         Trace("BusQueryCompatibleIDs\n");
-        Id.MaximumLength = (USHORT)(MAX_DEVICE_ID_LEN * Pdo->Count) * sizeof (WCHAR);
+        Id.MaximumLength = (USHORT)(MAX_DEVICE_ID_LEN * ARRAYSIZE(PdoRevision)) * sizeof (WCHAR);
         break;
 
         break;
@@ -1880,16 +1831,18 @@ PdoQueryId(
         break;
 
     case BusQueryDeviceID: {
-        ULONG   Index;
+        ULONG                   Index;
+        PXENVIF_PDO_REVISION    Revision;
 
         Type = REG_SZ;
-        Index = Pdo->Count - 1;
+        Index = ARRAYSIZE(PdoRevision) - 1;
+        Revision = &PdoRevision[Index];
 
         status = RtlStringCbPrintfW(Buffer,
                                     Id.MaximumLength,
                                     L"XENVIF\\VEN_%hs&DEV_NET&REV_%08X",
                                     __PdoGetVendorName(Pdo),
-                                    Pdo->Revision[Index]);
+                                    Revision->Number);
         ASSERT(NT_SUCCESS(status));
 
         Buffer += wcslen(Buffer);
@@ -1904,12 +1857,14 @@ PdoQueryId(
         Type = REG_MULTI_SZ;
         Length = Id.MaximumLength;
 
-        for (Index = 0; Index < Pdo->Count; Index++) {
+        for (Index = 0; Index < ARRAYSIZE(PdoRevision); Index++) {
+            PXENVIF_PDO_REVISION    Revision = &PdoRevision[Index];
+
             status = RtlStringCbPrintfW(Buffer,
                                         Length,
                                         L"XENVIF\\VEN_%hs&DEV_NET&REV_%08X",
                                         __PdoGetVendorName(Pdo),
-                                        Pdo->Revision[Index]);
+                                        Revision->Number);
             ASSERT(NT_SUCCESS(status));
 
             Buffer += wcslen(Buffer);
@@ -2569,21 +2524,17 @@ PdoCreate(
     if (!NT_SUCCESS(status))
         goto fail6;
 
-    status = PdoSetRevisions(Pdo);
+    status = BusInitialize(Pdo, &Pdo->BusInterface);
     if (!NT_SUCCESS(status))
         goto fail7;
 
-    status = BusInitialize(Pdo, &Pdo->BusInterface);
+    status = VifInitialize(Pdo, &Pdo->VifContext);
     if (!NT_SUCCESS(status))
         goto fail8;
 
-    status = VifInitialize(Pdo, &Pdo->VifContext);
-    if (!NT_SUCCESS(status))
-        goto fail9;
-
     status = FrontendInitialize(Pdo, &Pdo->Frontend);
     if (!NT_SUCCESS(status))
-        goto fail10;
+        goto fail9;
 
     FdoGetSuspendInterface(Fdo,&Pdo->SuspendInterface);
 
@@ -2591,27 +2542,28 @@ PdoCreate(
 
     status = FdoAddPhysicalDeviceObject(Fdo, Pdo);
     if (!NT_SUCCESS(status))
-        goto fail11;
+        goto fail10;
 
     status = STATUS_UNSUCCESSFUL;
     if (__PdoIsEjectRequested(Pdo))
-        goto fail12;
+        goto fail11;
 
-    Info("%p (%s: Highest Revision = %08X)\n",
+    Info("%p (%s)\n",
          PhysicalDeviceObject,
-         __PdoGetName(Pdo),
-         Pdo->Revision[Pdo->Count - 1]);
+         __PdoGetName(Pdo));
+
+    PdoDumpRevisions(Pdo);
 
     PhysicalDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
     return STATUS_SUCCESS;
 
-fail12:
-    Error("fail12\n");
+fail11:
+    Error("fail11\n");
 
     FdoRemovePhysicalDeviceObject(Fdo, Pdo);
 
-fail11:
-    Error("fail11\n");
+fail10:
+    Error("fail10\n");
 
     (VOID) __PdoClearEjectRequested(Pdo);
 
@@ -2623,23 +2575,16 @@ fail11:
     FrontendTeardown(__PdoGetFrontend(Pdo));
     Pdo->Frontend = NULL;
 
-fail10:
-    Error("fail10\n");
-
-    VifTeardown(Pdo->VifContext);
-    Pdo->VifContext = NULL;    
-
 fail9:
     Error("fail9\n");
 
-    BusTeardown(&Pdo->BusInterface);
+    VifTeardown(Pdo->VifContext);
+    Pdo->VifContext = NULL;
 
 fail8:
     Error("fail8\n");
 
-    __PdoFree(Pdo->Revision);
-    Pdo->Revision = NULL;
-    Pdo->Count = 0;
+    BusTeardown(&Pdo->BusInterface);
 
 fail7:
     Error("fail7\n");
@@ -2723,10 +2668,6 @@ PdoDestroy(
     Pdo->VifContext = NULL;
 
     BusTeardown(&Pdo->BusInterface);
-
-    __PdoFree(Pdo->Revision);
-    Pdo->Revision = NULL;
-    Pdo->Count = 0;
 
     RtlFreeUnicodeString(&Pdo->ContainerID);
     RtlZeroMemory(&Pdo->ContainerID, sizeof (UNICODE_STRING));
