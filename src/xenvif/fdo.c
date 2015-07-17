@@ -41,7 +41,7 @@
 #include <store_interface.h>
 #include <gnttab_interface.h>
 #include <suspend_interface.h>
-#include <emulated_interface.h>
+#include <unplug_interface.h>
 
 #include "driver.h"
 #include "registry.h"
@@ -101,6 +101,7 @@ struct _XENVIF_FDO {
     XENBUS_RANGE_SET_INTERFACE  RangeSetInterface;
     XENBUS_CACHE_INTERFACE      CacheInterface;
     XENBUS_GNTTAB_INTERFACE     GnttabInterface;
+    XENBUS_UNPLUG_INTERFACE     UnplugInterface;
 
     PXENBUS_SUSPEND_CALLBACK    SuspendCallbackLate;
 };
@@ -2772,6 +2773,7 @@ DEFINE_FDO_GET_INTERFACE(Store, PXENBUS_STORE_INTERFACE)
 DEFINE_FDO_GET_INTERFACE(RangeSet, PXENBUS_RANGE_SET_INTERFACE)
 DEFINE_FDO_GET_INTERFACE(Cache, PXENBUS_CACHE_INTERFACE)
 DEFINE_FDO_GET_INTERFACE(Gnttab, PXENBUS_GNTTAB_INTERFACE)
+DEFINE_FDO_GET_INTERFACE(Unplug, PXENBUS_UNPLUG_INTERFACE)
 
 NTSTATUS
 FdoCreate(
@@ -2901,6 +2903,15 @@ FdoCreate(
     if (!NT_SUCCESS(status))
         goto fail13;
 
+    status = FDO_QUERY_INTERFACE(Fdo,
+                                 XENBUS,
+                                 UNPLUG,
+                                 (PINTERFACE)&Fdo->UnplugInterface,
+                                 sizeof (Fdo->UnplugInterface),
+                                 FALSE);
+    if (!NT_SUCCESS(status))
+        goto fail14;
+
     Dx->Fdo = Fdo;
 
     InitializeMutex(&Fdo->Mutex);
@@ -2913,6 +2924,12 @@ FdoCreate(
 
     FunctionDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
     return STATUS_SUCCESS;
+
+fail14:
+    Error("fail14\n");
+
+    RtlZeroMemory(&Fdo->UnplugInterface,
+                  sizeof (XENBUS_UNPLUG_INTERFACE));
 
 fail13:
     Error("fail13\n");
@@ -3019,6 +3036,9 @@ FdoDestroy(
     RtlZeroMemory(&Fdo->Mutex, sizeof (MUTEX));
 
     Dx->Fdo = NULL;
+
+    RtlZeroMemory(&Fdo->UnplugInterface,
+                  sizeof (XENBUS_UNPLUG_INTERFACE));
 
     RtlZeroMemory(&Fdo->GnttabInterface,
                   sizeof (XENBUS_GNTTAB_INTERFACE));

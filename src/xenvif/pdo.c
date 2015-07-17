@@ -40,8 +40,8 @@
 #include <bcrypt.h>
 #include <xen.h>
 
-#include <store_interface.h>
-#include <emulated_interface.h>
+#include <suspend_interface.h>
+#include <unplug_interface.h>
 
 #include "names.h"
 #include "fdo.h"
@@ -84,6 +84,8 @@ struct _XENVIF_PDO {
 
     XENBUS_SUSPEND_INTERFACE    SuspendInterface;
     PXENBUS_SUSPEND_CALLBACK    SuspendCallbackLate;
+
+    XENBUS_UNPLUG_INTERFACE     UnplugInterface;
 
     PXENVIF_FRONTEND            Frontend;
 
@@ -947,6 +949,11 @@ PdoD3ToD0(
 
     KeLowerIrql(Irql);
 
+    XENBUS_UNPLUG(Request,
+                  &Pdo->UnplugInterface,
+                  XENBUS_UNPLUG_DEVICE_TYPE_NICS,
+                  TRUE);
+
     return STATUS_SUCCESS;
 
 fail3:
@@ -976,6 +983,11 @@ PdoD0ToD3(
     KIRQL           Irql;
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
+
+    XENBUS_UNPLUG(Request,
+                  &Pdo->UnplugInterface,
+                  XENBUS_UNPLUG_DEVICE_TYPE_NICS,
+                  FALSE);
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 
@@ -1092,31 +1104,35 @@ PdoStartDevice(
     if (DriverIsRebootRequested())
         goto fail1;
 
+    status = XENBUS_UNPLUG(Acquire, &Pdo->UnplugInterface);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
     status = RegistryOpenSoftwareKey(__PdoGetDeviceObject(Pdo),
                                      KEY_ALL_ACCESS,
                                      &Key);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail3;
 
     status = __PdoSetCurrentAddress(Pdo, Key);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "GetIfTable2",
                                    (PVOID *)&__GetIfTable2);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "FreeMibTable",
                                    (PVOID *)&__FreeMibTable);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     status = __GetIfTable2(&Table);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail7;
 
     //
     // Look for a network interface with the same permanent address
@@ -1142,7 +1158,7 @@ PdoStartDevice(
             continue;
 
         status = STATUS_UNSUCCESSFUL;
-        goto fail7;
+        goto fail8;
     }
 
     //
@@ -1170,7 +1186,7 @@ PdoStartDevice(
 
     status = PdoD3ToD0(Pdo);
     if (!NT_SUCCESS(status))
-        goto fail8;
+        goto fail9;
 
     __PdoSetDevicePnpState(Pdo, Started);
 
@@ -1183,15 +1199,15 @@ PdoStartDevice(
 
     return STATUS_SUCCESS;
 
-fail8:
-    Error("fail8\n");
+fail9:
+    Error("fail9\n");
 
     __FreeMibTable(Table);
 
     goto fail6;
 
-fail7:
-    Error("fail7\n");
+fail8:
+    Error("fail8\n");
 
     (VOID) SettingsSave(Key,
                         Row->Alias,
@@ -1199,8 +1215,16 @@ fail7:
                         &Row->InterfaceGuid,
                         &Row->InterfaceLuid);
 
+    XENBUS_UNPLUG(Request,
+                  &Pdo->UnplugInterface,
+                  XENBUS_UNPLUG_DEVICE_TYPE_NICS,
+                  TRUE);
+
     DriverRequestReboot();
     __FreeMibTable(Table);
+
+fail7:
+    Error("fail7\n");
 
 fail6:
     Error("fail6\n");
@@ -1208,15 +1232,17 @@ fail6:
 fail5:
     Error("fail5\n");
 
+    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
+
 fail4:
     Error("fail4\n");
 
-    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
+    RegistryCloseKey(Key);
 
 fail3:
     Error("fail3\n");
 
-    RegistryCloseKey(Key);
+    XENBUS_UNPLUG(Release, &Pdo->UnplugInterface);
 
 fail2:
     Error("fail2\n");
@@ -1276,6 +1302,8 @@ PdoStopDevice(
     PdoD0ToD3(Pdo);
 
     RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
+
+    XENBUS_UNPLUG(Release, &Pdo->UnplugInterface);
 
     __PdoSetDevicePnpState(Pdo, Stopped);
     status = STATUS_SUCCESS;
@@ -1360,6 +1388,8 @@ PdoRemoveDevice(
 
 done:
     RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
+
+    XENBUS_UNPLUG(Release, &Pdo->UnplugInterface);
 
     NeedInvalidate = FALSE;
 
@@ -2536,7 +2566,8 @@ PdoCreate(
     if (!NT_SUCCESS(status))
         goto fail9;
 
-    FdoGetSuspendInterface(Fdo,&Pdo->SuspendInterface);
+    FdoGetSuspendInterface(Fdo, &Pdo->SuspendInterface);
+    FdoGetUnplugInterface(Fdo, &Pdo->UnplugInterface);
 
     Dx->Pdo = Pdo;
 
@@ -2568,6 +2599,9 @@ fail10:
     (VOID) __PdoClearEjectRequested(Pdo);
 
     Dx->Pdo = NULL;
+
+    RtlZeroMemory(&Pdo->UnplugInterface,
+                  sizeof (XENBUS_UNPLUG_INTERFACE));
 
     RtlZeroMemory(&Pdo->SuspendInterface,
                   sizeof (XENBUS_SUSPEND_INTERFACE));
@@ -2657,6 +2691,9 @@ PdoDestroy(
     (VOID) __PdoClearEjectRequested(Pdo);
 
     Dx->Pdo = NULL;
+
+    RtlZeroMemory(&Pdo->UnplugInterface,
+                  sizeof (XENBUS_UNPLUG_INTERFACE));
 
     RtlZeroMemory(&Pdo->SuspendInterface,
                   sizeof (XENBUS_SUSPEND_INTERFACE));

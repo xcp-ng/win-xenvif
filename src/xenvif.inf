@@ -58,9 +58,9 @@ xenvif_coinst_@MAJOR_VERSION@_@MINOR_VERSION@_@MICRO_VERSION@_@BUILD_NUMBER@.dll
 ; DisplayName		Section		DeviceID
 ; -----------		-------		--------
 
-%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_XSC000&DEV_VIF&REV_08000008
-%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_XS0001&DEV_VIF&REV_08000008
-%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_XS0002&DEV_VIF&REV_08000008
+%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_XSC000&DEV_VIF&REV_08000009
+%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_XS0001&DEV_VIF&REV_08000009
+%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_XS0002&DEV_VIF&REV_08000009
 
 [XenVif_Inst] 
 CopyFiles=XenVif_Copyfiles

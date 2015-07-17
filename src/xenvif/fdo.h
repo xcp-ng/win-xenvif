@@ -40,7 +40,7 @@
 #include <range_set_interface.h>
 #include <cache_interface.h>
 #include <gnttab_interface.h>
-#include <emulated_interface.h>
+#include <unplug_interface.h>
 
 #include "driver.h"
 #include "types.h"
@@ -142,7 +142,7 @@ DECLARE_FDO_GET_INTERFACE(Store, PXENBUS_STORE_INTERFACE)
 DECLARE_FDO_GET_INTERFACE(RangeSet, PXENBUS_RANGE_SET_INTERFACE)
 DECLARE_FDO_GET_INTERFACE(Cache, PXENBUS_CACHE_INTERFACE)
 DECLARE_FDO_GET_INTERFACE(Gnttab, PXENBUS_GNTTAB_INTERFACE)
-DECLARE_FDO_GET_INTERFACE(Emulated, PXENFILT_EMULATED_INTERFACE)
+DECLARE_FDO_GET_INTERFACE(Unplug, PXENBUS_UNPLUG_INTERFACE)
 
 extern NTSTATUS
 FdoCreate(
