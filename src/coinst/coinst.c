@@ -757,7 +757,7 @@ SupportChildDrivers(
             goto fail4;
         }
 
-        Success = OpenDeviceKey("XENBUS", SubKeyName, &DeviceKey);
+        Success = OpenDeviceKey("XENVIF", SubKeyName, &DeviceKey);
         if (!Success)
             goto fail5;
 
