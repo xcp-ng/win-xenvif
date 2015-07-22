@@ -157,6 +157,8 @@ DriverUnload(
     if (*InitSafeBootMode > 0)
         goto done;
 
+    Driver.NeedReboot = FALSE;
+
     StatusKey = __DriverGetStatusKey();
     __DriverSetStatusKey(NULL);
 

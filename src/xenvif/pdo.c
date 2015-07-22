@@ -62,6 +62,8 @@
 
 #define PDO_POOL 'ODP'
 
+#define MAXNAMELEN  128
+
 struct _XENVIF_PDO {
     PXENVIF_DX                  Dx;
 
@@ -733,6 +735,60 @@ PdoGetPermanentAddress(
     return __PdoGetPermanentAddress(Pdo);
 }
 
+static NTSTATUS
+PdoSetFriendlyName(
+    IN  PXENVIF_PDO Pdo,
+    IN  HANDLE      SoftwareKey,
+    IN  HANDLE      HardwareKey
+    )
+{
+    PANSI_STRING    DriverDesc;
+    CHAR            Buffer[MAXNAMELEN];
+    ANSI_STRING     FriendlyName[2];
+    NTSTATUS        status;
+
+    status = RegistryQuerySzValue(SoftwareKey,
+                                  "DriverDesc",
+                                  &DriverDesc);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = RtlStringCbPrintfA(Buffer,
+                                MAXNAMELEN,
+                                "%Z #%s",
+                                &DriverDesc[0],
+                                __PdoGetName(Pdo)
+                                );
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    RtlZeroMemory(FriendlyName, sizeof (ANSI_STRING) * 2);
+    RtlInitAnsiString(&FriendlyName[0], Buffer);
+
+    status = RegistryUpdateSzValue(HardwareKey,
+                                   "FriendlyName",
+                                   FriendlyName);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    Info("%Z\n", &FriendlyName[0]);
+
+    RegistryFreeSzValue(DriverDesc);
+
+    return STATUS_SUCCESS;
+
+fail3:
+    Error("fail3\n");
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
 static FORCEINLINE NTSTATUS
 __PdoSetCurrentAddress(
     IN  PXENVIF_PDO Pdo,
@@ -1096,7 +1152,8 @@ PdoStartDevice(
     ULONG               Index;
     PMIB_IF_ROW2        Row;
     PIO_STACK_LOCATION  StackLocation;
-    HANDLE              Key;
+    HANDLE              SoftwareKey;
+    HANDLE              HardwareKey;
     GUID                Guid;
     NTSTATUS            status;
 
@@ -1110,29 +1167,39 @@ PdoStartDevice(
 
     status = RegistryOpenSoftwareKey(__PdoGetDeviceObject(Pdo),
                                      KEY_ALL_ACCESS,
-                                     &Key);
+                                     &SoftwareKey);
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    status = __PdoSetCurrentAddress(Pdo, Key);
+    status = RegistryOpenHardwareKey(__PdoGetDeviceObject(Pdo),
+                                     KEY_ALL_ACCESS,
+                                     &HardwareKey);
     if (!NT_SUCCESS(status))
         goto fail4;
+
+    (VOID) PdoSetFriendlyName(Pdo,
+                              SoftwareKey,
+                              HardwareKey);
+
+    status = __PdoSetCurrentAddress(Pdo, SoftwareKey);
+    if (!NT_SUCCESS(status))
+        goto fail5;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "GetIfTable2",
                                    (PVOID *)&__GetIfTable2);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "FreeMibTable",
                                    (PVOID *)&__FreeMibTable);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail7;
 
     status = __GetIfTable2(&Table);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail8;
 
     //
     // Look for a network interface with the same permanent address
@@ -1158,14 +1225,14 @@ PdoStartDevice(
             continue;
 
         status = STATUS_UNSUCCESSFUL;
-        goto fail8;
+        goto fail9;
     }
 
     //
     // If there is a stack bound then restore any settings that
     // may have been saved from an aliasing emulated device.
     //
-    status = PdoGetInterfaceGuid(Pdo, Key, &Guid);
+    status = PdoGetInterfaceGuid(Pdo, SoftwareKey, &Guid);
     if (NT_SUCCESS(status)) {
         for (Index = 0; Index < Table->NumEntries; Index++) {
             Row = &Table->Table[Index];
@@ -1173,7 +1240,7 @@ PdoStartDevice(
             if (!IsEqualGUID(&Row->InterfaceGuid, &Guid))
                 continue;
 
-            (VOID) SettingsRestore(Key,
+            (VOID) SettingsRestore(SoftwareKey,
                                    Row->Alias,
                                    Row->Description,
                                    &Row->InterfaceGuid,
@@ -1186,7 +1253,7 @@ PdoStartDevice(
 
     status = PdoD3ToD0(Pdo);
     if (!NT_SUCCESS(status))
-        goto fail9;
+        goto fail10;
 
     __PdoSetDevicePnpState(Pdo, Started);
 
@@ -1195,21 +1262,21 @@ PdoStartDevice(
 
     __FreeMibTable(Table);
 
-    RegistryCloseKey(Key);
+    RegistryCloseKey(SoftwareKey);
 
     return STATUS_SUCCESS;
+
+fail10:
+    Error("fail10\n");
+
+    __FreeMibTable(Table);
+
+    goto fail7;
 
 fail9:
     Error("fail9\n");
 
-    __FreeMibTable(Table);
-
-    goto fail6;
-
-fail8:
-    Error("fail8\n");
-
-    (VOID) SettingsSave(Key,
+    (VOID) SettingsSave(SoftwareKey,
                         Row->Alias,
                         Row->Description,
                         &Row->InterfaceGuid,
@@ -1223,21 +1290,26 @@ fail8:
     DriverRequestReboot();
     __FreeMibTable(Table);
 
+fail8:
+    Error("fail8\n");
+
 fail7:
     Error("fail7\n");
 
 fail6:
     Error("fail6\n");
 
+    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
+
 fail5:
     Error("fail5\n");
 
-    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
+    RegistryCloseKey(HardwareKey);
 
 fail4:
     Error("fail4\n");
 
-    RegistryCloseKey(Key);
+    RegistryCloseKey(SoftwareKey);
 
 fail3:
     Error("fail3\n");
