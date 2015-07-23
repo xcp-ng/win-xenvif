@@ -1949,7 +1949,9 @@ __TransmitterRingFakeResponses(
 
     KeMemoryBarrier();
 
-    rsp_prod = Ring->Shared->rsp_prod;
+    // We can't trust anything in the shared ring
+    SHARED_RING_INIT(Ring->Shared);
+    rsp_prod = Ring->Front.rsp_cons;
 
     KeMemoryBarrier();
 
