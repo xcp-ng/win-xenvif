@@ -37,7 +37,8 @@
 // V  - XENVIF_VIF_INTERFACE
 
 //                    REVISION   C   V
-#define DEFINE_REVISION_TABLE                                      \
-    DEFINE_REVISION(0x08000002,  1,  2)
+#define DEFINE_REVISION_TABLE               \
+    DEFINE_REVISION(0x08000002,  1,  2),    \
+    DEFINE_REVISION(0x08000003,  1,  3)
 
 #endif  // _REVISION_H

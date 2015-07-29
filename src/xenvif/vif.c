@@ -408,6 +408,22 @@ VifReceiverSetOffloadOptions(
 }
 
 static VOID
+VifReceiverSetBackfillSize(
+    IN  PINTERFACE      Interface,
+    IN  ULONG           Size
+    )
+{
+    PXENVIF_VIF_CONTEXT Context = Interface->Context;
+
+    AcquireMrswLockShared(&Context->Lock);
+
+    ReceiverSetBackfillSize(FrontendGetReceiver(Context->Frontend),
+                            Size);
+
+    ReleaseMrswLockShared(&Context->Lock);
+}
+
+static VOID
 VifMacQueryState(
     IN  PINTERFACE                  Interface,
     OUT PNET_IF_MEDIA_CONNECT_STATE MediaConnectState OPTIONAL,
@@ -747,6 +763,32 @@ static struct _XENVIF_VIF_INTERFACE_V2 VifInterfaceVersion2 = {
     VifMacQueryFilterLevel
 };
 
+static struct _XENVIF_VIF_INTERFACE_V3 VifInterfaceVersion3 = {
+    { sizeof (struct _XENVIF_VIF_INTERFACE_V3), 3, NULL, NULL, NULL },
+    VifAcquire,
+    VifRelease,
+    VifEnable,
+    VifDisable,
+    VifQueryStatistic,
+    VifReceiverReturnPackets,
+    VifReceiverSetOffloadOptions,
+    VifReceiverSetBackfillSize,
+    VifReceiverQueryRingSize,
+    VifTransmitterGetPacketHeaders,
+    VifTransmitterQueuePackets,
+    VifTransmitterQueryOffloadOptions,
+    VifTransmitterQueryLargePacketSize,
+    VifTransmitterQueryRingSize,
+    VifMacQueryState,
+    VifMacQueryMaximumFrameSize,
+    VifMacQueryPermanentAddress,
+    VifMacQueryCurrentAddress,
+    VifMacQueryMulticastAddresses,
+    VifMacSetMulticastAddresses,
+    VifMacSetFilterLevel,
+    VifMacQueryFilterLevel
+};
+
 NTSTATUS
 VifInitialize(
     IN  PXENVIF_PDO         Pdo,
@@ -838,6 +880,23 @@ VifGetInterface(
             break;
 
         *VifInterface = VifInterfaceVersion2;
+
+        ASSERT3U(Interface->Version, ==, Version);
+        Interface->Context = Context;
+
+        status = STATUS_SUCCESS;
+        break;
+    }
+    case 3: {
+        struct _XENVIF_VIF_INTERFACE_V3 *VifInterface;
+
+        VifInterface = (struct _XENVIF_VIF_INTERFACE_V3 *)Interface;
+
+        status = STATUS_BUFFER_OVERFLOW;
+        if (Size < sizeof (struct _XENVIF_VIF_INTERFACE_V3))
+            break;
+
+        *VifInterface = VifInterfaceVersion3;
 
         ASSERT3U(Interface->Version, ==, Version);
         Interface->Context = Context;

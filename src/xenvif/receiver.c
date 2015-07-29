@@ -99,6 +99,7 @@ typedef struct _XENVIF_RECEIVER_RING {
     BOOLEAN                     Enabled;
     BOOLEAN                     Stopped;
     XENVIF_VIF_OFFLOAD_OPTIONS  OffloadOptions;
+    ULONG                       BackfillSize;
     PXENBUS_DEBUG_CALLBACK      DebugCallback;
     PXENVIF_THREAD              WatchdogThread;
     LIST_ENTRY                  PacketList;
@@ -732,6 +733,7 @@ __ReceiverRingBuildSegment(
     IN  PXENVIF_PACKET_PAYLOAD  Payload
     )
 {
+    PXENVIF_RECEIVER            Receiver;
     PXENVIF_PACKET_INFO         Info;
     PXENVIF_RECEIVER_PACKET     Segment;
     PMDL                        Mdl;
@@ -741,6 +743,8 @@ __ReceiverRingBuildSegment(
     PTCP_HEADER                 TcpHeader;
     ULONG                       Seq;
     NTSTATUS                    status;
+
+    Receiver = Ring->Receiver;
 
     Info = Packet->Info;
 
@@ -843,7 +847,12 @@ __ReceiverRingBuildSegment(
         StartVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
         ASSERT(StartVa != NULL);
 
-        Length = __min(SegmentSize - Segment->Length, PAGE_SIZE);
+        Mdl->ByteOffset = Ring->BackfillSize;
+
+        StartVa += Ring->BackfillSize;
+        Mdl->MappedSystemVa = StartVa;
+
+        Length = __min(SegmentSize - Segment->Length, PAGE_SIZE - Mdl->ByteOffset);
         ASSERT(Length != 0);
 
         (VOID) ReceiverRingPullup(Ring, StartVa, Payload, Length);
@@ -854,10 +863,13 @@ __ReceiverRingBuildSegment(
         if (Segment->Length == SegmentSize)
             break;
 
-        ASSERT3U(Mdl->ByteCount, ==, PAGE_SIZE);
+        ASSERT3U(Mdl->ByteCount, ==, PAGE_SIZE - Mdl->ByteOffset);
     }
 
     Segment->Length += Info->Length;
+
+    if (Receiver->AlwaysPullup != 0)
+        __ReceiverRingPullupPacket(Ring, Segment);
 
     return Segment;
 
@@ -1062,6 +1074,111 @@ fail1:
 }
 
 static VOID
+ReceiverRingProcessStandardPacket(
+    IN  PXENVIF_RECEIVER_RING   Ring,
+    IN  PXENVIF_RECEIVER_PACKET Packet,
+    OUT PLIST_ENTRY             List
+    )
+{
+    PXENVIF_RECEIVER            Receiver;
+    PXENVIF_FRONTEND            Frontend;
+    PXENVIF_MAC                 Mac;
+    PXENVIF_PACKET_INFO         Info;
+    XENVIF_PACKET_PAYLOAD       Payload;
+    ULONG                       MaximumFrameSize;
+    NTSTATUS                    status;
+
+    Receiver = Ring->Receiver;
+    Frontend = Receiver->Frontend;
+    Mac = FrontendGetMac(Frontend);
+
+    Info = Packet->Info;
+
+    Payload.Mdl = Packet->Mdl.Next;
+    Payload.Offset = 0;
+    Payload.Length = Packet->Length - Info->Length;
+
+    MacQueryMaximumFrameSize(Mac, &MaximumFrameSize);
+
+    status = STATUS_INVALID_PARAMETER;
+    if (Packet->Length > MaximumFrameSize)
+        goto fail1;
+
+    // Certain HCK tests (e.g. the NDISTest 2c_Priority test) are
+    // sufficiently brain-dead that they cannot cope with
+    // multi-fragment packets, or at least packets where headers are
+    // in different fragments. All these tests seem to use IPX packets
+    // and, in practice, little else uses LLC so pull up all LLC
+    // packets into a single fragment.
+    if (Info->LLCSnapHeader.Length != 0 || Receiver->AlwaysPullup != 0)
+        __ReceiverRingPullupPacket(Ring, Packet);
+    else if (Payload.Mdl != NULL && Payload.Mdl->ByteOffset < Ring->BackfillSize) {
+        PMDL    Mdl;
+        PUCHAR  StartVa;
+
+        // NDIS Header/Data split requires that the data MDL has a minimum length
+        // of headroom (i.e. ByteOffset) so that it can pre-pend the header to the data
+        // if something up the stack can't cope with the split.
+
+        Mdl = __ReceiverRingGetMdl(Ring, TRUE);
+
+        status = STATUS_NO_MEMORY;
+        if (Mdl == NULL)
+            goto fail2;
+
+        StartVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+        ASSERT(StartVa != NULL);
+
+        Mdl->ByteOffset = Ring->BackfillSize;
+        Mdl->ByteCount = __min(Payload.Mdl->ByteCount,
+                               PAGE_SIZE - Mdl->ByteOffset);
+
+        StartVa += Ring->BackfillSize;
+        Mdl->MappedSystemVa = StartVa;
+
+        (VOID) ReceiverRingPullup(Ring, StartVa, &Payload, Mdl->ByteCount);
+
+        if (Payload.Length != 0) {
+            ASSERT(Payload.Mdl != NULL);
+            Mdl->Next = Payload.Mdl;
+        }
+
+        Packet->Mdl.Next = Mdl;
+    }
+
+    ASSERT(IsZeroMemory(&Packet->ListEntry, sizeof (LIST_ENTRY)));
+    InsertTailList(List, &Packet->ListEntry);
+
+    return;
+
+fail2:
+fail1:
+    if (Payload.Length != 0) {
+        PMDL    Mdl = Payload.Mdl;
+
+        ASSERT(Mdl != NULL);
+
+        while (Mdl != NULL) {
+            PMDL    Next;
+
+            Next = Mdl->Next;
+            Mdl->Next = NULL;
+
+            __ReceiverRingPutMdl(Ring, Mdl, TRUE);
+
+            Mdl = Next;
+        }
+    }
+
+    Packet->Mdl.Next = NULL;
+    __ReceiverRingPutPacket(Ring, Packet, TRUE);
+
+    FrontendIncrementStatistic(Frontend,
+                               XENVIF_RECEIVER_PACKETS_DROPPED,
+                               1);
+}
+
+static VOID
 ReceiverRingProcessPacket(
     IN  PXENVIF_RECEIVER_RING   Ring,
     IN  PXENVIF_RECEIVER_PACKET Packet,
@@ -1143,8 +1260,7 @@ ReceiverRingProcessPacket(
     DestinationAddress = &EthernetHeader->DestinationAddress;
 
     status = STATUS_UNSUCCESSFUL;
-    if (!MacApplyFilters(FrontendGetMac(Frontend),
-                         DestinationAddress))
+    if (!MacApplyFilters(Mac, DestinationAddress))
         goto fail3;
 
     Type = GET_ETHERNET_ADDRESS_TYPE(DestinationAddress);
@@ -1182,33 +1298,13 @@ ReceiverRingProcessPacket(
         break;
     }
 
-    if (Packet->MaximumSegmentSize != 0) {
+    if (Packet->MaximumSegmentSize != 0)
         ReceiverRingProcessLargePacket(Ring, Packet, List);
-    } else {
-        ULONG   MaximumFrameSize;
-
-        MacQueryMaximumFrameSize(Mac, &MaximumFrameSize);
-
-        if (Packet->Length > MaximumFrameSize)
-            goto fail4;
-        
-        // Certain HCK tests (e.g. the NDISTest 2c_Priority test) are
-        // sufficiently brain-dead that they cannot cope with
-        // multi-fragment packets, or at least packets where headers are
-        // in different fragments. All these tests seem to use IPX packets
-        // and, in practice, little else uses LLC so pull up all LLC
-        // packets into a single fragment.
-        if (Info->LLCSnapHeader.Length != 0 ||
-            Receiver->AlwaysPullup != 0)
-            __ReceiverRingPullupPacket(Ring, Packet);
-
-        ASSERT(IsZeroMemory(&Packet->ListEntry, sizeof (LIST_ENTRY)));
-        InsertTailList(List, &Packet->ListEntry);
-    }
+    else
+        ReceiverRingProcessStandardPacket(Ring, Packet, List);
 
     return;
 
-fail4:
 fail3:
     Packet->Mdl.Next = NULL;
     __ReceiverRingPutPacket(Ring, Packet, TRUE);
@@ -2510,6 +2606,7 @@ __ReceiverRingTeardown(
     Ring->Dpcs = 0;
     RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
 
+    Ring->BackfillSize = 0;
     Ring->OffloadOptions.Value = 0;
 
     ThreadAlert(Ring->WatchdogThread);
@@ -2553,6 +2650,23 @@ __ReceiverRingSetOffloadOptions(
 
     __ReceiverRingAcquireLock(Ring);
     Ring->OffloadOptions = Options;
+    __ReceiverRingReleaseLock(Ring);
+
+    KeLowerIrql(Irql);
+}
+
+static FORCEINLINE VOID
+__ReceiverRingSetBackfillSize(
+    IN  PXENVIF_RECEIVER_RING   Ring,
+    IN  ULONG                   Size
+    )
+{
+    KIRQL                       Irql;
+
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+
+    __ReceiverRingAcquireLock(Ring);
+    Ring->BackfillSize = Size;
     __ReceiverRingReleaseLock(Ring);
 
     KeLowerIrql(Irql);
@@ -3206,6 +3320,27 @@ ReceiverSetOffloadOptions(
 
         __ReceiverRingSetOffloadOptions(Ring, Options);
     }    
+}
+
+VOID
+ReceiverSetBackfillSize(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  ULONG               Size
+    )
+{
+    LONG                    Index;
+
+    ASSERT3U(Size, <, PAGE_SIZE);
+
+    for (Index = 0; Index < Receiver->MaxQueues; ++Index) {
+        PXENVIF_RECEIVER_RING   Ring;
+
+        Ring = Receiver->Ring[Index];
+        if (Ring == NULL)
+            break;
+
+        __ReceiverRingSetBackfillSize(Ring, Size);
+    }
 }
 
 VOID
