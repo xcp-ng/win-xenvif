@@ -42,8 +42,9 @@
 #define DEFINE_REVISION_TABLE                       \
     DEFINE_REVISION(0x08000002,  1,  2,  0,  0),    \
     DEFINE_REVISION(0x08000005,  1,  2,  1,  1),    \
+    DEFINE_REVISION(0x08000007,  1,  3,  1,  1)
 
-// Revisions 0x08000003 and 0x08000004 are already in use in the
-// master branch.
+// Revisions 0x08000003, 0x08000004 and 0x08000006 are already in use
+// in the master branch.
 
 #endif  // _REVISION_H

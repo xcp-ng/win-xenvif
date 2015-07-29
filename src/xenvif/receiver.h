@@ -95,6 +95,12 @@ ReceiverSetOffloadOptions(
     );
 
 extern VOID
+ReceiverSetBackfillSize(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  ULONG               Size
+    );
+
+extern VOID
 ReceiverReturnPackets(
     IN  PXENVIF_RECEIVER    Receiver,
     IN  PLIST_ENTRY         List

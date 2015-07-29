@@ -2775,14 +2775,10 @@ __TransmitterReturnPackets(
 
         break;
     }
-    case 2:
+    default:
         if (!IsListEmpty(List))
             VifTransmitterReturnPackets(VifContext, List);
 
-        break;
-
-    default:
-        ASSERT(FALSE);
         break;
     }
 }
