@@ -745,29 +745,30 @@ __FdoEnumerate(
     while (ListEntry != &Fdo->Dx->ListEntry) {
         PLIST_ENTRY     Next = ListEntry->Flink;
         PXENVIF_DX      Dx = CONTAINING_RECORD(ListEntry, XENVIF_DX, ListEntry);
-        PCHAR           Name = Dx->Name;
         PXENVIF_PDO     Pdo = Dx->Pdo;
-        BOOLEAN         Missing;
-
-        Name = PdoGetName(Pdo);
-        Missing = TRUE;
-
-        // If the PDO already exists ans its name is in the class list then
-        // we don't want to remove it.
-        for (Index = 0; Devices[Index].Buffer != NULL; Index++) {
-            PANSI_STRING Device = &Devices[Index];
-
-            if (Device->Length == 0)
-                continue;
-
-            if (strcmp(Name, Device->Buffer) == 0) {
-                Missing = FALSE;
-                Device->Length = 0;  // avoid duplication
-                break;
-            }
-        }
 
         if (!PdoIsMissing(Pdo) && PdoGetDevicePnpState(Pdo) != Deleted) {
+            PCHAR           Name;
+            BOOLEAN         Missing;
+
+            Name = PdoGetName(Pdo);
+            Missing = TRUE;
+
+            // If the PDO already exists and its name is in the device list
+            // then we don't want to remove it.
+            for (Index = 0; Devices[Index].Buffer != NULL; Index++) {
+                PANSI_STRING Device = &Devices[Index];
+
+                if (Device->Length == 0)
+                    continue;
+
+                if (strcmp(Name, Device->Buffer) == 0) {
+                    Missing = FALSE;
+                    Device->Length = 0;  // avoid duplication
+                    break;
+                }
+            }
+
             if (PdoIsEjectRequested(Pdo)) {
                 IoRequestDeviceEject(PdoGetDeviceObject(Pdo));
             } else if (Missing) {
@@ -789,7 +790,7 @@ __FdoEnumerate(
         ListEntry = Next;
     }
 
-    // Walk the class list and create PDOs for any new classes
+    // Walk the class list and create PDOs for any new device
     for (Index = 0; Devices[Index].Buffer != NULL; Index++) {
         PANSI_STRING Device = &Devices[Index];
 
@@ -1678,17 +1679,19 @@ FdoQueryDeviceRelations(
 
     __FdoAcquireMutex(Fdo);
 
-    for (ListEntry = Fdo->Dx->ListEntry.Flink;
-         ListEntry != &Fdo->Dx->ListEntry;
-         ListEntry = ListEntry->Flink) {
+    ListEntry = Fdo->Dx->ListEntry.Flink;
+    while (ListEntry != &Fdo->Dx->ListEntry) {
         PXENVIF_DX  Dx = CONTAINING_RECORD(ListEntry, XENVIF_DX, ListEntry);
         PXENVIF_PDO Pdo = Dx->Pdo;
+        PLIST_ENTRY Next = ListEntry->Flink;
 
         ASSERT3U(Dx->Type, ==, PHYSICAL_DEVICE_OBJECT);
 
         if (PdoGetDevicePnpState(Pdo) == Deleted &&
             PdoIsMissing(Pdo))
             PdoDestroy(Pdo);
+
+        ListEntry = Next;
     }
 
     __FdoReleaseMutex(Fdo);
