@@ -976,6 +976,7 @@ FdoScan(
         if (ParametersKey != NULL) {
             status = RegistryQuerySzValue(ParametersKey,
                                           "UnsupportedDevices",
+                                          NULL,
                                           &UnsupportedDevices);
             if (!NT_SUCCESS(status))
                 UnsupportedDevices = NULL;

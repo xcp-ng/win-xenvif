@@ -90,14 +90,17 @@ SettingsCopyInterfaceValue(
     }
     case REG_SZ:
     case REG_MULTI_SZ: {
+        ULONG           Type;
         PANSI_STRING    Value;
 
         status = RegistryQuerySzValue(SourceKey,
                                       ValueName->Buffer,
+                                      &Type,
                                       &Value);
         if (NT_SUCCESS(status)) {
             (VOID) RegistryUpdateSzValue(Parameters->DestinationKey,
                                          ValueName->Buffer,
+                                         Type,
                                          Value);
             RegistryFreeSzValue(Value);
         }

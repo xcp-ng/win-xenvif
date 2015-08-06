@@ -749,6 +749,7 @@ PdoSetFriendlyName(
 
     status = RegistryQuerySzValue(SoftwareKey,
                                   "DriverDesc",
+                                  NULL,
                                   &DriverDesc);
     if (!NT_SUCCESS(status))
         goto fail1;
@@ -767,6 +768,7 @@ PdoSetFriendlyName(
 
     status = RegistryUpdateSzValue(HardwareKey,
                                    "FriendlyName",
+                                   REG_SZ,
                                    FriendlyName);
     if (!NT_SUCCESS(status))
         goto fail3;
@@ -802,6 +804,7 @@ __PdoSetCurrentAddress(
 
     status = RegistryQuerySzValue(Key,
                                   "NetworkAddress",
+                                  NULL,
                                   &Ansi);
     if (!NT_SUCCESS(status))
         goto done;
@@ -1106,6 +1109,7 @@ PdoGetInterfaceGuid(
 
     status = RegistryQuerySzValue(Key,
                                   "NetCfgInstanceId",
+                                  NULL,
                                   &Ansi);
     if (!NT_SUCCESS(status))
         goto fail1;
