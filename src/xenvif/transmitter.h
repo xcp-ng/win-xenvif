@@ -34,7 +34,9 @@
 
 #include <ntddk.h>
 #include <netioapi.h>
+
 #include <vif_interface.h>
+#include <tcpip.h>
 
 #include "frontend.h"
 
@@ -89,21 +91,28 @@ TransmitterAbortPackets(
     );
 
 extern VOID
+TransmitterQueueArp(
+    IN  PXENVIF_TRANSMITTER     Transmitter,
+    IN  PIPV4_ADDRESS           Address
+    );
+
+extern VOID
+TransmitterQueueNeighbourAdvertisement(
+    IN  PXENVIF_TRANSMITTER     Transmitter,
+    IN  PIPV6_ADDRESS           Address
+    );
+
+extern VOID
+TransmitterQueueMulticastControl(
+    IN  PXENVIF_TRANSMITTER     Transmitter,
+    IN  PETHERNET_ADDRESS       Address,
+    IN  BOOLEAN                 Add
+    );
+
+extern VOID
 TransmitterQueryRingSize(
     IN  PXENVIF_TRANSMITTER Transmitter,
     OUT PULONG              Size
-    );
-
-extern VOID
-TransmitterUpdateAddressTable(
-    IN  PXENVIF_TRANSMITTER Transmitter,
-    IN  PSOCKADDR_INET      Table,
-    IN  ULONG               Count
-    );
-
-extern VOID
-TransmitterAdvertiseAddresses(
-    IN  PXENVIF_TRANSMITTER Transmitter
     );
 
 extern VOID

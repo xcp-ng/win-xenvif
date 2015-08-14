@@ -63,7 +63,6 @@ struct _XENVIF_FRONTEND {
     XENVIF_FRONTEND_STATE       State;
     BOOLEAN                     Online;
     KSPIN_LOCK                  Lock;
-    PXENVIF_THREAD              MibThread;
     PXENVIF_THREAD              EjectThread;
     KEVENT                      EjectEvent;
 
@@ -86,6 +85,10 @@ struct _XENVIF_FRONTEND {
 
     PXENVIF_FRONTEND_STATISTICS Statistics;
     ULONG                       StatisticsCount;
+
+    PXENVIF_THREAD              MibThread;
+    PSOCKADDR_INET              AddressTable;
+    ULONG                       AddressCount;
 };
 
 static const PCHAR
@@ -229,7 +232,7 @@ FrontendSetMaxQueues(
     if (NT_SUCCESS(status) && FrontendMaxQueues < Frontend->MaxQueues)
         Frontend->MaxQueues = FrontendMaxQueues;
 
-    Info("%u\n", Frontend->MaxQueues);
+    Info("%s: %u\n", __FrontendGetPath(Frontend), Frontend->MaxQueues);
 }
 
 static FORCEINLINE ULONG
@@ -503,50 +506,49 @@ found:
 
 static NTSTATUS
 FrontendInsertAddress(
-    IN OUT  PSOCKADDR_INET      *AddressTable,
-    IN      const SOCKADDR_INET *Address,
-    IN OUT  PULONG              AddressCount
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  const SOCKADDR_INET *Address
     )
 {
-    ULONG                       Index;
-    PSOCKADDR_INET              Table;
-    NTSTATUS                    status;
+    ULONG                   Index;
+    PSOCKADDR_INET          Table;
+    NTSTATUS                status;
 
     Trace("====>\n");
 
-    for (Index = 0; Index < *AddressCount; Index++) {
-        if ((*AddressTable)[Index].si_family != Address->si_family)
+    for (Index = 0; Index < Frontend->AddressCount; Index++) {
+        if (Frontend->AddressTable[Index].si_family != Address->si_family)
             continue;
 
         if (Address->si_family == AF_INET) {
-            if (RtlCompareMemory(&Address->Ipv4.sin_addr.s_addr,
-                                 &(*AddressTable)[Index].Ipv4.sin_addr.s_addr,
-                                 IPV4_ADDRESS_LENGTH) == IPV4_ADDRESS_LENGTH)
+            if (RtlEqualMemory(&Address->Ipv4.sin_addr.s_addr,
+                               &Frontend->AddressTable[Index].Ipv4.sin_addr.s_addr,
+                                 IPV4_ADDRESS_LENGTH))
                 goto done;
         } else {
             ASSERT3U(Address->si_family, ==, AF_INET6);
 
-            if (RtlCompareMemory(&Address->Ipv6.sin6_addr.s6_addr,
-                                 &(*AddressTable)[Index].Ipv6.sin6_addr.s6_addr,
-                                 IPV6_ADDRESS_LENGTH) == IPV6_ADDRESS_LENGTH)
+            if (RtlEqualMemory(&Address->Ipv6.sin6_addr.s6_addr,
+                               &Frontend->AddressTable[Index].Ipv6.sin6_addr.s6_addr,
+                               IPV6_ADDRESS_LENGTH))
                 goto done;
         }
     }
 
     // We have an address we've not seen before so grow the table
-    Table = __FrontendAllocate(sizeof (SOCKADDR_INET) * (*AddressCount + 1));
+    Table = __FrontendAllocate(sizeof (SOCKADDR_INET) * (Frontend->AddressCount + 1));
 
     status = STATUS_NO_MEMORY;
     if (Table == NULL)
         goto fail1;
 
-    RtlCopyMemory(Table, *AddressTable, sizeof (SOCKADDR_INET) * *AddressCount);
-    Table[(*AddressCount)++] = *Address;
+    RtlCopyMemory(Table, Frontend->AddressTable, sizeof (SOCKADDR_INET) * Frontend->AddressCount);
 
-    if (*AddressTable != NULL)
-        __FrontendFree(*AddressTable);
+    if (Frontend->AddressCount != 0)
+        __FrontendFree(Frontend->AddressTable);
 
-    *AddressTable = Table;
+    Table[Frontend->AddressCount++] = *Address;
+    Frontend->AddressTable = Table;
 
 done:
     Trace("<====\n");
@@ -563,9 +565,7 @@ static NTSTATUS
 FrontendProcessAddressTable(
     IN  PXENVIF_FRONTEND            Frontend,
     IN  PMIB_UNICASTIPADDRESS_TABLE Table,
-    IN  NET_IFINDEX                 InterfaceIndex,
-    OUT PSOCKADDR_INET              *AddressTable,
-    OUT PULONG                      AddressCount
+    IN  NET_IFINDEX                 InterfaceIndex
     )
 {
     ULONG                           Index;
@@ -573,8 +573,12 @@ FrontendProcessAddressTable(
 
     UNREFERENCED_PARAMETER(Frontend);
 
-    *AddressTable = NULL;
-    *AddressCount = 0;
+    if (Frontend->AddressCount != 0) {
+        __FrontendFree(Frontend->AddressTable);
+
+        Frontend->AddressTable = NULL;
+        Frontend->AddressCount = 0;
+    }
 
     for (Index = 0; Index < Table->NumEntries; Index++) {
         PMIB_UNICASTIPADDRESS_ROW   Row = &Table->Table[Index];
@@ -586,9 +590,7 @@ FrontendProcessAddressTable(
             Row->Address.si_family != AF_INET6)
             continue;
 
-        status = FrontendInsertAddress(AddressTable,
-                                       &Row->Address,
-                                       AddressCount);
+        status = FrontendInsertAddress(Frontend, &Row->Address);
         if (!NT_SUCCESS(status))
             goto fail1;
     }
@@ -598,17 +600,12 @@ FrontendProcessAddressTable(
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    if (*AddressTable != NULL)
-        __FrontendFree(*AddressTable);
-
     return status;
 }
 
 static NTSTATUS
 FrontendDumpAddressTable(
-    IN  PXENVIF_FRONTEND        Frontend,
-    IN  PSOCKADDR_INET          AddressTable,
-    IN  ULONG                   AddressCount
+    IN  PXENVIF_FRONTEND        Frontend
     )
 {
     PXENBUS_STORE_TRANSACTION   Transaction;
@@ -646,19 +643,19 @@ FrontendDumpAddressTable(
     IpVersion4Count = 0;
     IpVersion6Count = 0;
 
-    for (Index = 0; Index < AddressCount; Index++) {
-        switch (AddressTable[Index].si_family) {
+    for (Index = 0; Index < Frontend->AddressCount; Index++) {
+        switch (Frontend->AddressTable[Index].si_family) {
         case AF_INET: {
             IPV4_ADDRESS    Address;
-            CHAR            Node[sizeof ("ipv4/XXXXXXXX/addr")];
+            CHAR            Node[sizeof ("ipv4/address/XXXXXXXX")];
 
             RtlCopyMemory(Address.Byte,
-                          &AddressTable[Index].Ipv4.sin_addr.s_addr,
+                          &Frontend->AddressTable[Index].Ipv4.sin_addr.s_addr,
                           IPV4_ADDRESS_LENGTH);
 
             status = RtlStringCbPrintfA(Node,
                                         sizeof (Node),
-                                        "ipv4/%u/addr",
+                                        "ipv4/address/%u",
                                         IpVersion4Count);
             ASSERT(NT_SUCCESS(status));
 
@@ -687,15 +684,15 @@ FrontendDumpAddressTable(
         }
         case AF_INET6: {
             IPV6_ADDRESS    Address;
-            CHAR            Node[sizeof ("ipv6/XXXXXXXX/addr")];
+            CHAR            Node[sizeof ("ipv6/address/XXXXXXXX")];
 
             RtlCopyMemory(Address.Byte,
-                          &AddressTable[Index].Ipv6.sin6_addr.s6_addr,
+                          &Frontend->AddressTable[Index].Ipv6.sin6_addr.s6_addr,
                           IPV6_ADDRESS_LENGTH);
 
             status = RtlStringCbPrintfA(Node,
                                         sizeof (Node),
-                                        "ipv6/%u/addr",
+                                        "ipv6/address/%u",
                                         IpVersion6Count);
             ASSERT(NT_SUCCESS(status));
 
@@ -848,8 +845,6 @@ FrontendMib(
         NET_IFINDEX                 InterfaceIndex;
         PMIB_UNICASTIPADDRESS_TABLE UnicastIpAddressTable;
         KIRQL                       Irql;
-        PSOCKADDR_INET              AddressTable;
-        ULONG                       AddressCount;
 
         Trace("waiting...\n");
 
@@ -892,22 +887,11 @@ FrontendMib(
 
         status = FrontendProcessAddressTable(Frontend,
                                              UnicastIpAddressTable,
-                                             InterfaceIndex,
-                                             &AddressTable,
-                                             &AddressCount);
+                                             InterfaceIndex);
         if (!NT_SUCCESS(status))
             goto unlock;
 
-        TransmitterUpdateAddressTable(__FrontendGetTransmitter(Frontend),
-                                      AddressTable,
-                                      AddressCount);
-
-        (VOID) FrontendDumpAddressTable(Frontend,
-                                        AddressTable,
-                                        AddressCount);
-
-        if (AddressCount != 0)
-            __FrontendFree(AddressTable);
+        (VOID) FrontendDumpAddressTable(Frontend);
 
 unlock:
         KeReleaseSpinLock(&Frontend->Lock, Irql);
@@ -918,6 +902,13 @@ loop:
 
         if (IfTable != NULL)
             __FreeMibTable(IfTable);
+    }
+
+    if (Frontend->AddressCount != 0) {
+        __FrontendFree(Frontend->AddressTable);
+
+        Frontend->AddressTable = NULL;
+        Frontend->AddressCount = 0;
     }
 
     status = __CancelMibChangeNotify2(Handle);
@@ -946,6 +937,208 @@ fail1:
     Error("fail1 (%08x)\n", status);
 
     return status;
+}
+
+NTSTATUS
+FrontendSetMulticastAddresses(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  PETHERNET_ADDRESS   Address,
+    IN  ULONG               Count
+    )
+{
+    PXENVIF_TRANSMITTER     Transmitter;
+    PXENVIF_MAC             Mac;
+    KIRQL                   Irql;
+    PETHERNET_ADDRESS       MulticastAddress;
+    ULONG                   MulticastCount;
+    ULONG                   MulticastIndex;
+    ULONG                   Index;
+    NTSTATUS                status;
+
+    Transmitter = FrontendGetTransmitter(Frontend);
+    Mac = FrontendGetMac(Frontend);
+
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+
+    status = MacQueryMulticastAddresses(Mac, NULL, &MulticastCount);
+    ASSERT3U(status, ==, STATUS_BUFFER_OVERFLOW);
+
+    if (MulticastCount != 0) {
+        MulticastAddress = __FrontendAllocate(sizeof (ETHERNET_ADDRESS) *
+                                              MulticastCount);
+
+        status = STATUS_NO_MEMORY;
+        if (MulticastAddress == NULL)
+            goto fail1;
+
+        status = MacQueryMulticastAddresses(Mac,
+                                            MulticastAddress,
+                                            &MulticastCount);
+        if (!NT_SUCCESS(status))
+            goto fail2;
+    } else
+        MulticastAddress = NULL;
+
+    for (Index = 0; Index < Count; Index++) {
+        BOOLEAN Found;
+
+        ASSERT(Address[Index].Byte[0] & 0x01);
+
+        Found = FALSE;
+
+        // If the multicast address has already been added and it
+        // appears in the updated list then we don't want to remove it.
+        for (MulticastIndex = 0;
+             MulticastIndex < MulticastCount;
+             MulticastIndex++) {
+            if (RtlEqualMemory(&Address[Index],
+                               &MulticastAddress[MulticastIndex],
+                               ETHERNET_ADDRESS_LENGTH)) {
+                Found = TRUE;
+                RtlZeroMemory(&MulticastAddress[MulticastIndex],
+                              ETHERNET_ADDRESS_LENGTH);
+                break;
+            }
+        }
+
+        if (!Found) {
+            (VOID) MacAddMulticastAddress(Mac, &Address[Index]);
+            (VOID) TransmitterQueueMulticastControl(Transmitter,
+                                                    &Address[Index],
+                                                    TRUE);
+        }
+    }
+
+    // Walk the multicast list removing any addresses not in the
+    // updated list
+    for (MulticastIndex = 0;
+         MulticastIndex < MulticastCount;
+         MulticastIndex++) {
+        if (!(MulticastAddress[MulticastIndex].Byte[0] & 0x01))
+            continue;
+
+        (VOID) TransmitterQueueMulticastControl(Transmitter,
+                                                &MulticastAddress[MulticastIndex],
+                                                FALSE);
+        (VOID) MacRemoveMulticastAddress(Mac,
+                                         &MulticastAddress[MulticastIndex]);
+    }
+
+    if (MulticastAddress != NULL)
+        __FrontendFree(MulticastAddress);
+
+    KeLowerIrql(Irql);
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+    __FrontendFree(MulticastAddress);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    KeLowerIrql(Irql);
+
+    return status;
+}
+
+static NTSTATUS
+FrontendNotifyMulticastAddresses(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  BOOLEAN             Add
+    )
+{
+    PXENVIF_TRANSMITTER     Transmitter;
+    PXENVIF_MAC             Mac;
+    PETHERNET_ADDRESS       Address;
+    ULONG                   Count;
+    ULONG                   Index;
+    NTSTATUS                status;
+
+    Transmitter = FrontendGetTransmitter(Frontend);
+    Mac = FrontendGetMac(Frontend);
+
+    status = MacQueryMulticastAddresses(Mac, NULL, &Count);
+    ASSERT3U(status, ==, STATUS_BUFFER_OVERFLOW);
+
+    if (Count != 0) {
+        Address = __FrontendAllocate(sizeof (ETHERNET_ADDRESS) *
+                                     Count);
+
+        status = STATUS_NO_MEMORY;
+        if (Address == NULL)
+            goto fail1;
+
+        status = MacQueryMulticastAddresses(Mac, Address, &Count);
+        if (!NT_SUCCESS(status))
+            goto fail2;
+    } else
+        Address = NULL;
+
+    for (Index = 0; Index < Count; Index++)
+        (VOID) TransmitterQueueMulticastControl(Transmitter,
+                                                &Address[Index],
+                                                Add);
+
+    if (Address != NULL)
+        __FrontendFree(Address);
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+    __FrontendFree(Address);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+VOID
+FrontendAdvertiseIpAddresses(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    PXENVIF_TRANSMITTER     Transmitter;
+    KIRQL                   Irql;
+    ULONG                   Index;
+
+    Transmitter = FrontendGetTransmitter(Frontend);
+
+    KeAcquireSpinLock(&Frontend->Lock, &Irql);
+
+    for (Index = 0; Index < Frontend->AddressCount; Index++) {
+        switch (Frontend->AddressTable[Index].si_family) {
+        case AF_INET: {
+            IPV4_ADDRESS    Address;
+
+            RtlCopyMemory(Address.Byte,
+                          &Frontend->AddressTable[Index].Ipv4.sin_addr.s_addr,
+                          IPV4_ADDRESS_LENGTH);
+
+            TransmitterQueueArp(Transmitter, &Address);
+            break;
+        }
+        case AF_INET6: {
+            IPV6_ADDRESS    Address;
+
+            RtlCopyMemory(Address.Byte,
+                          &Frontend->AddressTable[Index].Ipv6.sin6_addr.s6_addr,
+                          IPV6_ADDRESS_LENGTH);
+
+            TransmitterQueueNeighbourAdvertisement(Transmitter, &Address);
+            break;
+        }
+        default:
+            ASSERT(FALSE);
+        }
+    }
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
 }
 
 static VOID
@@ -1461,7 +1654,7 @@ FrontendSetNumQueues(
 
     Frontend->NumQueues = __min(Frontend->MaxQueues, BackendMaxQueues);
 
-    Info("%u\n", Frontend->NumQueues);
+    Info("%s: %u\n", __FrontendGetPath(Frontend), Frontend->NumQueues);
 }
 
 static FORCEINLINE ULONG
@@ -1713,6 +1906,8 @@ FrontendEnable(
     if (!NT_SUCCESS(status))
         goto fail3;
 
+    FrontendNotifyMulticastAddresses(Frontend, TRUE);
+
     Trace("<====\n");
     return STATUS_SUCCESS;
 
@@ -1738,6 +1933,8 @@ FrontendDisable(
     )
 {
     Trace("====>\n");
+
+    FrontendNotifyMulticastAddresses(Frontend, FALSE);
 
     TransmitterDisable(__FrontendGetTransmitter(Frontend));
     ReceiverDisable(__FrontendGetReceiver(Frontend));

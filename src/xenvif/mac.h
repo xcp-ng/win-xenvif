@@ -96,17 +96,22 @@ MacQueryBroadcastAddress(
     );
 
 extern NTSTATUS
+MacAddMulticastAddress(
+    IN      PXENVIF_MAC         Mac,
+    OUT     PETHERNET_ADDRESS   Address
+    );
+
+extern NTSTATUS
+MacRemoveMulticastAddress(
+    IN      PXENVIF_MAC         Mac,
+    OUT     PETHERNET_ADDRESS   Address
+    );
+
+extern NTSTATUS
 MacQueryMulticastAddresses(
     IN      PXENVIF_MAC         Mac,
     OUT     PETHERNET_ADDRESS   Address OPTIONAL,
     IN OUT  PULONG              Count
-    );
-
-extern NTSTATUS
-MacSetMulticastAddresses(
-    IN  PXENVIF_MAC         Mac,
-    IN  PETHERNET_ADDRESS   Address OPTIONAL,
-    IN  ULONG               Count
     );
 
 extern NTSTATUS

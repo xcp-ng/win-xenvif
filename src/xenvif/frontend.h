@@ -169,4 +169,16 @@ FrontendIncrementStatistic(
     IN  ULONGLONG               Delta
     );
 
+extern NTSTATUS
+FrontendSetMulticastAddresses(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  PETHERNET_ADDRESS   Address,
+    IN  ULONG               Count
+    );
+
+extern VOID
+FrontendAdvertiseIpAddresses(
+    IN  PXENVIF_FRONTEND        Frontend
+    );
+
 #endif  // _XENVIF_FRONTEND_H
