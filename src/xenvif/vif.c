@@ -501,16 +501,24 @@ VifMacSetMulticastAddresses(
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
+    ULONG                   Index;
     NTSTATUS                status;
+
+    status = STATUS_INVALID_PARAMETER;
+    for (Index = 0; Index < Count; Index++) {
+        if (!(Address[Index].Byte[0] & 0x01))
+            goto done;
+    }
 
     AcquireMrswLockShared(&Context->Lock);
 
-    status = MacSetMulticastAddresses(FrontendGetMac(Context->Frontend),
-                                      Address,
-                                      Count);
+    status = FrontendSetMulticastAddresses(Context->Frontend,
+                                           Address,
+                                           Count);
 
     ReleaseMrswLockShared(&Context->Lock);
 
+done:
     return status;
 }
 
@@ -598,7 +606,10 @@ VifSuspendCallbackLate(
     status = FrontendSetState(Context->Frontend, FRONTEND_ENABLED);
     ASSERT(NT_SUCCESS(status));
 
-    TransmitterAdvertiseAddresses(FrontendGetTransmitter(Context->Frontend));
+    // We do this three times to make sure switches take note
+    FrontendAdvertiseIpAddresses(Context->Frontend);
+    FrontendAdvertiseIpAddresses(Context->Frontend);
+    FrontendAdvertiseIpAddresses(Context->Frontend);
 }
 
 static NTSTATUS

@@ -10,7 +10,7 @@
  *     following disclaimer.
  * *   Redistributions in binary form must reproduce the above 
  *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ *     following disclaimer in the documetation and/or other
  *     materials provided with the distribution.
  * 
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
@@ -64,16 +64,64 @@
 
 #define MAXNAMELEN  128
 
+typedef struct _XENVIF_TRANSMITTER_REQUEST_ARP_PARAMETERS {
+    IPV4_ADDRESS    Address;
+} XENVIF_TRANSMITTER_REQUEST_ARP_PARAMETERS, *PXENVIF_TRANSMITTER_REQUEST_ARP_PARAMETERS;
+
+typedef struct _XENVIF_TRANSMITTER_REQUEST_NEIGHBOUR_ADVERTISEMENT_PARAMETERS {
+    IPV6_ADDRESS    Address;
+} XENVIF_TRANSMITTER_REQUEST_NEIGHBOUR_ADVERTISEMENT_PARAMETERS, *PXENVIF_TRANSMITTER_REQUEST_NEIGHBOUR_ADVERTISEMENT_PARAMETERS;
+
+typedef struct _XENVIF_TRANSMITTER_REQUEST_MULTICAST_CONTROL_PARAMETERS {
+    ETHERNET_ADDRESS    Address;
+    BOOLEAN             Add;
+} XENVIF_TRANSMITTER_REQUEST_MULTICAST_CONTROL_PARAMETERS, *PXENVIF_TRANSMITTER_REQUEST_MULTICAST_CONTROL_PARAMETERS;
+
+typedef enum _XENVIF_TRANSMITTER_REQUEST_TYPE {
+    XENVIF_TRANSMITTER_REQUEST_TYPE_INVALID = 0,
+    XENVIF_TRANSMITTER_REQUEST_TYPE_ARP,
+    XENVIF_TRANSMITTER_REQUEST_TYPE_NEIGHBOUR_ADVERTISEMENT,
+    XENVIF_TRANSMITTER_REQUEST_TYPE_MULTICAST_CONTROL
+} XENVIF_TRANSMITTER_REQUEST_TYPE, *PXENVIF_TRANSMITTER_REQUEST_TYPE;
+
+#pragma warning(push)
+#pragma warning(disable:4201)   // nonstandard extension used : nameless struct/union
+
+typedef struct _XENVIF_TRANSMITTER_REQUEST {
+    LIST_ENTRY                      ListEntry;
+    XENVIF_TRANSMITTER_REQUEST_TYPE Type;
+    union {
+        XENVIF_TRANSMITTER_REQUEST_ARP_PARAMETERS                       Arp;
+        XENVIF_TRANSMITTER_REQUEST_NEIGHBOUR_ADVERTISEMENT_PARAMETERS   NeighbourAdvertisement;
+        XENVIF_TRANSMITTER_REQUEST_MULTICAST_CONTROL_PARAMETERS         MulticastControl;
+    };
+} XENVIF_TRANSMITTER_REQUEST, *PXENVIF_TRANSMITTER_REQUEST;
+
+#pragma warning(pop)
+
 typedef struct _XENVIF_TRANSMITTER_BUFFER {
     PMDL        Mdl;
     PVOID       Context;
     ULONG       Reference;
 } XENVIF_TRANSMITTER_BUFFER, *PXENVIF_TRANSMITTER_BUFFER;
 
+typedef enum _XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE {
+    XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_INVALID = 0,
+    XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_ADD,
+    XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_REMOVE
+} XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE, *PXENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE;
+
+typedef struct _XENVIF_TRANSMITTER_MULTICAST_CONTROL {
+    XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE   Type;
+    ETHERNET_ADDRESS                            Address;
+    ULONG                                       Reference;
+} XENVIF_TRANSMITTER_MULTICAST_CONTROL, *PXENVIF_TRANSMITTER_MULTICAST_CONTROL;
+
 typedef enum _XENVIF_TRANSMITTER_FRAGMENT_TYPE {
     XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID = 0,
     XENVIF_TRANSMITTER_FRAGMENT_TYPE_PACKET,
-    XENVIF_TRANSMITTER_FRAGMENT_TYPE_BUFFER
+    XENVIF_TRANSMITTER_FRAGMENT_TYPE_BUFFER,
+    XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL
 } XENVIF_TRANSMITTER_FRAGMENT_TYPE, *PXENVIF_TRANSMITTER_FRAGMENT_TYPE;
 
 typedef struct _XENVIF_TRANSMITTER_FRAGMENT {
@@ -106,9 +154,11 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     ULONG                           Index;
     PCHAR                           Path;
     PXENBUS_CACHE                   BufferCache;
+    PXENBUS_CACHE                   MulticastControlCache;
     PXENBUS_CACHE                   FragmentCache;
     PXENBUS_GNTTAB_CACHE            GnttabCache;
     PXENBUS_RANGE_SET               RangeSet;
+    PXENBUS_CACHE                   RequestCache;
     PMDL                            Mdl;
     netif_tx_front_ring_t           Front;
     netif_tx_sring_t                *Shared;
@@ -122,7 +172,8 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     BOOLEAN                         Stopped;
     PVOID                           Lock;
     PKTHREAD                        LockThread;
-    LIST_ENTRY                      Queued;
+    LIST_ENTRY                      PacketQueue;
+    LIST_ENTRY                      RequestQueue;
     XENVIF_TRANSMITTER_STATE        State;
     ULONG                           PacketsQueued;
     ULONG                           PacketsGranted;
@@ -135,11 +186,8 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     ULONG                           RequestsPushed;
     ULONG                           ResponsesProcessed;
     ULONG                           PacketsSent;
-    LIST_ENTRY                      Completed;
+    LIST_ENTRY                      PacketComplete;
     ULONG                           PacketsCompleted;
-    PSOCKADDR_INET                  AddressTable;
-    ULONG                           AddressCount;
-    ULONG                           AddressIndex;
     PXENBUS_DEBUG_CALLBACK          DebugCallback;
     PXENVIF_THREAD                  WatchdogThread;
 } XENVIF_TRANSMITTER_RING, *PXENVIF_TRANSMITTER_RING;
@@ -155,6 +203,7 @@ struct _XENVIF_TRANSMITTER {
     LONG                        NumQueues;
     LONG_PTR                    Offset[XENVIF_TRANSMITTER_PACKET_OFFSET_COUNT];
     BOOLEAN                     Split;
+    BOOLEAN                     MulticastControl;
     ULONG                       DisableIpVersion4Gso;
     ULONG                       DisableIpVersion6Gso;
     ULONG                       AlwaysCopy;
@@ -196,7 +245,7 @@ TransmitterPacketAcquireLock(
 
 static VOID
 TransmitterPacketReleaseLock(
-    IN  PVOID                       Argument
+    IN  PVOID           Argument
     )
 {
     PXENVIF_TRANSMITTER Transmitter = Argument;
@@ -207,8 +256,8 @@ TransmitterPacketReleaseLock(
 
 static NTSTATUS
 TransmitterPacketCtor(
-    IN  PVOID                       Argument,
-    IN  PVOID                       Object
+    IN  PVOID   Argument,
+    IN  PVOID   Object
     )
 {
     UNREFERENCED_PARAMETER(Argument);
@@ -219,8 +268,8 @@ TransmitterPacketCtor(
 
 static VOID
 TransmitterPacketDtor(
-    IN  PVOID                       Argument,
-    IN  PVOID                       Object
+    IN  PVOID   Argument,
+    IN  PVOID   Object
     )
 {
     UNREFERENCED_PARAMETER(Argument);
@@ -360,6 +409,69 @@ __TransmitterPutBuffer(
 }
 
 static NTSTATUS
+TransmitterMulticastControlCtor(
+    IN  PVOID   Argument,
+    IN  PVOID   Object
+    )
+{
+    UNREFERENCED_PARAMETER(Argument);
+    UNREFERENCED_PARAMETER(Object);
+
+    return STATUS_SUCCESS;
+}
+
+static VOID
+TransmitterMulticastControlDtor(
+    IN  PVOID   Argument,
+    IN  PVOID   Object
+    )
+{
+    UNREFERENCED_PARAMETER(Argument);
+    UNREFERENCED_PARAMETER(Object);
+}
+
+static FORCEINLINE PXENVIF_TRANSMITTER_MULTICAST_CONTROL
+__TransmitterGetMulticastControl(
+    IN  PXENVIF_TRANSMITTER_RING            Ring
+    )
+{
+    PXENVIF_TRANSMITTER                     Transmitter;
+    PXENVIF_FRONTEND                        Frontend;
+    PXENVIF_TRANSMITTER_MULTICAST_CONTROL   Control;
+
+    Transmitter = Ring->Transmitter;
+    Frontend = Transmitter->Frontend;
+
+    Control = XENBUS_CACHE(Get,
+                           &Transmitter->CacheInterface,
+                           Ring->MulticastControlCache,
+                           TRUE);
+
+    return Control;
+}
+
+static FORCEINLINE VOID
+__TransmitterPutMulticastControl(
+    IN  PXENVIF_TRANSMITTER_RING                Ring,
+    IN  PXENVIF_TRANSMITTER_MULTICAST_CONTROL   Control
+    )
+{
+    PXENVIF_TRANSMITTER                         Transmitter;
+    PXENVIF_FRONTEND                            Frontend;
+
+    Transmitter = Ring->Transmitter;
+    Frontend = Transmitter->Frontend;
+
+    ASSERT3U(Control->Reference, ==, 0);
+
+    XENBUS_CACHE(Put,
+                 &Transmitter->CacheInterface,
+                 Ring->MulticastControlCache,
+                 Control,
+                 TRUE);
+}
+
+static NTSTATUS
 TransmitterFragmentCtor(
     IN  PVOID                       Argument,
     IN  PVOID                       Object
@@ -457,12 +569,72 @@ __TransmitterPutFragment(
     ASSERT3U(Fragment->Offset, ==, 0);
     ASSERT3U(Fragment->Type, ==, XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID);
     ASSERT3P(Fragment->Context, ==, NULL);
+    ASSERT3P(Fragment->Entry, ==, NULL);
     ASSERT(!Fragment->Extra);
 
     XENBUS_CACHE(Put,
                  &Transmitter->CacheInterface,
                  Ring->FragmentCache,
                  Fragment,
+                 TRUE);
+}
+
+static NTSTATUS
+TransmitterRequestCtor(
+    IN  PVOID   Argument,
+    IN  PVOID   Object
+    )
+{
+    UNREFERENCED_PARAMETER(Argument);
+    UNREFERENCED_PARAMETER(Object);
+
+    return STATUS_SUCCESS;
+}
+
+static VOID
+TransmitterRequestDtor(
+    IN  PVOID   Argument,
+    IN  PVOID   Object
+    )
+{
+    UNREFERENCED_PARAMETER(Argument);
+    UNREFERENCED_PARAMETER(Object);
+}
+
+static FORCEINLINE PXENVIF_TRANSMITTER_REQUEST
+__TransmitterGetRequest(
+    IN  PXENVIF_TRANSMITTER_RING    Ring
+    )
+{
+    PXENVIF_TRANSMITTER             Transmitter;
+    PXENVIF_TRANSMITTER_REQUEST     Request;
+
+    Transmitter = Ring->Transmitter;
+
+    Request = XENBUS_CACHE(Get,
+                           &Transmitter->CacheInterface,
+                           Ring->RequestCache,
+                           TRUE);
+
+    return Request;
+}
+
+static FORCEINLINE VOID
+__TransmitterPutRequest(
+    IN  PXENVIF_TRANSMITTER_RING    Ring,
+    IN  PXENVIF_TRANSMITTER_REQUEST Request
+    )
+{
+    PXENVIF_TRANSMITTER             Transmitter;
+
+    Transmitter = Ring->Transmitter;
+
+    ASSERT3U(Request->Type, ==, XENVIF_TRANSMITTER_REQUEST_TYPE_INVALID);
+
+    XENBUS_CACHE(Put,
+                 &Transmitter->CacheInterface,
+                 Ring->RequestCache,
+                 Request,
                  TRUE);
 }
 
@@ -1188,7 +1360,7 @@ fail1:
     return status;
 }
 
-static FORCEINLINE VOID
+static FORCEINLINE PXENVIF_TRANSMITTER_PACKET
 __TransmitterRingUnprepareFragments(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
@@ -1196,18 +1368,20 @@ __TransmitterRingUnprepareFragments(
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
     PXENVIF_TRANSMITTER_STATE       State;
+    ULONG                           Count;
+    PXENVIF_TRANSMITTER_PACKET      Packet;
 
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
     State = &Ring->State;
+    Count = State->Count;
 
-    while (State->Count != 0) {
+    while (Count != 0) {
         PLIST_ENTRY                     ListEntry;
         PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
-        PXENVIF_TRANSMITTER_PACKET      Packet;
 
-        --State->Count;
+        --Count;
 
         ListEntry = RemoveTailList(&State->List);
         ASSERT3P(ListEntry, !=, &State->List);
@@ -1238,8 +1412,8 @@ __TransmitterRingUnprepareFragments(
             Buffer->Context = NULL;
 
             ASSERT(Buffer->Reference != 0);
-            if (--Buffer->Reference == 0)
-                __TransmitterPutBuffer(Ring, Buffer);
+            --Buffer->Reference;
+            __TransmitterPutBuffer(Ring, Buffer);
 
             break;
         }
@@ -1250,16 +1424,64 @@ __TransmitterRingUnprepareFragments(
 
             break;
 
-        default:
-            Packet = NULL;
-            ASSERT(FALSE);
-        }
+        case XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL: {
+            PXENVIF_TRANSMITTER_MULTICAST_CONTROL Control;
 
-        __TransmitterPutFragment(Ring, Fragment);
+            Control = Fragment->Context;
+            Fragment->Context = NULL;
+            Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID;
+
+            switch (Control->Type) {
+            case XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_ADD:
+            case XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_REMOVE:
+                break;
+            default:
+                ASSERT(FALSE);
+                break;
+            }
+
+            ASSERT(Control->Reference != 0);
+            --Control->Reference;
+            __TransmitterPutMulticastControl(Ring, Control);
+
+            Packet = NULL;
+            break;
+            }
+        default:
+            ASSERT(FALSE);
+            Packet = NULL;
+            break;
+        }
 
         if (Packet != NULL)
             Packet->Value--;
+
+        __TransmitterPutFragment(Ring, Fragment);
     }
+
+    if (State->Count != 0) {
+        ASSERT(IsListEmpty(&State->List));
+        RtlZeroMemory(&State->List, sizeof (LIST_ENTRY));
+
+        State->Count = 0;
+    }
+
+    Packet = State->Packet;
+
+    if (Packet != NULL) {
+        Ring->PacketsUnprepared++;
+
+        RtlZeroMemory(&State->Payload, sizeof (XENVIF_PACKET_PAYLOAD));
+
+        Packet->Send = State->Send;
+        RtlZeroMemory(&State->Send, sizeof (XENVIF_TRANSMITTER_PACKET_SEND_INFO));
+
+        State->Packet = NULL;
+    }
+
+    ASSERT(IsZeroMemory(&Ring->State, sizeof (XENVIF_TRANSMITTER_STATE)));
+
+    return Packet;
 }
 
 static FORCEINLINE NTSTATUS
@@ -1395,44 +1617,6 @@ fail1:
     return status;
 }
 
-static FORCEINLINE PXENVIF_TRANSMITTER_PACKET
-__TransmitterRingUnpreparePacket(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
-    )
-{
-    PXENVIF_TRANSMITTER_STATE       State;
-    PXENVIF_TRANSMITTER_PACKET      Packet;
-
-    State = &Ring->State;
-    Packet = State->Packet;
-
-    // This has the side effect of freeing up resources associated with a pending
-    // gratuitous ARP, which is why the call is not conditional on Packet being
-    // non-NULL
-    __TransmitterRingUnprepareFragments(Ring);
-    RtlZeroMemory(&State->Info, sizeof (XENVIF_PACKET_INFO));
-
-    if (Packet == NULL)
-        goto done;
-
-    Ring->PacketsUnprepared++;
-
-    ASSERT(IsListEmpty(&State->List));
-    RtlZeroMemory(&State->List, sizeof (LIST_ENTRY));
-
-    RtlZeroMemory(&State->Payload, sizeof (XENVIF_PACKET_PAYLOAD));
-
-    Packet->Send = State->Send;
-    RtlZeroMemory(&State->Send, sizeof (XENVIF_TRANSMITTER_PACKET_SEND_INFO));
-
-    State->Packet = NULL;
-
-    ASSERT(IsZeroMemory(&Ring->State, sizeof (XENVIF_TRANSMITTER_STATE)));
-
-done:
-    return Packet;
-}
-
 static FORCEINLINE NTSTATUS
 __TransmitterRingPrepareArp(
     IN  PXENVIF_TRANSMITTER_RING    Ring,
@@ -1457,12 +1641,6 @@ __TransmitterRingPrepareArp(
     NTSTATUS                        status;
 
     ASSERT(IsZeroMemory(&Ring->State, sizeof (XENVIF_TRANSMITTER_STATE)));
-
-    Info("%u.%u.%u.%u\n",
-         Address->Byte[0],
-         Address->Byte[1],
-         Address->Byte[2],
-         Address->Byte[3]);
 
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
@@ -1606,16 +1784,6 @@ __TransmitterRingPrepareNeighbourAdvertisement(
 
     ASSERT(IsZeroMemory(&Ring->State, sizeof (XENVIF_TRANSMITTER_STATE)));
 
-    Info("%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
-         HTONS(Address->Word[0]),
-         HTONS(Address->Word[1]),
-         HTONS(Address->Word[2]),
-         HTONS(Address->Word[3]),
-         HTONS(Address->Word[4]),
-         HTONS(Address->Word[5]),
-         HTONS(Address->Word[6]),
-         HTONS(Address->Word[7]));
-
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
     Mac = FrontendGetMac(Frontend);
@@ -1758,13 +1926,71 @@ fail1:
 }
 
 static FORCEINLINE NTSTATUS
+__TransmitterRingPrepareMulticastControl(
+    IN  PXENVIF_TRANSMITTER_RING            Ring,
+    IN  PETHERNET_ADDRESS                   Address,
+    IN  BOOLEAN                             Add
+    )
+{
+    PXENVIF_TRANSMITTER_STATE               State;
+    PXENVIF_TRANSMITTER_FRAGMENT            Fragment;
+    PXENVIF_TRANSMITTER_MULTICAST_CONTROL   Control;
+    NTSTATUS                                status;
+
+    ASSERT(IsZeroMemory(&Ring->State, sizeof (XENVIF_TRANSMITTER_STATE)));
+
+    State = &Ring->State;
+
+    Control = __TransmitterGetMulticastControl(Ring);
+
+    status = STATUS_NO_MEMORY;
+    if (Control == NULL)
+        goto fail1;
+
+    Control->Type = (Add) ?
+                    XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_ADD :
+                    XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_REMOVE;
+    Control->Address = *Address;
+
+    Fragment = __TransmitterGetFragment(Ring);
+
+    status = STATUS_NO_MEMORY;
+    if (Fragment == NULL)
+        goto fail2;
+
+    Fragment->Context = Control;
+    Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL;
+    Control->Reference++;
+
+    InitializeListHead(&State->List);
+
+    ASSERT(IsZeroMemory(&Fragment->ListEntry, sizeof (LIST_ENTRY)));
+    InsertTailList(&State->List, &Fragment->ListEntry);
+    State->Count++;
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+    __TransmitterPutMulticastControl(Ring, Control);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    ASSERT(IsZeroMemory(&Ring->State, sizeof (XENVIF_TRANSMITTER_STATE)));
+
+    return status;
+}
+
+#define RING_SLOTS_AVAILABLE(_Front, _req_prod, _rsp_cons)   \
+        (RING_SIZE(_Front) - ((_req_prod) - (_rsp_cons)))
+
+static FORCEINLINE NTSTATUS
 __TransmitterRingPostFragments(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
 {
-#define RING_SLOTS_AVAILABLE(_Front, _req_prod, _rsp_cons)   \
-        (RING_SIZE(_Front) - ((_req_prod) - (_rsp_cons)))
-
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
     PXENVIF_TRANSMITTER_STATE       State;
@@ -1775,6 +2001,8 @@ __TransmitterRingPostFragments(
     ULONG                           Extra;
     ULONG                           PacketLength;
     BOOLEAN                         FirstRequest;
+    PLIST_ENTRY                     ListEntry;
+    PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
     netif_tx_request_t              *req;
     NTSTATUS                        status;
 
@@ -1793,8 +2021,14 @@ __TransmitterRingPostFragments(
     req_prod = Ring->Front.req_prod_pvt;
     rsp_cons = Ring->Front.rsp_cons;
 
+    ListEntry = State->List.Flink;
+    Fragment = CONTAINING_RECORD(ListEntry,
+                                 XENVIF_TRANSMITTER_FRAGMENT,
+                                 ListEntry);
+
     Extra = (State->Send.OffloadOptions.OffloadIpVersion4LargePacket ||
-             State->Send.OffloadOptions.OffloadIpVersion6LargePacket) ?
+             State->Send.OffloadOptions.OffloadIpVersion6LargePacket ||
+             Fragment->Type == XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL) ?
             1 :
             0;
 
@@ -1809,9 +2043,6 @@ __TransmitterRingPostFragments(
     FirstRequest = TRUE;
     PacketLength = 0;
     while (State->Count != 0) {
-        PLIST_ENTRY                     ListEntry;
-        PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
-
         --State->Count;
 
         ListEntry = RemoveHeadList(&State->List);
@@ -1819,16 +2050,20 @@ __TransmitterRingPostFragments(
 
         RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
 
-        Fragment = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_FRAGMENT, ListEntry);
+        Fragment = CONTAINING_RECORD(ListEntry,
+                                     XENVIF_TRANSMITTER_FRAGMENT,
+                                     ListEntry);
 
         req = RING_GET_REQUEST(&Ring->Front, req_prod);
         req_prod++;
         Ring->RequestsPosted++;
 
         req->id = Fragment->Id;
-        req->gref = XENBUS_GNTTAB(GetReference,
+        req->gref = (Fragment->Entry != NULL) ?
+                    XENBUS_GNTTAB(GetReference,
                                   &Transmitter->GnttabInterface,
-                                  Fragment->Entry);
+                                  Fragment->Entry) :
+                    0;
         req->offset = (USHORT)Fragment->Offset;
         req->size = (USHORT)Fragment->Length;
         req->flags = NETTXF_more_data;
@@ -1843,37 +2078,49 @@ __TransmitterRingPostFragments(
                 req->flags |= NETTXF_csum_blank | NETTXF_data_validated;
 
             if (State->Send.OffloadOptions.OffloadIpVersion4LargePacket ||
-                State->Send.OffloadOptions.OffloadIpVersion6LargePacket) {
-                uint8_t                 type;
-                uint16_t                size;
+                State->Send.OffloadOptions.OffloadIpVersion6LargePacket ||
+                Fragment->Type == XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL) {
                 struct netif_extra_info *extra;
 
                 ASSERT(Extra != 0);
                 Fragment->Extra = TRUE;
 
-                ASSERT(!(State->Send.OffloadOptions.OffloadIpVersion4LargePacket &&
-                         State->Send.OffloadOptions.OffloadIpVersion6LargePacket));
-                type = (State->Send.OffloadOptions.OffloadIpVersion4LargePacket) ?
-                       XEN_NETIF_GSO_TYPE_TCPV4 :
-                       XEN_NETIF_GSO_TYPE_TCPV6;
-
-                ASSERT(State->Send.MaximumSegmentSize != 0);
-                size = State->Send.MaximumSegmentSize;
-
-                ASSERT(req->flags & (NETTXF_csum_blank | NETTXF_data_validated));
-                req->flags |= NETTXF_extra_info;
-
                 extra = (struct netif_extra_info *)RING_GET_REQUEST(&Ring->Front, req_prod);
                 req_prod++;
                 Ring->RequestsPosted++;
 
-                extra->type = XEN_NETIF_EXTRA_TYPE_GSO;
-                extra->flags = 0;
+                if (State->Send.OffloadOptions.OffloadIpVersion4LargePacket ||
+                    State->Send.OffloadOptions.OffloadIpVersion6LargePacket) {
+                    ASSERT(State->Send.MaximumSegmentSize != 0);
 
-                extra->u.gso.size = size;
-                extra->u.gso.type = type;
-                extra->u.gso.pad = 0;
-                extra->u.gso.features = 0;
+                    extra->type = XEN_NETIF_EXTRA_TYPE_GSO;
+                    extra->flags = 0;
+
+                    extra->u.gso.type = (State->Send.OffloadOptions.OffloadIpVersion4LargePacket) ?
+                                        XEN_NETIF_GSO_TYPE_TCPV4 :
+                                        XEN_NETIF_GSO_TYPE_TCPV6;;
+                    extra->u.gso.size = State->Send.MaximumSegmentSize;
+                    extra->u.gso.pad = 0;
+                    extra->u.gso.features = 0;
+
+                    ASSERT(req->flags & (NETTXF_csum_blank | NETTXF_data_validated));
+                } else {
+                    PXENVIF_TRANSMITTER_MULTICAST_CONTROL   Control;
+
+                    ASSERT(Fragment->Type == XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL);
+                    Control = Fragment->Context;
+
+                    extra->type = (Control->Type == XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_ADD) ?
+                        XEN_NETIF_EXTRA_TYPE_MCAST_ADD :
+                        XEN_NETIF_EXTRA_TYPE_MCAST_DEL;
+                    extra->flags = 0;
+
+                    RtlCopyMemory(&extra->u.mcast.addr,
+                                  &Control->Address.Byte[0],
+                                  ETHERNET_ADDRESS_LENGTH);
+                }
+
+                req->flags |= NETTXF_extra_info;
             }
 
             // The first fragment length is the length of the entire packet
@@ -1886,7 +2133,6 @@ __TransmitterRingPostFragments(
         Ring->Pending[req->id] = Fragment;
     }
     ASSERT(!FirstRequest);
-    ASSERT(PacketLength != 0);
 
     ASSERT(req != NULL);
     req->flags &= ~NETTXF_more_data;
@@ -1901,6 +2147,8 @@ __TransmitterRingPostFragments(
         PUCHAR              StartVa;
         PXENVIF_PACKET_INFO Info;
         PETHERNET_HEADER    Header;
+
+        ASSERT(PacketLength != 0);
 
         StartVa = State->StartVa;
         Info = &State->Info;
@@ -1930,9 +2178,9 @@ __TransmitterRingPostFragments(
 
 fail1:
     return status;
+}
 
 #undef  RING_SLOTS_AVAILABLE
-}
 
 static FORCEINLINE VOID
 __TransmitterRingFakeResponses(
@@ -1989,8 +2237,16 @@ __TransmitterRingFakeResponses(
 
     ASSERT3U(Ring->Shared->rsp_prod, ==, Ring->Front.req_prod_pvt);
 
-    if (Count != 0)
-        Info("Faked %lu responses\n", Count);
+    if (Count != 0) {
+        PXENVIF_TRANSMITTER Transmitter;
+        PXENVIF_FRONTEND    Frontend;
+
+        Transmitter = Ring->Transmitter;
+        Frontend = Transmitter->Frontend;
+
+        Info("%s: faked %lu responses\n",
+             FrontendGetPath(Frontend), Count);
+    }
 }
 
 static FORCEINLINE VOID
@@ -2055,7 +2311,7 @@ __TransmitterRingCompletePacket(
         }
     }
 
-    InsertTailList(&Ring->Completed, &Packet->ListEntry);
+    InsertTailList(&Ring->PacketComplete, &Packet->ListEntry);
     Ring->PacketsCompleted++;
 }
 
@@ -2123,8 +2379,8 @@ TransmitterRingPoll(
                 Buffer->Context = NULL;
 
                 ASSERT(Buffer->Reference != 0);
-                if (--Buffer->Reference == 0)
-                    __TransmitterPutBuffer(Ring, Buffer);
+                --Buffer->Reference;
+                __TransmitterPutBuffer(Ring, Buffer);
 
                 break;
             }
@@ -2135,20 +2391,46 @@ TransmitterRingPoll(
 
                 break;
 
-            default:
+            case XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL: {
+                PXENVIF_TRANSMITTER_MULTICAST_CONTROL   Control;
+
+                Control = Fragment->Context;
+                Fragment->Context = NULL;
+                Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID;
+
+                switch (Control->Type) {
+                case XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_ADD:
+                case XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_REMOVE:
+                    break;
+                default:
+                    ASSERT(FALSE);
+                    break;
+                }
+
+                ASSERT(Control->Reference != 0);
+                --Control->Reference;
+                __TransmitterPutMulticastControl(Ring, Control);
+
                 Packet = NULL;
+                break;
+            }
+            default:
                 ASSERT(FALSE);
+                Packet = NULL;
+                break;
             }
 
             Fragment->Length = 0;
             Fragment->Offset = 0;
 
-            (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
-                                 &Transmitter->GnttabInterface,
-                                 Ring->GnttabCache,
-                                 TRUE,
-                                 Fragment->Entry);
-            Fragment->Entry = NULL;
+            if (Fragment->Entry != NULL) {
+                (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
+                                     &Transmitter->GnttabInterface,
+                                     Ring->GnttabCache,
+                                     TRUE,
+                                     Fragment->Entry);
+                Fragment->Entry = NULL;
+            }
 
             Fragment->Extra = FALSE;
             __TransmitterPutFragment(Ring, Fragment);
@@ -2331,7 +2613,8 @@ TransmitterRingSwizzle(
     ListEntry = List.Flink;
     if (!IsListEmpty(&List)) {
         RemoveEntryList(&List);
-        AppendTailList(&Ring->Queued, ListEntry);
+        InitializeListHead(&List);
+        AppendTailList(&Ring->PacketQueue, ListEntry);
         Ring->PacketsQueued += Count;
     }
 }
@@ -2349,9 +2632,7 @@ TransmitterRingSchedule(
     State = &Ring->State;
 
     for (;;) {
-        PLIST_ENTRY                 ListEntry;
-        PXENVIF_TRANSMITTER_PACKET  Packet;
-        NTSTATUS                    status;
+        NTSTATUS    status;
 
         if (State->Count != 0) {
             status = __TransmitterRingPostFragments(Ring);
@@ -2367,72 +2648,85 @@ TransmitterRingSchedule(
 
         ASSERT3U(State->Count, ==, 0);
 
-        if (Ring->AddressIndex != 0) {
-            ULONG   Index = (--Ring->AddressIndex) % Ring->AddressCount;
+        if (!IsListEmpty(&Ring->RequestQueue)) {
+            PLIST_ENTRY                 ListEntry;
+            PXENVIF_TRANSMITTER_REQUEST Request;
 
-            switch (Ring->AddressTable[Index].si_family) {
-            case AF_INET: {
-                IPV4_ADDRESS    Address;
+            ListEntry = RemoveHeadList(&Ring->RequestQueue);
+            RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
 
-                RtlCopyMemory(Address.Byte,
-                              &Ring->AddressTable[Index].Ipv4.sin_addr.s_addr,
-                              IPV4_ADDRESS_LENGTH);
+            Request = CONTAINING_RECORD(ListEntry,
+                                        XENVIF_TRANSMITTER_REQUEST,
+                                        ListEntry);
 
-                (VOID) __TransmitterRingPrepareArp(Ring, &Address);
-
+            switch (Request->Type) {
+            case XENVIF_TRANSMITTER_REQUEST_TYPE_ARP:
+                (VOID) __TransmitterRingPrepareArp(Ring,
+                                                   &Request->Arp.Address);
                 break;
-            }
-            case AF_INET6: {
-                IPV6_ADDRESS    Address;
 
-                RtlCopyMemory(Address.Byte,
-                              &Ring->AddressTable[Index].Ipv6.sin6_addr.s6_addr,
-                              IPV6_ADDRESS_LENGTH);
-
-                (VOID) __TransmitterRingPrepareNeighbourAdvertisement(Ring, &Address);
-
+            case XENVIF_TRANSMITTER_REQUEST_TYPE_NEIGHBOUR_ADVERTISEMENT:
+                (VOID) __TransmitterRingPrepareNeighbourAdvertisement(Ring,
+                                                                      &Request->NeighbourAdvertisement.Address);
                 break;
-            }
+
+            case XENVIF_TRANSMITTER_REQUEST_TYPE_MULTICAST_CONTROL:
+                (VOID) __TransmitterRingPrepareMulticastControl(Ring,
+                                                                &Request->MulticastControl.Address,
+                                                                Request->MulticastControl.Add);
+                break;
+
             default:
-                ASSERT(FALSE);
+                break;
             }
 
+            Request->Type = XENVIF_TRANSMITTER_REQUEST_TYPE_INVALID;
+            __TransmitterPutRequest(Ring, Request);
             continue;
         }
 
-        ListEntry = RemoveHeadList(&Ring->Queued);
-        if (ListEntry == &Ring->Queued)
-            break;
+        if (!IsListEmpty(&Ring->PacketQueue)) {
+            PLIST_ENTRY                 ListEntry;
+            PXENVIF_TRANSMITTER_PACKET  Packet;
 
-        Packet = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_PACKET, ListEntry);
-        Packet->ListEntry.Flink = Packet->ListEntry.Blink = NULL;
-        Packet->Value = 0;
+            ListEntry = RemoveHeadList(&Ring->PacketQueue);
+            RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
 
-        status = __TransmitterRingPreparePacket(Ring, Packet);
-        if (!NT_SUCCESS(status)) {
-            PXENVIF_TRANSMITTER Transmitter;
-            PXENVIF_FRONTEND    Frontend;
+            Packet = CONTAINING_RECORD(ListEntry,
+                                       XENVIF_TRANSMITTER_PACKET,
+                                       ListEntry);
 
-            Transmitter = Ring->Transmitter;
-            Frontend = Transmitter->Frontend;
+            Packet->Value = 0;
 
-            ASSERT(status != STATUS_BUFFER_OVERFLOW);
+            status = __TransmitterRingPreparePacket(Ring, Packet);
+            if (!NT_SUCCESS(status)) {
+                PXENVIF_TRANSMITTER Transmitter;
+                PXENVIF_FRONTEND    Frontend;
 
-            // Fake that we prapared and sent this packet
-            Ring->PacketsPrepared++;
-            Ring->PacketsSent++;
-            Ring->PacketsFaked++;
+                Transmitter = Ring->Transmitter;
+                Frontend = Transmitter->Frontend;
 
-            Packet->Completion.Status = XENVIF_TRANSMITTER_PACKET_DROPPED;
+                ASSERT(status != STATUS_BUFFER_OVERFLOW);
 
-            FrontendIncrementStatistic(Frontend,
-                                       XENVIF_TRANSMITTER_FRONTEND_ERRORS,
-                                       1);
+                // Fake that we prapared and sent this packet
+                Ring->PacketsPrepared++;
+                Ring->PacketsSent++;
+                Ring->PacketsFaked++;
 
-            __TransmitterRingCompletePacket(Ring, Packet);
+                Packet->Completion.Status = XENVIF_TRANSMITTER_PACKET_DROPPED;
+
+                FrontendIncrementStatistic(Frontend,
+                                           XENVIF_TRANSMITTER_FRONTEND_ERRORS,
+                                           1);
+
+                __TransmitterRingCompletePacket(Ring, Packet);
+            }
+
+            ASSERT3U(Ring->PacketsPrepared, ==, Ring->PacketsCopied + Ring->PacketsGranted + Ring->PacketsFaked);
+            continue;
         }
 
-        ASSERT3U(Ring->PacketsPrepared, ==, Ring->PacketsCopied + Ring->PacketsGranted + Ring->PacketsFaked);
+        break;
     }
 
     __TransmitterRingPushRequests(Ring);
@@ -2607,10 +2901,10 @@ __TransmitterRingReleaseLock(
         TransmitterRingSwizzle(Ring);
         TransmitterRingSchedule(Ring);
 
-        ListEntry = Ring->Completed.Flink;
-        if (!IsListEmpty(&Ring->Completed)) {
-            RemoveEntryList(&Ring->Completed);
-            InitializeListHead(&Ring->Completed);
+        ListEntry = Ring->PacketComplete.Flink;
+        if (!IsListEmpty(&Ring->PacketComplete)) {
+            RemoveEntryList(&Ring->PacketComplete);
+            InitializeListHead(&Ring->PacketComplete);
             AppendTailList(&List, ListEntry);
         }
     } while (!__TransmitterRingTryReleaseLock(Ring));
@@ -2787,62 +3081,6 @@ TransmitterRingWatchdog(
     return STATUS_SUCCESS;
 }
 
-static FORCEINLINE VOID
-__TransmitterRingUpdateAddressTable(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PSOCKADDR_INET              Table,
-    IN  ULONG                       Count
-    )
-{
-    NTSTATUS                        status;
-
-    __TransmitterRingAcquireLock(Ring);
-
-    if (Ring->AddressCount != 0) {
-        Ring->AddressCount = 0;
-
-        ASSERT(Ring->AddressTable != NULL);
-        __TransmitterFree(Ring->AddressTable);
-        Ring->AddressTable = NULL;
-    }
-
-    if (Count == 0)
-        goto done;
-
-    Ring->AddressTable = __TransmitterAllocate(sizeof (SOCKADDR_INET) * Count);
-
-    status = STATUS_NO_MEMORY;
-    if (Ring->AddressTable == NULL)
-        goto fail1;
-
-    RtlCopyMemory(Ring->AddressTable, Table, sizeof (SOCKADDR_INET) * Count);
-    Ring->AddressCount = Count;
-
-    // Re-advertize if we were part way through
-    if (Ring->AddressIndex != 0)
-        Ring->AddressIndex = Ring->AddressCount * 3;
-
-done:
-    __TransmitterRingReleaseLock(Ring);
-
-    return;
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-
-    __TransmitterRingReleaseLock(Ring);
-}
-
-static FORCEINLINE VOID
-__TransmitterRingAdvertiseAddresses(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
-    )
-{
-    __TransmitterRingAcquireLock(Ring);
-    Ring->AddressIndex = Ring->AddressCount * 3;
-    __TransmitterRingReleaseLock(Ring);
-}
-
 static FORCEINLINE NTSTATUS
 __TransmitterRingInitialize(
     IN  PXENVIF_TRANSMITTER         Transmitter,
@@ -2869,8 +3107,9 @@ __TransmitterRingInitialize(
     if ((*Ring)->Path == NULL)
         goto fail2;
 
-    InitializeListHead(&(*Ring)->Queued);
-    InitializeListHead(&(*Ring)->Completed);
+    InitializeListHead(&(*Ring)->PacketQueue);
+    InitializeListHead(&(*Ring)->RequestQueue);
+    InitializeListHead(&(*Ring)->PacketComplete);
 
     KeInitializeDpc(&(*Ring)->Dpc, TransmitterRingDpc, *Ring);
 
@@ -2901,10 +3140,35 @@ __TransmitterRingInitialize(
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
-                                "%s_transmitter_req_id",
+                                "%s_transmitter_multicast_control",
                                 (*Ring)->Path);
     if (!NT_SUCCESS(status))
         goto fail5;
+
+    for (Index = 0; Name[Index] != '\0'; Index++)
+        if (Name[Index] == '/')
+            Name[Index] = '_';
+
+    status = XENBUS_CACHE(Create,
+                          &Transmitter->CacheInterface,
+                          Name,
+                          sizeof (XENVIF_TRANSMITTER_MULTICAST_CONTROL),
+                          0,
+                          TransmitterMulticastControlCtor,
+                          TransmitterMulticastControlDtor,
+                          TransmitterRingAcquireLock,
+                          TransmitterRingReleaseLock,
+                          *Ring,
+                          &(*Ring)->MulticastControlCache);
+    if (!NT_SUCCESS(status))
+        goto fail6;
+
+    status = RtlStringCbPrintfA(Name,
+                                sizeof (Name),
+                                "%s_transmitter_req_id",
+                                (*Ring)->Path);
+    if (!NT_SUCCESS(status))
+        goto fail7;
 
     for (Index = 0; Name[Index] != '\0'; Index++)
         if (Name[Index] == '/')
@@ -2915,7 +3179,7 @@ __TransmitterRingInitialize(
                               Name,
                               &(*Ring)->RangeSet);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail8;
 
     status = XENBUS_RANGE_SET(Put,
                               &Transmitter->RangeSetInterface,
@@ -2923,14 +3187,14 @@ __TransmitterRingInitialize(
                               1,
                               XENVIF_TRANSMITTER_MAXIMUM_FRAGMENT_ID);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail9;
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
                                 "%s_transmitter_fragment",
                                 (*Ring)->Path);
     if (!NT_SUCCESS(status))
-        goto fail8;
+        goto fail10;
 
     for (Index = 0; Name[Index] != '\0'; Index++)
         if (Name[Index] == '/')
@@ -2948,29 +3212,65 @@ __TransmitterRingInitialize(
                           *Ring,
                           &(*Ring)->FragmentCache);
     if (!NT_SUCCESS(status))
-        goto fail9;
+        goto fail11;
+
+    status = RtlStringCbPrintfA(Name,
+                                sizeof (Name),
+                                "%s_transmitter_request",
+                                (*Ring)->Path);
+    if (!NT_SUCCESS(status))
+        goto fail12;
+
+    for (Index = 0; Name[Index] != '\0'; Index++)
+        if (Name[Index] == '/')
+            Name[Index] = '_';
+
+    status = XENBUS_CACHE(Create,
+                          &Transmitter->CacheInterface,
+                          Name,
+                          sizeof (XENVIF_TRANSMITTER_REQUEST),
+                          0,
+                          TransmitterRequestCtor,
+                          TransmitterRequestDtor,
+                          TransmitterRingAcquireLock,
+                          TransmitterRingReleaseLock,
+                          *Ring,
+                          &(*Ring)->RequestCache);
+    if (!NT_SUCCESS(status))
+        goto fail13;
 
     status = ThreadCreate(TransmitterRingWatchdog,
                           *Ring,
                           &(*Ring)->WatchdogThread);
     if (!NT_SUCCESS(status))
-        goto fail10;
+        goto fail14;
 
     return STATUS_SUCCESS;
 
-fail10:
-    Error("fail10\n");
+fail14:
+    Error("fail14\n");
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 (*Ring)->RequestCache);
+    (*Ring)->RequestCache = NULL;
+
+fail13:
+    Error("fail13\n");
+
+fail12:
+    Error("fail12\n");
 
     XENBUS_CACHE(Destroy,
                  &Transmitter->CacheInterface,
                  (*Ring)->FragmentCache);
     (*Ring)->FragmentCache = NULL;
 
-fail9:
-    Error("fail9\n");
+fail11:
+    Error("fail11\n");
 
-fail8:
-    Error("fail8\n");
+fail10:
+    Error("fail10\n");
 
     (VOID) XENBUS_RANGE_SET(Get,
                             &Transmitter->RangeSetInterface,
@@ -2978,13 +3278,24 @@ fail8:
                             1,
                             XENVIF_TRANSMITTER_MAXIMUM_FRAGMENT_ID);
 
-fail7:
-    Error("fail7\n");
+fail9:
+    Error("fail9\n");
 
     XENBUS_RANGE_SET(Destroy,
                      &Transmitter->RangeSetInterface,
                      (*Ring)->RangeSet);
     (*Ring)->RangeSet = NULL;
+
+fail8:
+    Error("fail8\n");
+
+fail7:
+    Error("fail7\n");
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 (*Ring)->MulticastControlCache);
+    (*Ring)->MulticastControlCache = NULL;
 
 fail6:
     Error("fail6\n");
@@ -3005,8 +3316,9 @@ fail3:
 
     RtlZeroMemory(&(*Ring)->Dpc, sizeof (KDPC));
 
-    RtlZeroMemory(&(*Ring)->Queued, sizeof (LIST_ENTRY));
-    RtlZeroMemory(&(*Ring)->Completed, sizeof (LIST_ENTRY));
+    RtlZeroMemory(&(*Ring)->PacketComplete, sizeof (LIST_ENTRY));
+    RtlZeroMemory(&(*Ring)->RequestQueue, sizeof (LIST_ENTRY));
+    RtlZeroMemory(&(*Ring)->PacketQueue, sizeof (LIST_ENTRY));
 
     FrontendFreePath(Frontend, (*Ring)->Path);
     (*Ring)->Path = NULL;
@@ -3300,13 +3612,27 @@ __TransmitterRingDisable(
     Ring->Enabled = FALSE;
 
     // Release any fragments associated with a pending packet
-    Packet = __TransmitterRingUnpreparePacket(Ring);
+    Packet = __TransmitterRingUnprepareFragments(Ring);
 
     // Put any packet back on the head of the queue
     if (Packet != NULL)
-        InsertHeadList(&Ring->Queued, &Packet->ListEntry);
+        InsertHeadList(&Ring->PacketQueue, &Packet->ListEntry);
 
-    Ring->AddressIndex = 0;
+    // Discard any pending requests
+    while (!IsListEmpty(&Ring->RequestQueue)) {
+        PLIST_ENTRY                 ListEntry;
+        PXENVIF_TRANSMITTER_REQUEST Request;
+
+        ListEntry = RemoveHeadList(&Ring->RequestQueue);
+        ASSERT3P(ListEntry, !=, &Ring->RequestQueue);
+
+        Request = CONTAINING_RECORD(ListEntry,
+                                    XENVIF_TRANSMITTER_REQUEST,
+                                    ListEntry);
+
+        Request->Type = XENVIF_TRANSMITTER_REQUEST_TYPE_INVALID;
+        __TransmitterPutRequest(Ring, Request);
+    }
 
     status = XENBUS_STORE(Read,
                           &Transmitter->StoreInterface,
@@ -3433,17 +3759,14 @@ __TransmitterRingTeardown(
     Ring->PacketsPrepared = 0;
     Ring->PacketsQueued = 0;
 
-    if (Ring->AddressCount != 0) {
-        ASSERT(Ring->AddressTable != NULL);
-        __TransmitterFree(Ring->AddressTable);
-    }
-
-    Ring->AddressTable = NULL;
-    Ring->AddressCount = 0;
-
     ThreadAlert(Ring->WatchdogThread);
     ThreadJoin(Ring->WatchdogThread);
     Ring->WatchdogThread = NULL;
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 Ring->RequestCache);
+    Ring->RequestCache = NULL;
 
     XENBUS_CACHE(Destroy,
                  &Transmitter->CacheInterface,
@@ -3463,14 +3786,22 @@ __TransmitterRingTeardown(
 
     XENBUS_CACHE(Destroy,
                  &Transmitter->CacheInterface,
+                 Ring->MulticastControlCache);
+    Ring->MulticastControlCache = NULL;
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
                  Ring->BufferCache);
     Ring->BufferCache = NULL;
 
-    ASSERT(IsListEmpty(&Ring->Queued));
-    RtlZeroMemory(&Ring->Queued, sizeof (LIST_ENTRY));
+    ASSERT(IsListEmpty(&Ring->PacketComplete));
+    RtlZeroMemory(&Ring->PacketComplete, sizeof (LIST_ENTRY));
 
-    ASSERT(IsListEmpty(&Ring->Completed));
-    RtlZeroMemory(&Ring->Completed, sizeof (LIST_ENTRY));
+    ASSERT(IsListEmpty(&Ring->RequestQueue));
+    RtlZeroMemory(&Ring->RequestQueue, sizeof (LIST_ENTRY));
+
+    ASSERT(IsListEmpty(&Ring->PacketQueue));
+    RtlZeroMemory(&Ring->PacketQueue, sizeof (LIST_ENTRY));
 
     FrontendFreePath(Frontend, Ring->Path);
     Ring->Path = NULL;
@@ -3520,12 +3851,12 @@ __TransmitterRingAbortPackets(
 
     TransmitterRingSwizzle(Ring);
 
-    while (!IsListEmpty(&Ring->Queued)) {
+    while (!IsListEmpty(&Ring->PacketQueue)) {
         PLIST_ENTRY                 ListEntry;
         PXENVIF_TRANSMITTER_PACKET  Packet;
         
-        ListEntry = RemoveHeadList(&Ring->Queued);
-        ASSERT3P(ListEntry, !=, &Ring->Queued);
+        ListEntry = RemoveHeadList(&Ring->PacketQueue);
+        ASSERT3P(ListEntry, !=, &Ring->PacketQueue);
 
         Packet = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_PACKET, ListEntry);
         Packet->ListEntry.Flink = Packet->ListEntry.Blink = NULL;
@@ -3546,6 +3877,168 @@ __TransmitterRingAbortPackets(
 
     ASSERT3P((ULONG_PTR)Ring->Lock, ==, XENVIF_TRANSMITTER_LOCK_BIT);
     __TransmitterRingReleaseLock(Ring);
+}
+
+static FORCEINLINE NTSTATUS
+__TransmitterRingQueueArp(
+    IN  PXENVIF_TRANSMITTER_RING    Ring,
+    IN  PIPV4_ADDRESS               Address
+    )
+{
+    PXENVIF_TRANSMITTER             Transmitter;
+    PXENVIF_FRONTEND                Frontend;
+    PXENVIF_TRANSMITTER_REQUEST     Request;
+    NTSTATUS                        status;
+
+    Transmitter = Ring->Transmitter;
+    Frontend = Transmitter->Frontend;
+
+    __TransmitterRingAcquireLock(Ring);
+
+    status = STATUS_UNSUCCESSFUL;
+    if (!Ring->Enabled)
+        goto fail1;
+
+    Request = __TransmitterGetRequest(Ring);
+
+    status = STATUS_NO_MEMORY;
+    if (Request == NULL)
+        goto fail2;
+
+    Request->Type = XENVIF_TRANSMITTER_REQUEST_TYPE_ARP;
+    Request->Arp.Address = *Address;
+
+    InsertTailList(&Ring->RequestQueue, &Request->ListEntry);
+
+    __TransmitterRingReleaseLock(Ring);
+
+    Info("%s: %u.%u.%u.%u\n",
+         FrontendGetPath(Frontend),
+         Address->Byte[0],
+         Address->Byte[1],
+         Address->Byte[2],
+         Address->Byte[3]);
+
+    return STATUS_SUCCESS;
+
+fail2:
+fail1:
+    __TransmitterRingReleaseLock(Ring);
+
+    return status;
+}
+
+static FORCEINLINE NTSTATUS
+__TransmitterRingQueueNeighbourAdvertisement(
+    IN  PXENVIF_TRANSMITTER_RING    Ring,
+    IN  PIPV6_ADDRESS               Address
+    )
+{
+    PXENVIF_TRANSMITTER             Transmitter;
+    PXENVIF_FRONTEND                Frontend;
+    PXENVIF_TRANSMITTER_REQUEST     Request;
+    NTSTATUS                        status;
+
+    Transmitter = Ring->Transmitter;
+    Frontend = Transmitter->Frontend;
+
+    __TransmitterRingAcquireLock(Ring);
+
+    status = STATUS_UNSUCCESSFUL;
+    if (!Ring->Enabled)
+        goto fail1;
+
+    Request = __TransmitterGetRequest(Ring);
+
+    status = STATUS_NO_MEMORY;
+    if (Request == NULL)
+        goto fail2;
+
+    Request->Type = XENVIF_TRANSMITTER_REQUEST_TYPE_NEIGHBOUR_ADVERTISEMENT;
+    Request->NeighbourAdvertisement.Address = *Address;
+
+    InsertTailList(&Ring->RequestQueue, &Request->ListEntry);
+
+    __TransmitterRingReleaseLock(Ring);
+
+    Info("%s: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
+         FrontendGetPath(Frontend),
+         HTONS(Address->Word[0]),
+         HTONS(Address->Word[1]),
+         HTONS(Address->Word[2]),
+         HTONS(Address->Word[3]),
+         HTONS(Address->Word[4]),
+         HTONS(Address->Word[5]),
+         HTONS(Address->Word[6]),
+         HTONS(Address->Word[7]));
+
+    return STATUS_SUCCESS;
+
+fail2:
+fail1:
+    __TransmitterRingReleaseLock(Ring);
+
+    return status;
+}
+
+static FORCEINLINE NTSTATUS
+__TransmitterRingQueueMulticastControl(
+    IN  PXENVIF_TRANSMITTER_RING    Ring,
+    IN  PETHERNET_ADDRESS           Address,
+    IN  BOOLEAN                     Add
+    )
+{
+    PXENVIF_TRANSMITTER             Transmitter;
+    PXENVIF_FRONTEND                Frontend;
+    PXENVIF_TRANSMITTER_REQUEST     Request;
+    NTSTATUS                        status;
+
+    Transmitter = Ring->Transmitter;
+
+    status = STATUS_NOT_SUPPORTED;
+    if (!Transmitter->MulticastControl)
+        goto fail1;
+
+    Frontend = Transmitter->Frontend;
+
+    __TransmitterRingAcquireLock(Ring);
+
+    status = STATUS_UNSUCCESSFUL;
+    if (!Ring->Enabled)
+        goto fail2;
+
+    Request = __TransmitterGetRequest(Ring);
+
+    status = STATUS_NO_MEMORY;
+    if (Request == NULL)
+        goto fail3;
+
+    Request->Type = XENVIF_TRANSMITTER_REQUEST_TYPE_MULTICAST_CONTROL;
+    Request->MulticastControl.Address = *Address;
+    Request->MulticastControl.Add = Add;
+
+    InsertTailList(&Ring->RequestQueue, &Request->ListEntry);
+
+    __TransmitterRingReleaseLock(Ring);
+
+    Info("%s: %s %02X:%02X:%02X:%02X:%02X:%02X\n",
+         FrontendGetPath(Frontend),
+         (Add) ? "ADD" : "REMOVE",
+         Address->Byte[0],
+         Address->Byte[1],
+         Address->Byte[2],
+         Address->Byte[3],
+         Address->Byte[4],
+         Address->Byte[5]);
+
+    return STATUS_SUCCESS;
+
+fail3:
+fail2:
+    __TransmitterRingReleaseLock(Ring);
+
+fail1:
+    return status;
 }
 
 static VOID
@@ -3796,6 +4289,22 @@ TransmitterConnect(
                      Buffer);
     }
 
+    status = XENBUS_STORE(Read,
+                          &Transmitter->StoreInterface,
+                          NULL,
+                          FrontendGetBackendPath(Frontend),
+                          "feature-multicast-control",
+                          &Buffer);
+    if (!NT_SUCCESS(status)) {
+        Transmitter->MulticastControl = FALSE;
+    } else {
+        Transmitter->MulticastControl = (BOOLEAN)strtol(Buffer, NULL, 2);
+
+        XENBUS_STORE(Free,
+                     &Transmitter->StoreInterface,
+                     Buffer);
+    }
+
     Transmitter->NumQueues = FrontendGetNumQueues(Frontend);
     ASSERT3U(Transmitter->NumQueues, <=, Transmitter->MaxQueues);
 
@@ -3880,8 +4389,21 @@ TransmitterStoreWrite(
     IN  PXENBUS_STORE_TRANSACTION   Transaction
     )
 {
+    PXENVIF_FRONTEND                Frontend;
     NTSTATUS                        status;
     LONG                            Index;
+
+    Frontend = Transmitter->Frontend;
+
+    status = XENBUS_STORE(Printf,
+                          &Transmitter->StoreInterface,
+                          Transaction,
+                          FrontendGetPath(Frontend),
+                          "request-multicast-control",
+                          "%u",
+                          TRUE);
+    if (!NT_SUCCESS(status))
+        goto fail1;
 
     Index = 0;
     while (Index < Transmitter->NumQueues) {
@@ -3889,12 +4411,15 @@ TransmitterStoreWrite(
 
         status = __TransmitterRingStoreWrite(Ring, Transaction);
         if (!NT_SUCCESS(status))
-            goto fail1;
+            goto fail2;
 
         Index++;
     }    
 
     return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -3954,6 +4479,7 @@ TransmitterDisconnect(
 
     Frontend = Transmitter->Frontend;
 
+    Transmitter->MulticastControl = FALSE;
     Transmitter->Split = FALSE;
 
     XENBUS_DEBUG(Deregister,
@@ -4044,42 +4570,6 @@ TransmitterTeardown(
 
     ASSERT(IsZeroMemory(Transmitter, sizeof (XENVIF_TRANSMITTER)));
     __TransmitterFree(Transmitter);
-}
-
-VOID
-TransmitterUpdateAddressTable(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  SOCKADDR_INET           Table[],
-    IN  ULONG                   Count
-    )
-{
-    KIRQL                       Irql;
-    PXENVIF_TRANSMITTER_RING    Ring;
-
-    // Make sure we don't suspend
-    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
-
-    // Use the first ring for address advertisment
-    Ring = Transmitter->Ring[0];
-    ASSERT3U(Ring, !=, NULL);
-
-    __TransmitterRingUpdateAddressTable(Ring, Table, Count);
-
-    KeLowerIrql(Irql);
-}
-
-VOID
-TransmitterAdvertiseAddresses(
-    IN  PXENVIF_TRANSMITTER     Transmitter
-    )
-{
-    PXENVIF_TRANSMITTER_RING    Ring;
-
-    // Use the first ring for address advertisment
-    Ring = Transmitter->Ring[0];
-    ASSERT3U(Ring, !=, NULL);
-
-    __TransmitterRingAdvertiseAddresses(Ring);
 }
 
 NTSTATUS
@@ -4343,6 +4833,40 @@ TransmitterAbortPackets(
     }    
 
     KeLowerIrql(Irql);
+}
+
+VOID
+TransmitterQueueArp(
+    IN  PXENVIF_TRANSMITTER     Transmitter,
+    IN  PIPV4_ADDRESS           Address
+    )
+{
+    PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[0];
+
+    (VOID) __TransmitterRingQueueArp(Ring, Address);
+}
+
+VOID
+TransmitterQueueNeighbourAdvertisement(
+    IN  PXENVIF_TRANSMITTER     Transmitter,
+    IN  PIPV6_ADDRESS           Address
+    )
+{
+    PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[0];
+
+    (VOID) __TransmitterRingQueueNeighbourAdvertisement(Ring, Address);
+}
+
+VOID
+TransmitterQueueMulticastControl(
+    IN  PXENVIF_TRANSMITTER     Transmitter,
+    IN  PETHERNET_ADDRESS       Address,
+    IN  BOOLEAN                 Add
+    )
+{
+    PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[0];
+
+    (VOID) __TransmitterRingQueueMulticastControl(Ring, Address, Add);
 }
 
 VOID
