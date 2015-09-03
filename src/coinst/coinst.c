@@ -50,7 +50,7 @@ __user_code;
         SERVICES_KEY ## "\\" ## #_Driver
 
 #define UNPLUG_KEY \
-        SERVICE_KEY(XENFILT) ## "\\Unplug"
+        SERVICE_KEY(XEN) ## "\\Unplug"
 
 #define CONTROL_KEY "SYSTEM\\CurrentControlSet\\Control"
 
@@ -185,6 +185,53 @@ __FunctionName(
     return "UNKNOWN";
 
 #undef  _NAME
+}
+
+static BOOLEAN
+ClearUnplugRequest(
+    IN  PTCHAR      ClassName
+    )
+{
+    HKEY            UnplugKey;
+    HRESULT         Error;
+
+    Error = RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                         UNPLUG_KEY,
+                         0,
+                         KEY_ALL_ACCESS,
+                         &UnplugKey);
+    if (Error != ERROR_SUCCESS) {
+        SetLastError(Error);
+        goto fail1;
+    }
+
+    Error = RegDeleteValue(UnplugKey, ClassName);
+    if (Error != ERROR_SUCCESS) {
+        SetLastError(Error);
+        goto fail2;
+    }
+
+    RegCloseKey(UnplugKey);
+
+    return TRUE;
+
+fail2:
+    Log("fail2");
+
+    RegCloseKey(UnplugKey);
+
+fail1:
+    Error = GetLastError();
+
+    {
+        PTCHAR  Message;
+
+        Message = GetErrorMessage(Error);
+        Log("fail1 (%s)", Message);
+        LocalFree(Message);
+    }
+
+    return FALSE;
 }
 
 static BOOLEAN
@@ -849,271 +896,6 @@ fail1:
     return FALSE;
 }
 
-static BOOLEAN
-InstallUnplugService(
-    IN  PTCHAR      ClassName,
-    IN  PTCHAR      ServiceName
-    )
-{
-    HKEY            UnplugKey;
-    HRESULT         Error;
-    DWORD           Type;
-    DWORD           OldLength;
-    DWORD           NewLength;
-    PTCHAR          ServiceNames;
-    ULONG           Offset;
-
-    Error = RegCreateKeyEx(HKEY_LOCAL_MACHINE,
-                           UNPLUG_KEY,
-                           0,
-                           NULL,
-                           REG_OPTION_NON_VOLATILE,
-                           KEY_ALL_ACCESS,
-                           NULL,
-                           &UnplugKey,
-                           NULL);
-    if (Error != ERROR_SUCCESS) {
-        SetLastError(Error);
-        goto fail1;
-    }
-
-    Error = RegQueryValueEx(UnplugKey,
-                            ClassName,
-                            NULL,
-                            &Type,
-                            NULL,
-                            &OldLength);
-    if (Error != ERROR_SUCCESS) {
-        if (Error == ERROR_FILE_NOT_FOUND) {
-            Type = REG_MULTI_SZ;
-            OldLength = sizeof (TCHAR);
-        } else {
-            SetLastError(Error);
-            goto fail2;
-        }
-    }
-
-    if (Type != REG_MULTI_SZ) {
-        SetLastError(ERROR_BAD_FORMAT);
-        goto fail3;
-    }
-
-    NewLength = OldLength + (DWORD)((strlen(ServiceName) + 1) * sizeof (TCHAR));
-
-    ServiceNames = calloc(1, NewLength);
-    if (ServiceNames == NULL)
-        goto fail4;
-
-    Offset = 0;
-    if (OldLength != sizeof (TCHAR)) {
-        Error = RegQueryValueEx(UnplugKey,
-                                ClassName,
-                                NULL,
-                                &Type,
-                                (LPBYTE)ServiceNames,
-                                &OldLength);
-        if (Error != ERROR_SUCCESS) {
-            SetLastError(ERROR_BAD_FORMAT);
-            goto fail5;
-        }
-
-        while (ServiceNames[Offset] != '\0') {
-            ULONG   ServiceNameLength;
-
-            ServiceNameLength = (ULONG)strlen(&ServiceNames[Offset]) / sizeof (TCHAR);
-
-            if (_stricmp(&ServiceNames[Offset], ServiceName) == 0) {
-                Log("%s already present", ServiceName);
-                goto done;
-            }
-
-            Offset += ServiceNameLength + 1;
-        }
-    }
-
-    memmove(&ServiceNames[Offset], ServiceName, strlen(ServiceName));
-    Log("added %s", ServiceName);
-
-    Error = RegSetValueEx(UnplugKey,
-                          ClassName,
-                          0,
-                          REG_MULTI_SZ,
-                          (LPBYTE)ServiceNames,
-                          NewLength);
-    if (Error != ERROR_SUCCESS) {
-        SetLastError(Error);
-        goto fail6;
-    }
-
-done:
-    free(ServiceNames);
-
-    RegCloseKey(UnplugKey);
-
-    return TRUE;
-
-fail6:
-    Log("fail5");
-
-fail5:
-    Log("fail5");
-
-    free(ServiceNames);
-
-fail4:
-    Log("fail5");
-
-fail3:
-    Log("fail5");
-
-fail2:
-    Log("fail5");
-
-    RegCloseKey(UnplugKey);
-
-fail1:
-    Error = GetLastError();
-
-    {
-        PTCHAR  Message;
-
-        Message = GetErrorMessage(Error);
-        Log("fail1 (%s)", Message);
-        LocalFree(Message);
-    }
-
-    return FALSE;
-}
-
-static BOOLEAN
-RemoveUnplugService(
-    IN  PTCHAR      ClassName,
-    IN  PTCHAR      ServiceName
-    )
-{
-    HKEY            UnplugKey;
-    HRESULT         Error;
-    DWORD           Type;
-    DWORD           OldLength;
-    DWORD           NewLength;
-    PTCHAR          ServiceNames;
-    ULONG           Offset;
-    ULONG           ServiceNameLength;
-
-    Error = RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-                         UNPLUG_KEY,
-                         0,
-                         KEY_ALL_ACCESS,
-                         &UnplugKey);
-    if (Error != ERROR_SUCCESS) {
-        SetLastError(Error);
-        goto fail1;
-    }
-
-    Error = RegQueryValueEx(UnplugKey,
-                            ClassName,
-                            NULL,
-                            &Type,
-                            NULL,
-                            &OldLength);
-    if (Error != ERROR_SUCCESS) {
-        SetLastError(Error);
-        goto fail2;
-    }
-
-    if (Type != REG_MULTI_SZ) {
-        SetLastError(ERROR_BAD_FORMAT);
-        goto fail3;
-    }
-
-    ServiceNames = calloc(1, OldLength);
-    if (ServiceNames == NULL)
-        goto fail4;
-
-    Error = RegQueryValueEx(UnplugKey,
-                            ClassName,
-                            NULL,
-                            &Type,
-                            (LPBYTE)ServiceNames,
-                            &OldLength);
-    if (Error != ERROR_SUCCESS) {
-        SetLastError(ERROR_BAD_FORMAT);
-        goto fail5;
-    }
-
-    Offset = 0;
-    ServiceNameLength = 0;
-    while (ServiceNames[Offset] != '\0') {
-        ServiceNameLength = (ULONG)strlen(&ServiceNames[Offset]) / sizeof (TCHAR);
-
-        if (_stricmp(&ServiceNames[Offset], ServiceName) == 0)
-            goto remove;
-
-        Offset += ServiceNameLength + 1;
-    }
-
-    goto done;
-
-remove:
-    NewLength = OldLength - ((ServiceNameLength + 1) * sizeof (TCHAR));
-
-    memmove(&ServiceNames[Offset],
-            &ServiceNames[Offset + ServiceNameLength + 1],
-            (NewLength - Offset) * sizeof (TCHAR));
-
-    Log("removed %s", ServiceName);
-
-    Error = RegSetValueEx(UnplugKey,
-                          ClassName,
-                          0,
-                          REG_MULTI_SZ,
-                          (LPBYTE)ServiceNames,
-                          NewLength);
-    if (Error != ERROR_SUCCESS) {
-        SetLastError(Error);
-        goto fail6;
-    }
-
-done:
-    free(ServiceNames);
-
-    RegCloseKey(UnplugKey);
-
-    return TRUE;
-
-fail6:
-    Log("fail6");
-
-fail5:
-    Log("fail5");
-
-    free(ServiceNames);
-
-fail4:
-    Log("fail4");
-
-fail3:
-    Log("fail3");
-
-fail2:
-    Log("fail2");
-
-    RegCloseKey(UnplugKey);
-
-fail1:
-    Error = GetLastError();
-
-    {
-        PTCHAR  Message;
-
-        Message = GetErrorMessage(Error);
-        Log("fail1 (%s)", Message);
-        LocalFree(Message);
-    }
-
-    return FALSE;
-}
-
 static HRESULT
 DifInstallPreProcess(
     IN  HDEVINFO                    DeviceInfoSet,
@@ -1163,11 +945,7 @@ DifInstallPostProcess(
     UNREFERENCED_PARAMETER(DeviceInfoData);
     UNREFERENCED_PARAMETER(Context);
 
-    Log("====>");
-
-    (VOID) InstallUnplugService("NICS", "XENVIF");
-
-    Log("<====");
+    Log("<===>");
 
     return NO_ERROR;
 }
@@ -1239,11 +1017,7 @@ DifRemovePreProcess(
     UNREFERENCED_PARAMETER(DeviceInfoData);
     UNREFERENCED_PARAMETER(Context);
 
-    Log("====>");
-
-    (VOID) RemoveUnplugService("NICS", "XENVIF");
-
-    Log("<====");
+    Log("<===>");
 
     return NO_ERROR; 
 }
