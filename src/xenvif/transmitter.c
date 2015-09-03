@@ -1961,7 +1961,6 @@ __TransmitterRingFakeResponses(
         netif_tx_response_t             *rsp;
 
         Fragment = Ring->Pending[id];
-        Ring->Pending[id] = NULL;
 
         if (Fragment == NULL)
             continue;
