@@ -817,23 +817,24 @@ SupportChildDrivers(
 
         Success = OpenDriverKey(DriverKeyName, &DriverKey);
         if (!Success)
-            goto fail7;
+            goto loop;
 
         Success = GetMatchingDeviceID(DriverKey, &MatchingDeviceID);
         if (!Success)
-            goto fail8;
+            goto fail7;
 
         Success = SupportDeviceID(MatchingDeviceID);
         if (!Success)
-            goto fail9;
+            goto fail8;
 
         free(MatchingDeviceID);
 
         RegCloseKey(DriverKey);
 
-        free(DriverKeyName);
-
     loop:
+        if (DriverKeyName != NULL)
+            free(DriverKeyName);
+
         RegCloseKey(DeviceKey);
     }
 
@@ -846,18 +847,15 @@ done:
 
     return TRUE;
 
-fail9:
-    Log("fail9");
-
-    free(MatchingDeviceID);
-
 fail8:
     Log("fail8");
 
-    RegCloseKey(DriverKey);
+    free(MatchingDeviceID);
 
 fail7:
     Log("fail7");
+
+    RegCloseKey(DriverKey);
 
     free(DriverKeyName);
 
