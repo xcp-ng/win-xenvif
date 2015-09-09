@@ -33,7 +33,7 @@
 Signature="$Windows NT$" 
 Class=System
 ClassGUID={4d36e97d-e325-11ce-bfc1-08002be10318}
-Provider=%Company% 
+Provider=%Vendor%
 CatalogFile=xenvif.cat
 DriverVer=01/01/1900,0.0.0.0
 
@@ -52,15 +52,15 @@ xenvif_coinst.dll=0,,
 xenvif_coinst_@MAJOR_VERSION@_@MINOR_VERSION@_@MICRO_VERSION@_@BUILD_NUMBER@.dll,xenvif_coinst.dll
 
 [Manufacturer] 
-%Company%=Inst,NT$ARCH$
+%Vendor%=Inst,NT$ARCH$
 
 [Inst.NT$ARCH$]
 ; DisplayName		Section		DeviceID
 ; -----------		-------		--------
 
-%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_XSC000&DEV_VIF&REV_08000009
-%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_XS0001&DEV_VIF&REV_08000009
-%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_XS0002&DEV_VIF&REV_08000009
+%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@@VENDOR_DEVICE_ID@&DEV_VIF&REV_08000009
+%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@0001&DEV_VIF&REV_08000009
+%XenVifDesc%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@0002&DEV_VIF&REV_08000009
 
 [XenVif_Inst] 
 CopyFiles=XenVif_Copyfiles
@@ -97,7 +97,7 @@ HKR,,CoInstallers32,0x00010000,"xenvif_coinst_@MAJOR_VERSION@_@MINOR_VERSION@_@M
 
 [Strings] 
 
-Company="@COMPANY_NAME@"
+Vendor="@VENDOR_NAME@"
 DiskDesc="@PRODUCT_NAME@ PV Network Class Package"
 XenVifDesc="@PRODUCT_NAME@ PV Network Class"
 
