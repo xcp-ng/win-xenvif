@@ -42,6 +42,7 @@
 #include <gnttab_interface.h>
 #include <suspend_interface.h>
 #include <unplug_interface.h>
+#include <version.h>
 
 #include "driver.h"
 #include "registry.h"
@@ -419,7 +420,8 @@ __FdoSetVendorName(
 
     status = RtlStringCbPrintfA(Fdo->VendorName,
                                 MAXNAMELEN,
-                                "XS%04X",
+                                "%s%04X",
+                                VENDOR_PREFIX_STR,
                                 DeviceID);
     ASSERT(NT_SUCCESS(status));
 }
