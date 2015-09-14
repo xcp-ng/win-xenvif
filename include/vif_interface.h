@@ -514,26 +514,20 @@ typedef NTSTATUS
     OUT PXENVIF_PACKET_INFO         Info
     );
 
-/*! \typedef XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS
-    \brief Queue transmit side packets at the provider
-
-    \param Interface The interface header
-    \param Head The head of a chain of _XENVIF_TRANSMITTER_PACKET_V1
-*/
 typedef NTSTATUS
-(*XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS)(
+(*XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS_V1)(
     IN  PINTERFACE                      Interface,
     IN  PXENVIF_TRANSMITTER_PACKET_V1   Head
     );
 
-/*! \typedef XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS_V2
+/*! \typedef XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS
     \brief Queue transmit side packets at the provider
 
     \param Interface The interface header
-    \param List List of _XENVIF_TRANSMITTER_PACKET_V2
+    \param List List of XENVIF_TRANSMITTER_PACKET
 */
 typedef NTSTATUS
-(*XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS_V2)(
+(*XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS)(
     IN  PINTERFACE  Interface,
     IN  PLIST_ENTRY List
     );
@@ -759,7 +753,7 @@ struct _XENVIF_VIF_INTERFACE_V1 {
     XENVIF_VIF_RECEIVER_SET_OFFLOAD_OPTIONS         ReceiverSetOffloadOptions;
     XENVIF_VIF_RECEIVER_QUERY_RING_SIZE             ReceiverQueryRingSize;
     XENVIF_VIF_TRANSMITTER_SET_PACKET_OFFSET        TransmitterSetPacketOffset;
-    XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS            TransmitterQueuePackets;
+    XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS_V1         TransmitterQueuePacketsVersion1;
     XENVIF_VIF_TRANSMITTER_QUERY_OFFLOAD_OPTIONS    TransmitterQueryOffloadOptions;
     XENVIF_VIF_TRANSMITTER_QUERY_LARGE_PACKET_SIZE  TransmitterQueryLargePacketSize;
     XENVIF_VIF_TRANSMITTER_QUERY_RING_SIZE          TransmitterQueryRingSize;
@@ -788,7 +782,7 @@ struct _XENVIF_VIF_INTERFACE_V2 {
     XENVIF_VIF_RECEIVER_SET_OFFLOAD_OPTIONS         ReceiverSetOffloadOptions;
     XENVIF_VIF_RECEIVER_QUERY_RING_SIZE             ReceiverQueryRingSize;
     XENVIF_VIF_TRANSMITTER_GET_PACKET_HEADERS       TransmitterGetPacketHeaders;
-    XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS_V2         TransmitterQueuePackets;
+    XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS            TransmitterQueuePackets;
     XENVIF_VIF_TRANSMITTER_QUERY_OFFLOAD_OPTIONS    TransmitterQueryOffloadOptions;
     XENVIF_VIF_TRANSMITTER_QUERY_LARGE_PACKET_SIZE  TransmitterQueryLargePacketSize;
     XENVIF_VIF_TRANSMITTER_QUERY_RING_SIZE          TransmitterQueryRingSize;
@@ -818,7 +812,7 @@ struct _XENVIF_VIF_INTERFACE_V3 {
     XENVIF_VIF_RECEIVER_SET_BACKFILL_SIZE           ReceiverSetBackfillSize;
     XENVIF_VIF_RECEIVER_QUERY_RING_SIZE             ReceiverQueryRingSize;
     XENVIF_VIF_TRANSMITTER_GET_PACKET_HEADERS       TransmitterGetPacketHeaders;
-    XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS_V2         TransmitterQueuePackets;
+    XENVIF_VIF_TRANSMITTER_QUEUE_PACKETS            TransmitterQueuePackets;
     XENVIF_VIF_TRANSMITTER_QUERY_OFFLOAD_OPTIONS    TransmitterQueryOffloadOptions;
     XENVIF_VIF_TRANSMITTER_QUERY_LARGE_PACKET_SIZE  TransmitterQueryLargePacketSize;
     XENVIF_VIF_TRANSMITTER_QUERY_RING_SIZE          TransmitterQueryRingSize;
