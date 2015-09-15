@@ -116,12 +116,6 @@ TransmitterQueryRingSize(
     );
 
 extern VOID
-TransmitterQueuePacketsVersion1(
-    IN  PXENVIF_TRANSMITTER             Transmitter,
-    IN  PXENVIF_TRANSMITTER_PACKET_V1   HeadPacket
-    );
-
-extern VOID
 TransmitterQueuePackets(
     IN  PXENVIF_TRANSMITTER Transmitter,
     IN  PLIST_ENTRY         List
@@ -138,13 +132,6 @@ TransmitterQueryLargePacketSize(
     IN  PXENVIF_TRANSMITTER     Transmitter,
     IN  UCHAR                   Version,
     OUT PULONG                  Size
-    );
-
-extern NTSTATUS
-TransmitterSetPacketOffset(
-    IN  PXENVIF_TRANSMITTER                 Transmitter,
-    IN  XENVIF_TRANSMITTER_PACKET_OFFSET    Type,
-    IN  LONG_PTR                            Value
     );
 
 extern NTSTATUS
