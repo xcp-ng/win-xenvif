@@ -237,28 +237,6 @@ done:
     return status;
 }
 
-static NTSTATUS
-VifTransmitterSetPacketOffset(
-    IN  PINTERFACE                          Interface,
-    IN  XENVIF_TRANSMITTER_PACKET_OFFSET    Type,
-    IN  LONG_PTR                            Value
-    )
-{
-    PXENVIF_VIF_CONTEXT                     Context = Interface->Context;
-    NTSTATUS                                status;
-
-    AcquireMrswLockShared(&Context->Lock);
-
-    ASSERT3U(VifGetVersion(Context), ==, 1);
-    status = TransmitterSetPacketOffset(FrontendGetTransmitter(Context->Frontend),
-                                        Type,
-                                        Value);
-    
-    ReleaseMrswLockShared(&Context->Lock);
-
-    return status;
-}
-
 static VOID
 VifReceiverReturnPackets( 
     IN  PINTERFACE      Interface,
@@ -294,35 +272,6 @@ VifTransmitterGetPacketHeaders(
                                          Headers,
                                          Info);
 
-    ReleaseMrswLockShared(&Context->Lock);
-
-    return status;
-}
-
-static NTSTATUS
-VifTransmitterQueuePacketsVersion1(
-    IN  PINTERFACE                      Interface,
-    IN  PXENVIF_TRANSMITTER_PACKET_V1   Head
-    )
-{
-    PXENVIF_VIF_CONTEXT                 Context = Interface->Context;
-    NTSTATUS                            status;
-
-    AcquireMrswLockShared(&Context->Lock);
-
-    status = STATUS_UNSUCCESSFUL;
-    if (Context->Enabled == FALSE)
-        goto fail1;
-
-    ASSERT3U(VifGetVersion(Context), ==, 1);
-    TransmitterQueuePacketsVersion1(FrontendGetTransmitter(Context->Frontend),
-                                    Head);
-
-    ReleaseMrswLockShared(&Context->Lock);
-
-    return STATUS_SUCCESS;
-
-fail1:
     ReleaseMrswLockShared(&Context->Lock);
 
     return status;
@@ -713,31 +662,6 @@ done:
     ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
 }
 
-static struct _XENVIF_VIF_INTERFACE_V1 VifInterfaceVersion1 = {
-    { sizeof (struct _XENVIF_VIF_INTERFACE_V1), 1, NULL, NULL, NULL },
-    VifAcquire,
-    VifRelease,
-    VifEnable,
-    VifDisable,
-    VifQueryStatistic,
-    VifReceiverReturnPackets,
-    VifReceiverSetOffloadOptions,
-    VifReceiverQueryRingSize,
-    VifTransmitterSetPacketOffset,
-    VifTransmitterQueuePacketsVersion1,
-    VifTransmitterQueryOffloadOptions,
-    VifTransmitterQueryLargePacketSize,
-    VifTransmitterQueryRingSize,
-    VifMacQueryState,
-    VifMacQueryMaximumFrameSize,
-    VifMacQueryPermanentAddress,
-    VifMacQueryCurrentAddress,
-    VifMacQueryMulticastAddresses,
-    VifMacSetMulticastAddresses,
-    VifMacSetFilterLevel,
-    VifMacQueryFilterLevel
-};
-
 static struct _XENVIF_VIF_INTERFACE_V2 VifInterfaceVersion2 = {
     { sizeof (struct _XENVIF_VIF_INTERFACE_V2), 2, NULL, NULL, NULL },
     VifAcquire,
@@ -853,23 +777,6 @@ VifGetInterface(
     NTSTATUS                    status;
 
     switch (Version) {
-    case 1: {
-        struct _XENVIF_VIF_INTERFACE_V1 *VifInterface;
-
-        VifInterface = (struct _XENVIF_VIF_INTERFACE_V1 *)Interface;
-
-        status = STATUS_BUFFER_OVERFLOW;
-        if (Size < sizeof (struct _XENVIF_VIF_INTERFACE_V1))
-            break;
-
-        *VifInterface = VifInterfaceVersion1;
-
-        ASSERT3U(Interface->Version, ==, Version);
-        Interface->Context = Context;
-
-        status = STATUS_SUCCESS;
-        break;
-    }
     case 2: {
         struct _XENVIF_VIF_INTERFACE_V2 *VifInterface;
 
@@ -950,19 +857,6 @@ VifReceiverQueuePackets(
     Context->Callback(Context->Argument,
                       XENVIF_RECEIVER_QUEUE_PACKETS,
                       List);
-}
-
-VOID
-VifTransmitterReturnPacketsVersion1(
-    IN  PXENVIF_VIF_CONTEXT             Context,
-    IN  PXENVIF_TRANSMITTER_PACKET_V1   Head
-    )
-{
-    ASSERT3U(VifGetVersion(Context), ==, 1);
-
-    Context->Callback(Context->Argument,
-                      XENVIF_TRANSMITTER_RETURN_PACKETS,
-                      Head);
 }
 
 VOID

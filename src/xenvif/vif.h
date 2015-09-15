@@ -69,12 +69,6 @@ VifReceiverQueuePackets(
     );
 
 extern VOID
-VifTransmitterReturnPacketsVersion1(
-    IN  PXENVIF_VIF_CONTEXT             Context,
-    IN  PXENVIF_TRANSMITTER_PACKET_V1   Head
-    );
-
-extern VOID
 VifTransmitterReturnPackets(
     IN  PXENVIF_VIF_CONTEXT Context,
     IN  PLIST_ENTRY         List

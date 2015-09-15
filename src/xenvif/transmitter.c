@@ -201,7 +201,6 @@ struct _XENVIF_TRANSMITTER {
     PXENVIF_TRANSMITTER_RING    *Ring;
     LONG                        MaxQueues;
     LONG                        NumQueues;
-    LONG_PTR                    Offset[XENVIF_TRANSMITTER_PACKET_OFFSET_COUNT];
     BOOLEAN                     Split;
     BOOLEAN                     MulticastControl;
     ULONG                       DisableIpVersion4Gso;
@@ -2541,36 +2540,6 @@ __TransmitterRingPushRequests(
 
 #define XENVIF_TRANSMITTER_LOCK_BIT ((ULONG_PTR)1)
 
-static FORCEINLINE ULONG
-__TransmitterReversePacketList(
-    IN  PXENVIF_TRANSMITTER_PACKET_V1   *Packet
-    )
-{
-    PXENVIF_TRANSMITTER_PACKET_V1       HeadPacket;
-    ULONG                               Count;
-
-    HeadPacket = NULL;
-    Count = 0;
-
-    while (*Packet != NULL) {
-        PXENVIF_TRANSMITTER_PACKET_V1   Next;
-
-        ASSERT(((ULONG_PTR)*Packet & XENVIF_TRANSMITTER_LOCK_BIT) == 0);
-
-        Next = (*Packet)->Next;
-
-        (*Packet)->Next = HeadPacket;
-        HeadPacket = *Packet;
-
-        *Packet = Next;
-        Count++;
-    }
-
-    *Packet = HeadPacket;
-
-    return Count;
-}
-
 static DECLSPEC_NOINLINE VOID
 TransmitterRingSwizzle(
     IN  PXENVIF_TRANSMITTER_RING    Ring
@@ -2739,48 +2708,14 @@ __TransmitterReturnPackets(
     )
 {
     PXENVIF_FRONTEND        Frontend;
-    PXENVIF_VIF_CONTEXT     VifContext;
+
+    if (IsListEmpty(List))
+        return;
 
     Frontend = Transmitter->Frontend;
-    VifContext = PdoGetVifContext(FrontendGetPdo(Frontend));
 
-    switch (VifGetVersion(VifContext)) {
-    case 1: {
-        PXENVIF_TRANSMITTER_PACKET_V1   HeadPacket;
-        PXENVIF_TRANSMITTER_PACKET_V1   NextPacket;
-
-        HeadPacket = NextPacket = NULL;
-
-        while (!IsListEmpty(List)) {
-            PLIST_ENTRY                 ListEntry;
-            PXENVIF_TRANSMITTER_PACKET  Packet;
-
-            ListEntry = RemoveTailList(List);
-            ASSERT3P(ListEntry, !=, List);
-
-            Packet = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_PACKET, ListEntry);
-            Packet->ListEntry.Flink = Packet->ListEntry.Blink = NULL;
-
-            HeadPacket = Packet->Cookie;
-            HeadPacket->Next = NextPacket;
-            NextPacket = HeadPacket;
-
-            HeadPacket->Completion = Packet->Completion;
-
-            __TransmitterPutPacket(Transmitter, Packet);
-        }
-
-        if (HeadPacket != NULL)
-            VifTransmitterReturnPacketsVersion1(VifContext, HeadPacket);
-
-        break;
-    }
-    default:
-        if (!IsListEmpty(List))
-            VifTransmitterReturnPackets(VifContext, List);
-
-        break;
-    }
+    VifTransmitterReturnPackets(PdoGetVifContext(FrontendGetPdo(Frontend)),
+                                List);
 }
 
 static FORCEINLINE BOOLEAN
@@ -4043,16 +3978,8 @@ TransmitterDebugCallback(
     IN  BOOLEAN         Crashing
     )
 {
-    PXENVIF_TRANSMITTER Transmitter = Argument;
-
+    UNREFERENCED_PARAMETER(Argument);
     UNREFERENCED_PARAMETER(Crashing);
-
-    XENBUS_DEBUG(Printf,
-                 &Transmitter->DebugInterface,
-                 "OFFSETS: Offset @ %ld Length @ %ld Mdl @ %ld\n",
-                 Transmitter->Offset[XENVIF_TRANSMITTER_PACKET_OFFSET_OFFSET],
-                 Transmitter->Offset[XENVIF_TRANSMITTER_PACKET_LENGTH_OFFSET],
-                 Transmitter->Offset[XENVIF_TRANSMITTER_PACKET_MDL_OFFSET]);
 }
 
 NTSTATUS
@@ -4518,9 +4445,6 @@ TransmitterTeardown(
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
     KeFlushQueuedDpcs();
 
-    RtlZeroMemory(Transmitter->Offset,
-                  sizeof (LONG_PTR) *  XENVIF_TRANSMITTER_PACKET_OFFSET_COUNT); 
-
     Index = Transmitter->MaxQueues;
     while (--Index >= 0) {
         PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
@@ -4566,29 +4490,6 @@ TransmitterTeardown(
 
     ASSERT(IsZeroMemory(Transmitter, sizeof (XENVIF_TRANSMITTER)));
     __TransmitterFree(Transmitter);
-}
-
-NTSTATUS
-TransmitterSetPacketOffset(
-    IN  PXENVIF_TRANSMITTER                 Transmitter,
-    IN  XENVIF_TRANSMITTER_PACKET_OFFSET    Type,
-    IN  LONG_PTR                            Value
-    )
-{
-    NTSTATUS                                status;
-
-    status = STATUS_INVALID_PARAMETER;
-    if (Type >= XENVIF_TRANSMITTER_PACKET_OFFSET_COUNT)
-        goto fail1;
-
-    Transmitter->Offset[Type] = Value;
-
-    return STATUS_SUCCESS;
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-
-    return status;
 }
 
 static BOOLEAN
@@ -4679,72 +4580,6 @@ TransmitterGetPacketHeaders(
 
 fail1:
     return status;
-}
-
-VOID
-TransmitterQueuePacketsVersion1(
-    IN  PXENVIF_TRANSMITTER             Transmitter,
-    IN  PXENVIF_TRANSMITTER_PACKET_V1   HeadPacket
-    )
-{
-#define OFFSET_EXISTS(_Transmitter, _Packet, _Type)                                         \
-    ((_Transmitter)->Offset[XENVIF_TRANSMITTER_PACKET_ ## _Type ## _OFFSET] != 0)
-
-#define OFFSET(_Transmitter, _Packet, _Type)                                                \
-        ((OFFSET_EXISTS(_Transmitter, _Packet, _Type)) ?                                    \
-         (PVOID)((PUCHAR)(_Packet) +                                                        \
-                 (_Transmitter)->Offset[XENVIF_TRANSMITTER_PACKET_ ## _Type ## _OFFSET]) :  \
-         NULL)
-
-    LIST_ENTRY                          List;
-    PXENVIF_FRONTEND                    Frontend;
-    PXENVIF_VIF_CONTEXT                 VifContext;
-
-    Frontend = Transmitter->Frontend;
-    VifContext = PdoGetVifContext(FrontendGetPdo(Frontend));
-
-    ASSERT3U(VifGetVersion(VifContext), ==, 1);
-
-    InitializeListHead(&List);
-
-    while (HeadPacket != NULL) {
-        PXENVIF_TRANSMITTER_PACKET      Packet;
-
-        Packet = __TransmitterGetPacket(Transmitter);
-        if (Packet == NULL)
-            break;
-
-        Packet->Cookie = HeadPacket;
-        Packet->Send = HeadPacket->Send;
-
-        ASSERT(OFFSET_EXISTS(Transmitter, HeadPacket, MDL));
-        Packet->Mdl = *(PMDL *)OFFSET(Transmitter, HeadPacket, MDL);
-
-        if (OFFSET_EXISTS(Transmitter, HeadPacket, OFFSET))
-            Packet->Offset = *(PULONG)OFFSET(Transmitter, HeadPacket, OFFSET);
-        else
-            Packet->Offset = 0;
-
-        ASSERT(OFFSET_EXISTS(Transmitter, HeadPacket, LENGTH));
-        Packet->Length = *(PULONG)OFFSET(Transmitter, HeadPacket, LENGTH);
-
-        // Packets from legacy clients go to queue 0.
-        Packet->Value = 0;
-
-        InsertTailList(&List, &Packet->ListEntry);
-
-        HeadPacket = HeadPacket->Next;
-    }
-
-    if (!IsListEmpty(&List))
-        TransmitterQueuePackets(Transmitter, &List);
-
-    if (HeadPacket != NULL)
-        VifTransmitterReturnPacketsVersion1(VifContext,
-                                            HeadPacket);
-
-#undef OFFSET
-#undef OFFSET_EXISTS
 }
 
 VOID
