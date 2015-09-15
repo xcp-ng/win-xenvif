@@ -119,7 +119,8 @@ SettingsCopyInterfaceValue(
                                              ValueName->Buffer,
                                              Value,
                                              Length);
-            RegistryFreeBinaryValue(Value);
+            if (Length != 0)
+                RegistryFreeBinaryValue(Value);
         }
 
         break;

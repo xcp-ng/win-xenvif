@@ -30,6 +30,7 @@
  */
 
 #include <ntddk.h>
+#include <stdlib.h>
 
 #include "registry.h"
 #include "assert.h"
@@ -937,25 +938,30 @@ RegistryQueryBinaryValue(
     if (!NT_SUCCESS(status))
         goto fail4;
 
+    *Buffer = NULL;
+
     switch (Partial->Type) {
     case REG_BINARY:
+        *Length = Partial->DataLength;
+
+        if (*Length == 0)
+            break;
+
         *Buffer = __RegistryAllocate(Partial->DataLength);
 
         status = STATUS_NO_MEMORY;
         if (*Buffer == NULL)
             break;
 
-        *Length = Partial->DataLength;
         RtlCopyMemory(*Buffer, Partial->Data, Partial->DataLength);
         break;
 
     default:
         status = STATUS_INVALID_PARAMETER;
-        *Buffer = NULL;
         break;
     }
 
-    if (*Buffer == NULL)
+    if (!NT_SUCCESS(status))
         goto fail5;
 
     __RegistryFree(Partial);
@@ -996,7 +1002,7 @@ RegistryUpdateBinaryValue(
         goto fail1;
 
     Partial = __RegistryAllocate(FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data) +
-                                 Length);
+                                 __min(Length, 1));
 
     status = STATUS_NO_MEMORY;
     if (Partial == NULL)
@@ -1004,8 +1010,11 @@ RegistryUpdateBinaryValue(
 
     Partial->TitleIndex = 0;
     Partial->Type = REG_BINARY;
-    Partial->DataLength = Length;
-    RtlCopyMemory(Partial->Data, Buffer, Partial->DataLength);
+
+    if (Length != 0) {
+        Partial->DataLength = Length;
+        RtlCopyMemory(Partial->Data, Buffer, Partial->DataLength);
+    }
 
     status = ZwSetValueKey(Key,
                            &Unicode,
