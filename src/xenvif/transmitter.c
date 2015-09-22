@@ -968,7 +968,7 @@ __TransmitterRingPrepareHeader(
     Fragment = __TransmitterGetFragment(Ring);
 
     status = STATUS_NO_MEMORY;
-    if (Buffer == NULL)
+    if (Fragment == NULL)
         goto fail3;
 
     Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_BUFFER;
