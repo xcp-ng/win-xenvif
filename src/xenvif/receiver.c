@@ -43,10 +43,6 @@
 #include <gnttab_interface.h>
 #include <evtchn_interface.h>
 
-// This should be in public/io/netif.h
-#define _NETRXF_gso_prefix     (4)
-#define  NETRXF_gso_prefix     (1U<<_NETRXF_gso_prefix)
-
 #include "pdo.h"
 #include "registry.h"
 #include "frontend.h"
@@ -1704,7 +1700,6 @@ __ReceiverRingEmpty(
     Frontend = Receiver->Frontend;
 
     for (id = 0; id <= XENVIF_RECEIVER_MAXIMUM_FRAGMENT_ID; id++) {
-        netif_rx_request_t          *req;
         PXENVIF_RECEIVER_FRAGMENT   Fragment;
         PMDL                        Mdl;
 
@@ -1716,11 +1711,6 @@ __ReceiverRingEmpty(
 
         --Ring->RequestsPosted;
         --Ring->RequestsPushed;
-
-        req = RING_GET_REQUEST(&Ring->Front, id);
-        ASSERT3U(req->id, ==, id);
-
-        RtlZeroMemory(req, sizeof (netif_rx_request_t));
 
         Mdl = Fragment->Context;
         Fragment->Context = NULL;
@@ -1735,8 +1725,6 @@ __ReceiverRingEmpty(
         __ReceiverRingPutFragment(Ring, Fragment);
 
         __ReceiverRingPutMdl(Ring, Mdl, TRUE);
-
-        RtlZeroMemory(req, sizeof (netif_rx_request_t));
     }
 }
 
@@ -1815,18 +1803,24 @@ ReceiverRingPoll(
 
     for (;;) {
         BOOLEAN                 Error;
+        BOOLEAN                 Extra;
+        ULONG                   Info;
+        USHORT                  MaximumSegmentSize;
         PXENVIF_RECEIVER_PACKET Packet;
         uint16_t                flags;
-        USHORT                  MaximumSegmentSize;
         PMDL                    TailMdl;
+        BOOLEAN                 EOP;
         RING_IDX                rsp_prod;
         RING_IDX                rsp_cons;
 
         Error = FALSE;
+        Extra = FALSE;
+        Info = 0;
+        MaximumSegmentSize = 0;
         Packet = NULL;
         flags = 0;
-        MaximumSegmentSize = 0;
         TailMdl = NULL;
+        EOP = TRUE;
 
         KeMemoryBarrier();
 
@@ -1846,14 +1840,14 @@ ReceiverRingPoll(
             RING_IDX                    req_prod;
 
             rsp = RING_GET_RESPONSE(&Ring->Front, rsp_cons);
+
+            // netback is required to complete requests in order and place
+            // the response in the same fragment as the request. This is
+            // the only way to figure out the id of an 'extra' fragment.
             id = (uint16_t)(rsp_cons & (RING_SIZE(&Ring->Front) - 1));
 
             rsp_cons++;
             Ring->ResponsesProcessed++;
-
-            // netback is required to complete requests in order and place
-            // the response in the same fragment as the request.
-            ASSERT3U(rsp->id, ==, id);
 
             ASSERT3U(id, <=, XENVIF_RECEIVER_MAXIMUM_FRAGMENT_ID);
             Fragment = Ring->Pending[id];
@@ -1875,46 +1869,59 @@ ReceiverRingPoll(
 
             ASSERT(Mdl != NULL);
 
-            if (rsp->status < 0)
-                Error = TRUE;
+            if (Extra) {
+                struct netif_extra_info *extra;
 
-            if (rsp->flags & NETRXF_gso_prefix) {
                 __ReceiverRingPutMdl(Ring, Mdl, TRUE);
 
-                flags = NETRXF_gso_prefix;
-                MaximumSegmentSize = rsp->offset;
+                extra = (struct netif_extra_info *)rsp;
+                Info |= (1 << extra->type);
 
-                ASSERT(rsp->flags & NETRXF_more_data);
-                continue;
+                switch (extra->type) {
+                case XEN_NETIF_EXTRA_TYPE_GSO:
+                    MaximumSegmentSize = extra->u.gso.size;
+                    break;
+
+                default:
+                    ASSERT(FALSE);
+                    break;
+                }
+
+                Extra = (extra->flags & XEN_NETIF_EXTRA_FLAG_MORE) ? TRUE : FALSE;
             } else {
+                ASSERT3U(rsp->id, ==, id);
+
                 Mdl->ByteOffset = rsp->offset;
                 Mdl->MappedSystemVa = (PUCHAR)Mdl->StartVa + rsp->offset;
                 Mdl->ByteCount = rsp->status;
+
+                if (rsp->status < 0)
+                    Error = TRUE;
+
+                if (Packet == NULL) {   // SOP
+                    Packet = CONTAINING_RECORD(Mdl, XENVIF_RECEIVER_PACKET, Mdl);
+
+                    ASSERT3P(TailMdl, ==, NULL);
+                    TailMdl = Mdl;
+
+                    flags = rsp->flags;
+                    Packet->Length = Mdl->ByteCount;
+                } else {
+                    ASSERT3P(Mdl->Next, ==, NULL);
+
+                    ASSERT(TailMdl != NULL);
+                    TailMdl->Next = Mdl;
+                    TailMdl = Mdl;
+
+                    flags |= rsp->flags;
+                    Packet->Length += Mdl->ByteCount;
+                }
+
+                EOP = (~rsp->flags & NETRXF_more_data) ? TRUE : FALSE;
+                Extra = (rsp->flags & NETRXF_extra_info) ? TRUE : FALSE;
             }
 
-            if (Packet == NULL) {   // SOP
-                Packet = CONTAINING_RECORD(Mdl, XENVIF_RECEIVER_PACKET, Mdl);
-
-                ASSERT3P(TailMdl, ==, NULL);
-                TailMdl = Mdl;
-
-                ASSERT3U((flags & ~NETRXF_gso_prefix), ==, 0);
-                flags |= rsp->flags;
-
-                Packet->Length = Mdl->ByteCount;
-            } else {
-                ASSERT3P(Mdl->Next, ==, NULL);
-
-                ASSERT(TailMdl != NULL);
-                TailMdl->Next = Mdl;
-                TailMdl = Mdl;
-
-                flags |= rsp->flags;
-
-                Packet->Length += Mdl->ByteCount;
-            }
-
-            if (~rsp->flags & NETRXF_more_data) {  // EOP
+            if (EOP && !Extra) {
                 ASSERT(Packet != NULL);
 
                 if (Error) {
@@ -1924,21 +1931,24 @@ ReceiverRingPoll(
 
                     __ReceiverRingReturnPacket(Ring, Packet, TRUE);
                 } else {
-                    if (flags & NETRXF_gso_prefix) {
+                    if (Info & (1 << XEN_NETIF_EXTRA_TYPE_GSO)) {
                         ASSERT(MaximumSegmentSize != 0);
+                        ASSERT(flags & NETRXF_csum_blank);
+                        ASSERT(flags & NETRXF_data_validated);
                         Packet->MaximumSegmentSize = MaximumSegmentSize;
                     }
 
-                    Packet->Flags.Value = flags & (NETRXF_csum_blank | NETRXF_data_validated);
+                    Packet->Flags.Value = flags;
 
                     ASSERT(IsZeroMemory(&Packet->ListEntry, sizeof (LIST_ENTRY)));
                     InsertTailList(&Ring->PacketList, &Packet->ListEntry);
                 }
 
                 Error = FALSE;
+                Info = 0;
+                MaximumSegmentSize = 0;
                 Packet = NULL;
                 flags = 0;
-                MaximumSegmentSize = 0;
                 TailMdl = NULL;
             }
 
@@ -1953,10 +1963,13 @@ ReceiverRingPoll(
             }
         }
         ASSERT(!Error);
+        ASSERT(!Extra);
+        ASSERT3U(Info, ==, 0);
         ASSERT3P(Packet, ==, NULL);
         ASSERT3U(flags, ==, 0);
         ASSERT3U(MaximumSegmentSize, ==, 0);
         ASSERT3P(TailMdl, ==, NULL);
+        ASSERT(EOP);
 
         KeMemoryBarrier();
 
@@ -2973,21 +2986,33 @@ __ReceiverSetGsoFeatureFlag(
 
     Frontend = Receiver->Frontend;
 
-    status = XENBUS_STORE(Printf,
-                          &Receiver->StoreInterface,
-                          Transaction,
-                          FrontendGetPath(Frontend),
-                          "feature-gso-tcpv4-prefix",
-                          "%u",
-                          (Receiver->DisableIpVersion4Gso == 0) ? TRUE : FALSE);
-    if (!NT_SUCCESS(status))
-        goto fail1;
+    (VOID) XENBUS_STORE(Remove,
+                        &Receiver->StoreInterface,
+                        Transaction,
+                        FrontendGetPath(Frontend),
+                        "feature-gso-tcpv4-prefix");
 
     status = XENBUS_STORE(Printf,
                           &Receiver->StoreInterface,
                           Transaction,
                           FrontendGetPath(Frontend),
-                          "feature-gso-tcpv6-prefix",
+                          "feature-gso-tcpv4",
+                          "%u",
+                          (Receiver->DisableIpVersion4Gso == 0) ? TRUE : FALSE);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    (VOID) XENBUS_STORE(Remove,
+                        &Receiver->StoreInterface,
+                        Transaction,
+                        FrontendGetPath(Frontend),
+                        "feature-gso-tcpv6-prefix");
+
+    status = XENBUS_STORE(Printf,
+                          &Receiver->StoreInterface,
+                          Transaction,
+                          FrontendGetPath(Frontend),
+                          "feature-gso-tcpv6",
                           "%u",
                           (Receiver->DisableIpVersion6Gso == 0) ? TRUE : FALSE);
     if (!NT_SUCCESS(status))
