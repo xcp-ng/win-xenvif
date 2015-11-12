@@ -87,6 +87,8 @@ struct _XENVIF_FRONTEND {
     ULONG                       StatisticsCount;
 
     PXENVIF_THREAD              MibThread;
+    CHAR                        Alias[IF_MAX_STRING_SIZE + 1];
+    NET_IFINDEX                 InterfaceIndex;
     PSOCKADDR_INET              AddressTable;
     ULONG                       AddressCount;
 };
@@ -458,15 +460,15 @@ fail1:
 }
 
 static NTSTATUS
-FrontendGetInterfaceIndex(
+FrontendProcessInterfaceTable(
     IN  PXENVIF_FRONTEND    Frontend,
-    IN  PMIB_IF_TABLE2      Table,
-    OUT PNET_IFINDEX        InterfaceIndex
+    IN  PMIB_IF_TABLE2      Table
     )
 {
     ETHERNET_ADDRESS        PermanentPhysicalAddress;
     ULONG                   Index;
     PMIB_IF_ROW2            Row;
+    NTSTATUS                status;
 
     MacQueryPermanentAddress(__FrontendGetMac(Frontend),
                              &PermanentPhysicalAddress);
@@ -494,12 +496,13 @@ FrontendGetInterfaceIndex(
     return STATUS_UNSUCCESSFUL;
 
 found:
-    *InterfaceIndex = Row->InterfaceIndex;
+    Frontend->InterfaceIndex = Row->InterfaceIndex;
 
-    Trace("[%u]: %ws (%ws)\n",
-          Row->InterfaceIndex,
-          Row->Alias,
-          Row->Description);
+    status = RtlStringCbPrintfA(Frontend->Alias,
+                                sizeof (Frontend->Alias),
+                                "%ws",
+                                Row->Alias);
+    ASSERT(NT_SUCCESS(status));
 
     return STATUS_SUCCESS;
 }
@@ -564,8 +567,7 @@ fail1:
 static NTSTATUS
 FrontendProcessAddressTable(
     IN  PXENVIF_FRONTEND            Frontend,
-    IN  PMIB_UNICASTIPADDRESS_TABLE Table,
-    IN  NET_IFINDEX                 InterfaceIndex
+    IN  PMIB_UNICASTIPADDRESS_TABLE Table
     )
 {
     ULONG                           Index;
@@ -583,7 +585,7 @@ FrontendProcessAddressTable(
     for (Index = 0; Index < Table->NumEntries; Index++) {
         PMIB_UNICASTIPADDRESS_ROW   Row = &Table->Table[Index];
 
-        if (Row->InterfaceIndex != InterfaceIndex)
+        if (Row->InterfaceIndex != Frontend->InterfaceIndex)
             continue;
 
         if (Row->Address.si_family != AF_INET &&
@@ -596,6 +598,43 @@ FrontendProcessAddressTable(
     }
 
     return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+static NTSTATUS
+FrontendDumpAlias(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    NTSTATUS                status;
+
+    status = XENBUS_STORE(Remove,
+                          &Frontend->StoreInterface,
+                          NULL,
+                          __FrontendGetPrefix(Frontend),
+                          "name");
+    if (!NT_SUCCESS(status) &&
+        status != STATUS_OBJECT_NAME_NOT_FOUND)
+        goto fail1;
+
+    status = XENBUS_STORE(Printf,
+                          &Frontend->StoreInterface,
+                          NULL,
+                          __FrontendGetPrefix(Frontend),
+                          "name",
+                          "%s",
+                          Frontend->Alias);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -647,7 +686,7 @@ FrontendDumpAddressTable(
         switch (Frontend->AddressTable[Index].si_family) {
         case AF_INET: {
             IPV4_ADDRESS    Address;
-            CHAR            Node[sizeof ("ipv4/address/XXXXXXXX")];
+            CHAR            Node[sizeof ("ipv4/XXXXXXXX")];
 
             RtlCopyMemory(Address.Byte,
                           &Frontend->AddressTable[Index].Ipv4.sin_addr.s_addr,
@@ -655,7 +694,7 @@ FrontendDumpAddressTable(
 
             status = RtlStringCbPrintfA(Node,
                                         sizeof (Node),
-                                        "ipv4/address/%u",
+                                        "ipv4/%u",
                                         IpVersion4Count);
             ASSERT(NT_SUCCESS(status));
 
@@ -672,19 +711,12 @@ FrontendDumpAddressTable(
             if (!NT_SUCCESS(status))
                 goto fail4;
 
-            Trace("%s: %u.%u.%u.%u\n",
-                  __FrontendGetPrefix(Frontend),
-                  Address.Byte[0],
-                  Address.Byte[1],
-                  Address.Byte[2],
-                  Address.Byte[3]);
-
             IpVersion4Count++;
             break;
         }
         case AF_INET6: {
             IPV6_ADDRESS    Address;
-            CHAR            Node[sizeof ("ipv6/address/XXXXXXXX")];
+            CHAR            Node[sizeof ("ipv6/XXXXXXXX")];
 
             RtlCopyMemory(Address.Byte,
                           &Frontend->AddressTable[Index].Ipv6.sin6_addr.s6_addr,
@@ -692,7 +724,7 @@ FrontendDumpAddressTable(
 
             status = RtlStringCbPrintfA(Node,
                                         sizeof (Node),
-                                        "ipv6/address/%u",
+                                        "ipv6/%u",
                                         IpVersion6Count);
             ASSERT(NT_SUCCESS(status));
 
@@ -712,17 +744,6 @@ FrontendDumpAddressTable(
                                   NTOHS(Address.Word[7]));
             if (!NT_SUCCESS(status))
                 goto fail4;
-
-            Trace("%s: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
-                  __FrontendGetPrefix(Frontend),
-                  NTOHS(Address.Word[0]),
-                  NTOHS(Address.Word[1]),
-                  NTOHS(Address.Word[2]),
-                  NTOHS(Address.Word[3]),
-                  NTOHS(Address.Word[4]),
-                  NTOHS(Address.Word[5]),
-                  NTOHS(Address.Word[6]),
-                  NTOHS(Address.Word[7]));
 
             IpVersion6Count++;
             break;
@@ -842,7 +863,6 @@ FrontendMib(
 
     for (;;) { 
         PMIB_IF_TABLE2              IfTable;
-        NET_IFINDEX                 InterfaceIndex;
         PMIB_UNICASTIPADDRESS_TABLE UnicastIpAddressTable;
         KIRQL                       Irql;
 
@@ -867,9 +887,8 @@ FrontendMib(
         if (!NT_SUCCESS(status))
             goto loop;
 
-        status = FrontendGetInterfaceIndex(Frontend,
-                                           IfTable,
-                                           &InterfaceIndex);
+        status = FrontendProcessInterfaceTable(Frontend,
+                                               IfTable);
         if (!NT_SUCCESS(status))
             goto loop;
 
@@ -878,22 +897,19 @@ FrontendMib(
         if (!NT_SUCCESS(status))
             goto loop;
 
+        status = FrontendProcessAddressTable(Frontend,
+                                             UnicastIpAddressTable);
+        if (!NT_SUCCESS(status))
+            goto loop;
+
         KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
-        // It is not safe to use interfaces before this point
-        if (Frontend->State != FRONTEND_CONNECTED &&
-            Frontend->State != FRONTEND_ENABLED)
-            goto unlock;
+        if (Frontend->State == FRONTEND_CONNECTED ||
+            Frontend->State == FRONTEND_ENABLED) {
+            (VOID) FrontendDumpAlias(Frontend);
+            (VOID) FrontendDumpAddressTable(Frontend);
+        }
 
-        status = FrontendProcessAddressTable(Frontend,
-                                             UnicastIpAddressTable,
-                                             InterfaceIndex);
-        if (!NT_SUCCESS(status))
-            goto unlock;
-
-        (VOID) FrontendDumpAddressTable(Frontend);
-
-unlock:
         KeReleaseSpinLock(&Frontend->Lock, Irql);
 
 loop:
@@ -1408,6 +1424,12 @@ FrontendClose(
     }
 
     FrontendReleaseBackend(Frontend);
+
+    (VOID) XENBUS_STORE(Remove,
+                        &Frontend->StoreInterface,
+                        NULL,
+                        NULL,
+                        __FrontendGetPrefix(Frontend));
 
     XENBUS_STORE(Release, &Frontend->StoreInterface);
 
@@ -2262,7 +2284,7 @@ FrontendInitialize(
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    Length = sizeof ("data/vif/") + (ULONG)strlen(Name);
+    Length = sizeof ("attr/vif/") + (ULONG)strlen(Name);
     Prefix = __FrontendAllocate(Length);
 
     status = STATUS_NO_MEMORY;
@@ -2271,7 +2293,7 @@ FrontendInitialize(
 
     status = RtlStringCbPrintfA(Prefix, 
                                 Length,
-                                "data/vif/%s", 
+                                "attr/vif/%s",
                                 Name);
     if (!NT_SUCCESS(status))
         goto fail4;
@@ -2414,6 +2436,16 @@ FrontendTeardown(
     ThreadAlert(Frontend->MibThread);
     ThreadJoin(Frontend->MibThread);
     Frontend->MibThread = NULL;
+
+    if (Frontend->AddressCount != 0) {
+        __FrontendFree(Frontend->AddressTable);
+
+        Frontend->AddressTable = NULL;
+        Frontend->AddressCount = 0;
+    }
+
+    RtlZeroMemory(Frontend->Alias, sizeof (Frontend->Alias));
+    Frontend->InterfaceIndex = 0;
 
     ThreadAlert(Frontend->EjectThread);
     ThreadJoin(Frontend->EjectThread);

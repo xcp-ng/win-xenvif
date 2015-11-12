@@ -101,19 +101,6 @@ __MacSetPermanentAddress(
 
     Mac->PermanentAddress = *Address;
 
-    (VOID) XENBUS_STORE(Printf,
-                        &Mac->StoreInterface,
-                        NULL,
-                        FrontendGetPrefix(Frontend),
-                        "mac/unicast/permanent",
-                        "%02x:%02x:%02x:%02x:%02x:%02x",
-                        Mac->PermanentAddress.Byte[0],
-                        Mac->PermanentAddress.Byte[1],
-                        Mac->PermanentAddress.Byte[2],
-                        Mac->PermanentAddress.Byte[3],
-                        Mac->PermanentAddress.Byte[4],
-                        Mac->PermanentAddress.Byte[5]);
-
     Info("%s: %02X:%02X:%02X:%02X:%02X:%02X\n",
          FrontendGetPrefix(Frontend),
          Mac->PermanentAddress.Byte[0],
@@ -154,19 +141,6 @@ __MacSetCurrentAddress(
         goto fail1;
 
     Mac->CurrentAddress = *Address;
-
-    (VOID) XENBUS_STORE(Printf,
-                        &Mac->StoreInterface,
-                        NULL,
-                        FrontendGetPrefix(Frontend),
-                        "mac/unicast/current",
-                        "%02x:%02x:%02x:%02x:%02x:%02x",
-                        Mac->CurrentAddress.Byte[0],
-                        Mac->CurrentAddress.Byte[1],
-                        Mac->CurrentAddress.Byte[2],
-                        Mac->CurrentAddress.Byte[3],
-                        Mac->CurrentAddress.Byte[4],
-                        Mac->CurrentAddress.Byte[5]);
 
     Info("%s: %02X:%02X:%02X:%02X:%02X:%02X\n",
          FrontendGetPrefix(Frontend),
@@ -261,7 +235,7 @@ fail1:
 }
 
 static NTSTATUS
-MacDumpMulticastList(
+MacDumpAddressTable(
     IN  PXENVIF_MAC     Mac
     )
 {
@@ -283,31 +257,33 @@ MacDumpMulticastList(
     if (!Mac->Connected)
         goto fail1;
 
-    if (Mac->MulticastCount != 0) {
-        Address = __MacAllocate(sizeof (ETHERNET_ADDRESS) *
-                                Mac->MulticastCount);
+    Count = 1 + Mac->MulticastCount;
 
-        status = STATUS_NO_MEMORY;
-        if (Address == NULL)
-            goto fail2;
+    Address = __MacAllocate(sizeof (ETHERNET_ADDRESS) *
+                            Count);
 
-        Count = 0;
-        for (ListEntry = Mac->MulticastList.Flink;
-             ListEntry != &Mac->MulticastList;
-             ListEntry = ListEntry->Flink) {
-            PXENVIF_MAC_MULTICAST   Multicast;
+    status = STATUS_NO_MEMORY;
+    if (Address == NULL)
+        goto fail2;
 
-            Multicast = CONTAINING_RECORD(ListEntry,
-                                          XENVIF_MAC_MULTICAST,
-                                          ListEntry);
+    Index = 0;
 
-            Address[Count++] = Multicast->Address;
-        }
-        ASSERT3U(Count, ==, Mac->MulticastCount);
-    } else {
-        Address = NULL;
-        Count = 0;
+    MacQueryCurrentAddress(Mac, &Address[Index]);
+    Index++;
+
+    for (ListEntry = Mac->MulticastList.Flink;
+         ListEntry != &Mac->MulticastList;
+         ListEntry = ListEntry->Flink) {
+        PXENVIF_MAC_MULTICAST   Multicast;
+
+        Multicast = CONTAINING_RECORD(ListEntry,
+                                      XENVIF_MAC_MULTICAST,
+                                      ListEntry);
+
+        Address[Index++] = Multicast->Address;
     }
+
+    ASSERT3U(Index, ==, Count);
 
     KeReleaseSpinLock(&Mac->Lock, Irql);
 
@@ -315,14 +291,14 @@ MacDumpMulticastList(
                         &Mac->StoreInterface,
                         NULL,
                         FrontendGetPrefix(Frontend),
-                        "mac/multicast");
+                        "mac");
 
     for (Index = 0; Index < Count; Index++) {
-        CHAR    Node[sizeof ("mac/multicast/XX")];
+        CHAR    Node[sizeof ("mac/XX")];
 
         status = RtlStringCbPrintfA(Node,
                                     sizeof (Node),
-                                    "mac/multicast/%u",
+                                    "mac/%u",
                                     Index);
         ASSERT(NT_SUCCESS(status));
 
@@ -338,15 +314,6 @@ MacDumpMulticastList(
                             Address[Index].Byte[3],
                             Address[Index].Byte[4],
                             Address[Index].Byte[5]);
-
-        Trace("%s: %02x:%02x:%02x:%02x:%02x:%02x\n",
-              FrontendGetPrefix(Frontend),
-              Address[Index].Byte[0],
-              Address[Index].Byte[1],
-              Address[Index].Byte[2],
-              Address[Index].Byte[3],
-              Address[Index].Byte[4],
-              Address[Index].Byte[5]);
     }
 
     if (Address != NULL)
@@ -454,7 +421,7 @@ MacConnect(
     Mac->Connected = TRUE;
     KeReleaseSpinLockFromDpcLevel(&Mac->Lock);
 
-    (VOID) MacDumpMulticastList(Mac);
+    (VOID) MacDumpAddressTable(Mac);
 
     return STATUS_SUCCESS;
 
@@ -767,7 +734,7 @@ MacAddMulticastAddress(
     Mac->MulticastCount++;
     KeReleaseSpinLock(&Mac->Lock, Irql);
 
-    (VOID) MacDumpMulticastList(Mac);
+    (VOID) MacDumpAddressTable(Mac);
 
     Trace("%s: %02X:%02X:%02X:%02X:%02X:%02X\n",
           FrontendGetPrefix(Frontend),
@@ -827,7 +794,7 @@ found:
 
     KeReleaseSpinLock(&Mac->Lock, Irql);
 
-    (VOID) MacDumpMulticastList(Mac);
+    (VOID) MacDumpAddressTable(Mac);
 
     Trace("%s: %02X:%02X:%02X:%02X:%02X:%02X\n",
           FrontendGetPrefix(Frontend),

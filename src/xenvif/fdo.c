@@ -1318,6 +1318,14 @@ __FdoD3ToD0(
     if (!NT_SUCCESS(status))
         goto fail1;
 
+    (VOID) XENBUS_STORE(Printf,
+                        &Fdo->StoreInterface,
+                        NULL,
+                        "feature/hotplug",
+                        "vif",
+                        "%u",
+                        TRUE);
+
     Trace("<====\n");
 
     return STATUS_SUCCESS;
@@ -1336,6 +1344,12 @@ __FdoD0ToD3(
     Trace("====>\n");
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+    (VOID) XENBUS_STORE(Remove,
+                        &Fdo->StoreInterface,
+                        NULL,
+                        "feature/hotplug",
+                        "vif");
 
     (VOID) XENBUS_STORE(WatchRemove,
                         &Fdo->StoreInterface,
