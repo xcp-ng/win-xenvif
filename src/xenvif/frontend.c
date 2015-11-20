@@ -76,6 +76,7 @@ struct _XENVIF_FRONTEND {
     PXENVIF_MAC                 Mac;
     PXENVIF_RECEIVER            Receiver;
     PXENVIF_TRANSMITTER         Transmitter;
+    PXENVIF_CONTROLLER          Controller;
 
     XENBUS_DEBUG_INTERFACE      DebugInterface;
     XENBUS_SUSPEND_INTERFACE    SuspendInterface;
@@ -323,8 +324,9 @@ FrontendGet ## _Function(                               \
 }
 
 DEFINE_FRONTEND_GET_FUNCTION(Mac, PXENVIF_MAC)
-DEFINE_FRONTEND_GET_FUNCTION(Transmitter, PXENVIF_TRANSMITTER)
 DEFINE_FRONTEND_GET_FUNCTION(Receiver, PXENVIF_RECEIVER)
+DEFINE_FRONTEND_GET_FUNCTION(Transmitter, PXENVIF_TRANSMITTER)
+DEFINE_FRONTEND_GET_FUNCTION(Controller, PXENVIF_CONTROLLER)
 
 static BOOLEAN
 FrontendIsOnline(
@@ -1834,6 +1836,10 @@ FrontendConnect(
     if (!NT_SUCCESS(status))
         goto fail6;
 
+    status = ControllerConnect(__FrontendGetController(Frontend));
+    if (!NT_SUCCESS(status))
+        goto fail7;
+
     Attempt = 0;
     do {
         PXENBUS_STORE_TRANSACTION   Transaction;
@@ -1851,6 +1857,11 @@ FrontendConnect(
 
         status = TransmitterStoreWrite(__FrontendGetTransmitter(Frontend),
                                        Transaction);
+        if (!NT_SUCCESS(status))
+            goto abort;
+
+        status = ControllerStoreWrite(__FrontendGetController(Frontend),
+                                      Transaction);
         if (!NT_SUCCESS(status))
             goto abort;
 
@@ -1882,7 +1893,7 @@ abort:
     } while (status == STATUS_RETRY);
 
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail8;
 
     State = XenbusStateUnknown;
     while (State != XenbusStateConnected) {
@@ -1920,15 +1931,22 @@ abort:
 
     status = STATUS_UNSUCCESSFUL;
     if (State != XenbusStateConnected)
-        goto fail8;
+        goto fail9;
+
+    ControllerEnable(__FrontendGetController(Frontend));
 
     ThreadWake(Frontend->MibThread);
 
     Trace("<====\n");
     return STATUS_SUCCESS;
 
+fail9:
+    Error("fail9\n");
+
 fail8:
     Error("fail8\n");
+
+    ControllerDisconnect(__FrontendGetController(Frontend));
 
 fail7:
     Error("fail7\n");
@@ -1982,6 +2000,9 @@ FrontendDisconnect(
 {
     Trace("====>\n");
 
+    ControllerDisable(__FrontendGetController(Frontend));
+
+    ControllerDisconnect(__FrontendGetController(Frontend));
     TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
     ReceiverDisconnect(__FrontendGetReceiver(Frontend));
     MacDisconnect(__FrontendGetMac(Frontend));
@@ -2453,32 +2474,40 @@ FrontendInitialize(
     if (!NT_SUCCESS(status))
         goto fail8;
 
+    status = ControllerInitialize(*Frontend, &(*Frontend)->Controller);
+    if (!NT_SUCCESS(status))
+        goto fail9;
+
     KeInitializeEvent(&(*Frontend)->EjectEvent, NotificationEvent, FALSE);
 
     status = ThreadCreate(FrontendEject, *Frontend, &(*Frontend)->EjectThread);
     if (!NT_SUCCESS(status))
-        goto fail9;
+        goto fail10;
 
     status = ThreadCreate(FrontendMib, *Frontend, &(*Frontend)->MibThread);
     if (!NT_SUCCESS(status))
-        goto fail10;
+        goto fail11;
 
     Trace("<====\n");
 
     return STATUS_SUCCESS;
 
-fail10:
-    Error("fail10\n");
+fail11:
+    Error("fail11\n");
 
     ThreadAlert((*Frontend)->EjectThread);
     ThreadJoin((*Frontend)->EjectThread);
     (*Frontend)->EjectThread = NULL;
 
-fail9:
-    Error("fail9\n");
+fail10:
+    Error("fail10\n");
 
     RtlZeroMemory(&(*Frontend)->EjectEvent, sizeof (KEVENT));
 
+    ControllerTeardown(__FrontendGetController(*Frontend));
+    (*Frontend)->Controller = NULL;
+
+fail9:
     TransmitterTeardown(__FrontendGetTransmitter(*Frontend));
     (*Frontend)->Transmitter = NULL;
 
@@ -2574,6 +2603,9 @@ FrontendTeardown(
     Frontend->EjectThread = NULL;
 
     RtlZeroMemory(&Frontend->EjectEvent, sizeof (KEVENT));
+
+    ControllerTeardown(__FrontendGetController(Frontend));
+    Frontend->Controller = NULL;
 
     TransmitterTeardown(__FrontendGetTransmitter(Frontend));
     Frontend->Transmitter = NULL;

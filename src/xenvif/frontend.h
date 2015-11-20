@@ -165,6 +165,13 @@ FrontendGetTransmitter(
     IN  PXENVIF_FRONTEND    Frontend
     );
 
+#include "controller.h"
+
+extern PXENVIF_CONTROLLER
+FrontendGetController(
+    IN  PXENVIF_FRONTEND    Frontend
+    );
+
 extern VOID
 FrontendQueryStatistic(
     IN  PXENVIF_FRONTEND        Frontend,
