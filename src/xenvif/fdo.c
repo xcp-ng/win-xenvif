@@ -1080,6 +1080,222 @@ FdoParseResources(
     }
 }
 
+static FORCEINLINE BOOLEAN
+__FdoMatchDistribution(
+    IN  PXENVIF_FDO Fdo,
+    IN  PCHAR       Buffer
+    )
+{
+    PCHAR           Vendor;
+    PCHAR           Product;
+    PCHAR           Context;
+    const CHAR      *Text;
+    BOOLEAN         Match;
+    ULONG           Index;
+    NTSTATUS        status;
+
+    UNREFERENCED_PARAMETER(Fdo);
+
+    status = STATUS_INVALID_PARAMETER;
+
+    Vendor = __strtok_r(Buffer, " ", &Context);
+    if (Vendor == NULL)
+        goto fail1;
+
+    Product = __strtok_r(NULL, " ", &Context);
+    if (Product == NULL)
+        goto fail2;
+
+    Match = TRUE;
+
+    Text = VENDOR_NAME_STR;
+
+    for (Index = 0; Text[Index] != 0; Index++) {
+        if (!isalnum(Text[Index])) {
+            if (Vendor[Index] != '_') {
+                Match = FALSE;
+                break;
+            }
+        } else {
+            if (Vendor[Index] != Text[Index]) {
+                Match = FALSE;
+                break;
+            }
+        }
+    }
+
+    Text = "XENVIF";
+
+    if (_stricmp(Product, Text) != 0)
+        Match = FALSE;
+
+    return Match;
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return FALSE;
+}
+
+static VOID
+FdoClearDistribution(
+    IN  PXENVIF_FDO Fdo
+    )
+{
+    PCHAR           Buffer;
+    PANSI_STRING    Distributions;
+    ULONG           Index;
+    NTSTATUS        status;
+
+    Trace("====>\n");
+
+    status = XENBUS_STORE(Directory,
+                          &Fdo->StoreInterface,
+                          NULL,
+                          NULL,
+                          "drivers",
+                          &Buffer);
+    if (NT_SUCCESS(status)) {
+        Distributions = __FdoMultiSzToUpcaseAnsi(Buffer);
+
+        XENBUS_STORE(Free,
+                     &Fdo->StoreInterface,
+                     Buffer);
+    } else {
+        Distributions = NULL;
+    }
+
+    if (Distributions == NULL)
+        goto done;
+
+    for (Index = 0; Distributions[Index].Buffer != NULL; Index++) {
+        PANSI_STRING    Distribution = &Distributions[Index];
+
+        status = XENBUS_STORE(Read,
+                              &Fdo->StoreInterface,
+                              NULL,
+                              "drivers",
+                              Distribution->Buffer,
+                              &Buffer);
+        if (!NT_SUCCESS(status))
+            continue;
+
+        if (__FdoMatchDistribution(Fdo, Buffer))
+            (VOID) XENBUS_STORE(Remove,
+                                &Fdo->StoreInterface,
+                                NULL,
+                                "drivers",
+                                Distribution->Buffer);
+
+        XENBUS_STORE(Free,
+                     &Fdo->StoreInterface,
+                     Buffer);
+    }
+
+    __FdoFreeAnsi(Distributions);
+
+done:
+    Trace("<====\n");
+}
+
+#define MAXIMUM_INDEX   255
+
+static NTSTATUS
+FdoSetDistribution(
+    IN  PXENVIF_FDO Fdo
+    )
+{
+    ULONG           Index;
+    CHAR            Distribution[MAXNAMELEN];
+    CHAR            Vendor[MAXNAMELEN];
+    const CHAR      *Product;
+    NTSTATUS        status;
+
+    Trace("====>\n");
+
+    Index = 0;
+    while (Index <= MAXIMUM_INDEX) {
+        PCHAR   Buffer;
+
+        status = RtlStringCbPrintfA(Distribution,
+                                    MAXNAMELEN,
+                                    "%u",
+                                    Index);
+        ASSERT(NT_SUCCESS(status));
+
+        status = XENBUS_STORE(Read,
+                              &Fdo->StoreInterface,
+                              NULL,
+                              "drivers",
+                              Distribution,
+                              &Buffer);
+        if (!NT_SUCCESS(status)) {
+            if (status == STATUS_OBJECT_NAME_NOT_FOUND)
+                goto update;
+
+            goto fail1;
+        }
+
+        XENBUS_STORE(Free,
+                     &Fdo->StoreInterface,
+                     Buffer);
+
+        Index++;
+    }
+
+    status = STATUS_UNSUCCESSFUL;
+    goto fail2;
+
+update:
+    status = RtlStringCbPrintfA(Vendor,
+                                MAXNAMELEN,
+                                "%s",
+                                VENDOR_NAME_STR);
+    ASSERT(NT_SUCCESS(status));
+
+    for (Index  = 0; Vendor[Index] != '\0'; Index++)
+        if (!isalnum(Vendor[Index]))
+            Vendor[Index] = '_';
+
+    Product = "XENVIF";
+
+#if DBG
+#define ATTRIBUTES   "(DEBUG)"
+#else
+#define ATTRIBUTES   ""
+#endif
+
+    (VOID) XENBUS_STORE(Printf,
+                        &Fdo->StoreInterface,
+                        NULL,
+                        "drivers",
+                        Distribution,
+                        "%s %s %u.%u.%u %s",
+                        Vendor,
+                        Product,
+                        MAJOR_VERSION,
+                        MINOR_VERSION,
+                        MICRO_VERSION,
+                        ATTRIBUTES
+                        );
+
+#undef  ATTRIBUTES
+
+    Trace("<====\n");
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
 static FORCEINLINE NTSTATUS
 __FdoD3ToD0(
     IN  PXENVIF_FDO Fdo
@@ -1090,6 +1306,8 @@ __FdoD3ToD0(
     Trace("====>\n");
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+    (VOID) FdoSetDistribution(Fdo);
 
     status = XENBUS_STORE(WatchAdd,
                           &Fdo->StoreInterface,
@@ -1289,6 +1507,8 @@ FdoD0ToD3(
     XENBUS_SUSPEND(Release, &Fdo->SuspendInterface);
 
     KeLowerIrql(Irql);
+
+    FdoClearDistribution(Fdo);
 
     Trace("<====\n");
 }
