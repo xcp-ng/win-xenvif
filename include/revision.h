@@ -35,9 +35,15 @@
 // Key:
 // C  - XENBUS_CACHE_INTERFACE
 // V  - XENVIF_VIF_INTERFACE
+// ST - XENBUS_STORE_INTERFACE
+// SU - XENBUS_SUSPEND_INTERFACE
 
-//                    REVISION   C   V
-#define DEFINE_REVISION_TABLE                                      \
-    DEFINE_REVISION(0x08000002,  1,  2)
+//                    REVISION   C   V   ST  SU
+#define DEFINE_REVISION_TABLE                       \
+    DEFINE_REVISION(0x08000002,  1,  2,  0,  0),    \
+    DEFINE_REVISION(0x08000005,  1,  2,  1,  1),    \
+
+// Revisions 0x08000003 and 0x08000004 are already in use in the
+// master branch.
 
 #endif  // _REVISION_H

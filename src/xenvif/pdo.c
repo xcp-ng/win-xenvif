@@ -534,10 +534,12 @@ typedef struct _XENVIF_PDO_REVISION {
     ULONG   Number;
     ULONG   CacheInterfaceVersion;
     ULONG   VifInterfaceVersion;
+    ULONG   StoreInterfaceVersion;
+    ULONG   SuspendInterfaceVersion;
 } XENVIF_PDO_REVISION, *PXENVIF_PDO_REVISION;
 
-#define DEFINE_REVISION(_N, _C, _V) \
-    { (_N), (_C), (_V) }
+#define DEFINE_REVISION(_N, _C, _V, _ST, _SU) \
+    { (_N), (_C), (_V), (_ST), (_SU) }
 
 static XENVIF_PDO_REVISION PdoRevision[] = {
     DEFINE_REVISION_TABLE
@@ -567,14 +569,34 @@ PdoDumpRevisions(
         ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
                      Revision->VifInterfaceVersion == XENVIF_VIF_INTERFACE_VERSION_MAX));
 
+        if (Revision->StoreInterfaceVersion == 0) { // not-supported
+            ASSERT(Index != ARRAYSIZE(PdoRevision) - 1);
+            goto show_revision;
+        }
+
+        ASSERT3U(Revision->StoreInterfaceVersion, >=, XENBUS_STORE_INTERFACE_VERSION_MIN);
+        ASSERT3U(Revision->StoreInterfaceVersion, <=, XENBUS_STORE_INTERFACE_VERSION_MAX);
+        ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
+                     Revision->StoreInterfaceVersion == XENBUS_STORE_INTERFACE_VERSION_MAX));
+
+        ASSERT3U(Revision->SuspendInterfaceVersion, >=, XENBUS_SUSPEND_INTERFACE_VERSION_MIN);
+        ASSERT3U(Revision->SuspendInterfaceVersion, <=, XENBUS_SUSPEND_INTERFACE_VERSION_MAX);
+        ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
+                     Revision->SuspendInterfaceVersion == XENBUS_SUSPEND_INTERFACE_VERSION_MAX));
+
+show_revision:
         ASSERT3U(Revision->Number >> 24, ==, MAJOR_VERSION);
 
         Info("%08X -> "
              "CACHE v%u "
-             "VIF v%u\n",
+             "VIF v%u "
+             "STORE v%u "
+             "SUSPEND v%u\n",
              Revision->Number,
              Revision->CacheInterfaceVersion,
-             Revision->VifInterfaceVersion);
+             Revision->VifInterfaceVersion,
+             Revision->StoreInterfaceVersion,
+             Revision->SuspendInterfaceVersion);
     }
 }
 
@@ -1628,6 +1650,8 @@ struct _INTERFACE_ENTRY PdoInterfaceTable[] = {
     { &GUID_BUS_INTERFACE_STANDARD, "BUS_INTERFACE", PdoQueryBusInterface },
     { &GUID_XENVIF_VIF_INTERFACE, "VIF_INTERFACE", PdoQueryVifInterface },
     { &GUID_XENBUS_CACHE_INTERFACE, "CACHE_INTERFACE", PdoDelegateIrp },
+    { &GUID_XENBUS_STORE_INTERFACE, "STORE_INTERFACE", PdoDelegateIrp },
+    { &GUID_XENBUS_SUSPEND_INTERFACE, "SUSPEND_INTERFACE", PdoDelegateIrp },
     { NULL, NULL, NULL }
 };
 
