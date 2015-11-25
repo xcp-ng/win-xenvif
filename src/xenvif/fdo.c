@@ -1345,10 +1345,18 @@ __FdoD0ToD3(
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
 
+    (VOID) XENBUS_STORE(Remove,
+                        &Fdo->StoreInterface,
+                        NULL,
+                        "feature/hotplug",
+                        "vif");
+
     (VOID) XENBUS_STORE(WatchRemove,
                         &Fdo->StoreInterface,
                         Fdo->ScanWatch);
     Fdo->ScanWatch = NULL;
+
+    FdoClearDistribution(Fdo);
 
     Trace("<====\n");
 }
@@ -1515,8 +1523,6 @@ FdoD0ToD3(
     XENBUS_SUSPEND(Release, &Fdo->SuspendInterface);
 
     KeLowerIrql(Irql);
-
-    FdoClearDistribution(Fdo);
 
     Trace("<====\n");
 }
