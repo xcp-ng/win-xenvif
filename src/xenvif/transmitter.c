@@ -3020,7 +3020,6 @@ __TransmitterRingInitialize(
     )
 {
     PXENVIF_FRONTEND                Frontend;
-    CHAR                            Name[MAXNAMELEN];
     NTSTATUS                        status;
 
     Frontend = Transmitter->Frontend;
@@ -3044,203 +3043,13 @@ __TransmitterRingInitialize(
 
     KeInitializeDpc(&(*Ring)->Dpc, TransmitterRingDpc, *Ring);
 
-    status = RtlStringCbPrintfA(Name,
-                                sizeof (Name),
-                                "%s_transmitter_buffer",
-                                (*Ring)->Path);
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
-    for (Index = 0; Name[Index] != '\0'; Index++)
-        if (Name[Index] == '/')
-            Name[Index] = '_';
-
-    status = XENBUS_CACHE(Create,
-                          &Transmitter->CacheInterface,
-                          Name,
-                          sizeof (XENVIF_TRANSMITTER_BUFFER),
-                          0,
-                          TransmitterBufferCtor,
-                          TransmitterBufferDtor,
-                          TransmitterRingAcquireLock,
-                          TransmitterRingReleaseLock,
-                          *Ring,
-                          &(*Ring)->BufferCache);
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
-    status = RtlStringCbPrintfA(Name,
-                                sizeof (Name),
-                                "%s_transmitter_multicast_control",
-                                (*Ring)->Path);
-    if (!NT_SUCCESS(status))
-        goto fail5;
-
-    for (Index = 0; Name[Index] != '\0'; Index++)
-        if (Name[Index] == '/')
-            Name[Index] = '_';
-
-    status = XENBUS_CACHE(Create,
-                          &Transmitter->CacheInterface,
-                          Name,
-                          sizeof (XENVIF_TRANSMITTER_MULTICAST_CONTROL),
-                          0,
-                          TransmitterMulticastControlCtor,
-                          TransmitterMulticastControlDtor,
-                          TransmitterRingAcquireLock,
-                          TransmitterRingReleaseLock,
-                          *Ring,
-                          &(*Ring)->MulticastControlCache);
-    if (!NT_SUCCESS(status))
-        goto fail6;
-
-    status = RtlStringCbPrintfA(Name,
-                                sizeof (Name),
-                                "%s_transmitter_req_id",
-                                (*Ring)->Path);
-    if (!NT_SUCCESS(status))
-        goto fail7;
-
-    for (Index = 0; Name[Index] != '\0'; Index++)
-        if (Name[Index] == '/')
-            Name[Index] = '_';
-
-    status = XENBUS_RANGE_SET(Create,
-                              &Transmitter->RangeSetInterface,
-                              Name,
-                              &(*Ring)->RangeSet);
-    if (!NT_SUCCESS(status))
-        goto fail8;
-
-    status = XENBUS_RANGE_SET(Put,
-                              &Transmitter->RangeSetInterface,
-                              (*Ring)->RangeSet,
-                              1,
-                              XENVIF_TRANSMITTER_MAXIMUM_FRAGMENT_ID);
-    if (!NT_SUCCESS(status))
-        goto fail9;
-
-    status = RtlStringCbPrintfA(Name,
-                                sizeof (Name),
-                                "%s_transmitter_fragment",
-                                (*Ring)->Path);
-    if (!NT_SUCCESS(status))
-        goto fail10;
-
-    for (Index = 0; Name[Index] != '\0'; Index++)
-        if (Name[Index] == '/')
-            Name[Index] = '_';
-
-    status = XENBUS_CACHE(Create,
-                          &Transmitter->CacheInterface,
-                          Name,
-                          sizeof (XENVIF_TRANSMITTER_FRAGMENT),
-                          0,
-                          TransmitterFragmentCtor,
-                          TransmitterFragmentDtor,
-                          TransmitterRingAcquireLock,
-                          TransmitterRingReleaseLock,
-                          *Ring,
-                          &(*Ring)->FragmentCache);
-    if (!NT_SUCCESS(status))
-        goto fail11;
-
-    status = RtlStringCbPrintfA(Name,
-                                sizeof (Name),
-                                "%s_transmitter_request",
-                                (*Ring)->Path);
-    if (!NT_SUCCESS(status))
-        goto fail12;
-
-    for (Index = 0; Name[Index] != '\0'; Index++)
-        if (Name[Index] == '/')
-            Name[Index] = '_';
-
-    status = XENBUS_CACHE(Create,
-                          &Transmitter->CacheInterface,
-                          Name,
-                          sizeof (XENVIF_TRANSMITTER_REQUEST),
-                          0,
-                          TransmitterRequestCtor,
-                          TransmitterRequestDtor,
-                          TransmitterRingAcquireLock,
-                          TransmitterRingReleaseLock,
-                          *Ring,
-                          &(*Ring)->RequestCache);
-    if (!NT_SUCCESS(status))
-        goto fail13;
-
     status = ThreadCreate(TransmitterRingWatchdog,
                           *Ring,
                           &(*Ring)->WatchdogThread);
     if (!NT_SUCCESS(status))
-        goto fail14;
+        goto fail3;
 
     return STATUS_SUCCESS;
-
-fail14:
-    Error("fail14\n");
-
-    XENBUS_CACHE(Destroy,
-                 &Transmitter->CacheInterface,
-                 (*Ring)->RequestCache);
-    (*Ring)->RequestCache = NULL;
-
-fail13:
-    Error("fail13\n");
-
-fail12:
-    Error("fail12\n");
-
-    XENBUS_CACHE(Destroy,
-                 &Transmitter->CacheInterface,
-                 (*Ring)->FragmentCache);
-    (*Ring)->FragmentCache = NULL;
-
-fail11:
-    Error("fail11\n");
-
-fail10:
-    Error("fail10\n");
-
-    (VOID) XENBUS_RANGE_SET(Get,
-                            &Transmitter->RangeSetInterface,
-                            (*Ring)->RangeSet,
-                            1,
-                            XENVIF_TRANSMITTER_MAXIMUM_FRAGMENT_ID);
-
-fail9:
-    Error("fail9\n");
-
-    XENBUS_RANGE_SET(Destroy,
-                     &Transmitter->RangeSetInterface,
-                     (*Ring)->RangeSet);
-    (*Ring)->RangeSet = NULL;
-
-fail8:
-    Error("fail8\n");
-
-fail7:
-    Error("fail7\n");
-
-    XENBUS_CACHE(Destroy,
-                 &Transmitter->CacheInterface,
-                 (*Ring)->MulticastControlCache);
-    (*Ring)->MulticastControlCache = NULL;
-
-fail6:
-    Error("fail6\n");
-
-fail5:
-    Error("fail5\n");
-
-    XENBUS_CACHE(Destroy,
-                 &Transmitter->CacheInterface,
-                 (*Ring)->BufferCache);
-    (*Ring)->BufferCache = NULL;
-
-fail4:
-    Error("fail4\n");
 
 fail3:
     Error("fail3\n");
@@ -3290,10 +3099,136 @@ __TransmitterRingConnect(
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
-                                "%s_transmitter",
+                                "%s_transmitter_buffer",
                                 Ring->Path);
     if (!NT_SUCCESS(status))
         goto fail1;
+
+    for (Index = 0; Name[Index] != '\0'; Index++)
+        if (Name[Index] == '/')
+            Name[Index] = '_';
+
+    status = XENBUS_CACHE(Create,
+                          &Transmitter->CacheInterface,
+                          Name,
+                          sizeof (XENVIF_TRANSMITTER_BUFFER),
+                          0,
+                          TransmitterBufferCtor,
+                          TransmitterBufferDtor,
+                          TransmitterRingAcquireLock,
+                          TransmitterRingReleaseLock,
+                          Ring,
+                          &Ring->BufferCache);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = RtlStringCbPrintfA(Name,
+                                sizeof (Name),
+                                "%s_transmitter_multicast_control",
+                                Ring->Path);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    for (Index = 0; Name[Index] != '\0'; Index++)
+        if (Name[Index] == '/')
+            Name[Index] = '_';
+
+    status = XENBUS_CACHE(Create,
+                          &Transmitter->CacheInterface,
+                          Name,
+                          sizeof (XENVIF_TRANSMITTER_MULTICAST_CONTROL),
+                          0,
+                          TransmitterMulticastControlCtor,
+                          TransmitterMulticastControlDtor,
+                          TransmitterRingAcquireLock,
+                          TransmitterRingReleaseLock,
+                          Ring,
+                          &Ring->MulticastControlCache);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
+    status = RtlStringCbPrintfA(Name,
+                                sizeof (Name),
+                                "%s_transmitter_req_id",
+                                Ring->Path);
+    if (!NT_SUCCESS(status))
+        goto fail5;
+
+    for (Index = 0; Name[Index] != '\0'; Index++)
+        if (Name[Index] == '/')
+            Name[Index] = '_';
+
+    status = XENBUS_RANGE_SET(Create,
+                              &Transmitter->RangeSetInterface,
+                              Name,
+                              &Ring->RangeSet);
+    if (!NT_SUCCESS(status))
+        goto fail6;
+
+    status = XENBUS_RANGE_SET(Put,
+                              &Transmitter->RangeSetInterface,
+                              Ring->RangeSet,
+                              1,
+                              XENVIF_TRANSMITTER_MAXIMUM_FRAGMENT_ID);
+    if (!NT_SUCCESS(status))
+        goto fail7;
+
+    status = RtlStringCbPrintfA(Name,
+                                sizeof (Name),
+                                "%s_transmitter_fragment",
+                                Ring->Path);
+    if (!NT_SUCCESS(status))
+        goto fail8;
+
+    for (Index = 0; Name[Index] != '\0'; Index++)
+        if (Name[Index] == '/')
+            Name[Index] = '_';
+
+    status = XENBUS_CACHE(Create,
+                          &Transmitter->CacheInterface,
+                          Name,
+                          sizeof (XENVIF_TRANSMITTER_FRAGMENT),
+                          0,
+                          TransmitterFragmentCtor,
+                          TransmitterFragmentDtor,
+                          TransmitterRingAcquireLock,
+                          TransmitterRingReleaseLock,
+                          Ring,
+                          &Ring->FragmentCache);
+    if (!NT_SUCCESS(status))
+        goto fail9;
+
+    status = RtlStringCbPrintfA(Name,
+                                sizeof (Name),
+                                "%s_transmitter_request",
+                                Ring->Path);
+    if (!NT_SUCCESS(status))
+        goto fail10;
+
+    for (Index = 0; Name[Index] != '\0'; Index++)
+        if (Name[Index] == '/')
+            Name[Index] = '_';
+
+    status = XENBUS_CACHE(Create,
+                          &Transmitter->CacheInterface,
+                          Name,
+                          sizeof (XENVIF_TRANSMITTER_REQUEST),
+                          0,
+                          TransmitterRequestCtor,
+                          TransmitterRequestDtor,
+                          TransmitterRingAcquireLock,
+                          TransmitterRingReleaseLock,
+                          Ring,
+                          &Ring->RequestCache);
+    if (!NT_SUCCESS(status))
+        goto fail11;
+
+    status = RtlStringCbPrintfA(Name,
+                                sizeof (Name),
+                                "%s_transmitter",
+                                Ring->Path);
+    if (!NT_SUCCESS(status))
+        goto fail12;
 
     for (Index = 0; Name[Index] != '\0'; Index++)
         if (Name[Index] == '/')
@@ -3308,13 +3243,13 @@ __TransmitterRingConnect(
                            Ring,
                            &Ring->GnttabCache);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail13;
 
     Ring->Mdl = __AllocatePage();
 
     status = STATUS_NO_MEMORY;
     if (Ring->Mdl == NULL)
-        goto fail3;
+        goto fail14;
 
     Ring->Shared = MmGetSystemAddressForMdlSafe(Ring->Mdl, NormalPagePriority);
     ASSERT(Ring->Shared != NULL);
@@ -3334,14 +3269,14 @@ __TransmitterRingConnect(
                            FALSE,
                            &Ring->Entry);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail15;
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
                                 __MODULE__ "|TRANSMITTER[%u]",
                                 Ring->Index);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail16;
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
 
@@ -3356,7 +3291,7 @@ __TransmitterRingConnect(
 
         status = STATUS_UNSUCCESSFUL;
         if (Ring->Channel == NULL)
-            goto fail6;
+            goto fail17;
 
         status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
         ASSERT(NT_SUCCESS(status));
@@ -3382,14 +3317,14 @@ __TransmitterRingConnect(
                           Ring,
                           &Ring->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail18;
 
     Ring->Connected = TRUE;
 
     return STATUS_SUCCESS;
 
-fail7:
-    Error("fail7\n");
+fail18:
+    Error("fail18\n");
 
     XENBUS_EVTCHN(Close,
                   &Transmitter->EvtchnInterface,
@@ -3398,11 +3333,11 @@ fail7:
 
     Ring->Events = 0;
 
-fail6:
-    Error("fail6\n");
+fail17:
+    Error("fail17\n");
 
-fail5:
-    Error("fail5\n");
+fail16:
+    Error("fail16\n");
 
     (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
                          &Transmitter->GnttabInterface,
@@ -3411,8 +3346,8 @@ fail5:
                          Ring->Entry);
     Ring->Entry = NULL;
 
-fail4:
-    Error("fail4\n");
+fail15:
+    Error("fail15\n");
 
     RtlZeroMemory(&Ring->Front, sizeof (netif_tx_front_ring_t));
     RtlZeroMemory(Ring->Shared, PAGE_SIZE);
@@ -3421,13 +3356,77 @@ fail4:
     __FreePage(Ring->Mdl);
     Ring->Mdl = NULL;
 
-fail3:
-    Error("fail3\n");
+fail14:
+    Error("fail14\n");
 
     XENBUS_GNTTAB(DestroyCache,
                   &Transmitter->GnttabInterface,
                   Ring->GnttabCache);
     Ring->GnttabCache = NULL;
+
+fail13:
+    Error("fail13\n");
+
+fail12:
+    Error("fail12\n");
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 Ring->RequestCache);
+    Ring->RequestCache = NULL;
+
+fail11:
+    Error("fail11\n");
+
+fail10:
+    Error("fail10\n");
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 Ring->FragmentCache);
+    Ring->FragmentCache = NULL;
+
+fail9:
+    Error("fail9\n");
+
+fail8:
+    Error("fail8\n");
+
+    (VOID) XENBUS_RANGE_SET(Get,
+                            &Transmitter->RangeSetInterface,
+                            Ring->RangeSet,
+                            1,
+                            XENVIF_TRANSMITTER_MAXIMUM_FRAGMENT_ID);
+
+fail7:
+    Error("fail7\n");
+
+    XENBUS_RANGE_SET(Destroy,
+                     &Transmitter->RangeSetInterface,
+                     Ring->RangeSet);
+    Ring->RangeSet = NULL;
+
+fail6:
+    Error("fail6\n");
+
+fail5:
+    Error("fail5\n");
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 Ring->MulticastControlCache);
+    Ring->MulticastControlCache = NULL;
+
+fail4:
+    Error("fail4\n");
+
+fail3:
+    Error("fail3\n");
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 Ring->BufferCache);
+    Ring->BufferCache = NULL;
 
 fail2:
     Error("fail2\n");
@@ -3660,6 +3659,37 @@ __TransmitterRingDisconnect(
                   &Transmitter->GnttabInterface,
                   Ring->GnttabCache);
     Ring->GnttabCache = NULL;
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 Ring->RequestCache);
+    Ring->RequestCache = NULL;
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 Ring->FragmentCache);
+    Ring->FragmentCache = NULL;
+
+    (VOID) XENBUS_RANGE_SET(Get,
+                            &Transmitter->RangeSetInterface,
+                            Ring->RangeSet,
+                            1,
+                            XENVIF_TRANSMITTER_MAXIMUM_FRAGMENT_ID);
+
+    XENBUS_RANGE_SET(Destroy,
+                     &Transmitter->RangeSetInterface,
+                     Ring->RangeSet);
+    Ring->RangeSet = NULL;
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 Ring->MulticastControlCache);
+    Ring->MulticastControlCache = NULL;
+
+    XENBUS_CACHE(Destroy,
+                 &Transmitter->CacheInterface,
+                 Ring->BufferCache);
+    Ring->BufferCache = NULL;
 }
 
 static FORCEINLINE VOID
@@ -3693,37 +3723,6 @@ __TransmitterRingTeardown(
     ThreadAlert(Ring->WatchdogThread);
     ThreadJoin(Ring->WatchdogThread);
     Ring->WatchdogThread = NULL;
-
-    XENBUS_CACHE(Destroy,
-                 &Transmitter->CacheInterface,
-                 Ring->RequestCache);
-    Ring->RequestCache = NULL;
-
-    XENBUS_CACHE(Destroy,
-                 &Transmitter->CacheInterface,
-                 Ring->FragmentCache);
-    Ring->FragmentCache = NULL;
-
-    (VOID) XENBUS_RANGE_SET(Get,
-                            &Transmitter->RangeSetInterface,
-                            Ring->RangeSet,
-                            1,
-                            XENVIF_TRANSMITTER_MAXIMUM_FRAGMENT_ID);
-
-    XENBUS_RANGE_SET(Destroy,
-                     &Transmitter->RangeSetInterface,
-                     Ring->RangeSet);
-    Ring->RangeSet = NULL;
-
-    XENBUS_CACHE(Destroy,
-                 &Transmitter->CacheInterface,
-                 Ring->MulticastControlCache);
-    Ring->MulticastControlCache = NULL;
-
-    XENBUS_CACHE(Destroy,
-                 &Transmitter->CacheInterface,
-                 Ring->BufferCache);
-    Ring->BufferCache = NULL;
 
     ASSERT(IsListEmpty(&Ring->PacketComplete));
     RtlZeroMemory(&Ring->PacketComplete, sizeof (LIST_ENTRY));
@@ -4049,21 +4048,13 @@ TransmitterInitialize(
     (*Transmitter)->Frontend = Frontend;
     KeInitializeSpinLock(&(*Transmitter)->Lock);
 
-    status = XENBUS_RANGE_SET(Acquire, &(*Transmitter)->RangeSetInterface);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
-    status = XENBUS_CACHE(Acquire, &(*Transmitter)->CacheInterface);
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
     (*Transmitter)->MaxQueues = FrontendGetMaxQueues(Frontend);
     (*Transmitter)->Ring = __TransmitterAllocate(sizeof (PXENVIF_TRANSMITTER_RING) *
                                                  (*Transmitter)->MaxQueues);
 
     status = STATUS_NO_MEMORY;
     if ((*Transmitter)->Ring == NULL)
-        goto fail4;
+        goto fail2;
 
     Index = 0;
     while (Index < (*Transmitter)->MaxQueues) {
@@ -4071,7 +4062,7 @@ TransmitterInitialize(
 
         status = __TransmitterRingInitialize(*Transmitter, Index, &Ring);
         if (!NT_SUCCESS(status))
-            goto fail5;
+            goto fail3;
 
         (*Transmitter)->Ring[Index] = Ring;
         Index++;
@@ -4079,8 +4070,8 @@ TransmitterInitialize(
 
     return STATUS_SUCCESS;
 
-fail5:
-    Error("fail5\n");
+fail3:
+    Error("fail3\n");
 
     while (--Index > 0) {
         PXENVIF_TRANSMITTER_RING    Ring = (*Transmitter)->Ring[Index];
@@ -4092,20 +4083,10 @@ fail5:
     __TransmitterFree((*Transmitter)->Ring);
     (*Transmitter)->Ring = NULL;
 
-fail4:
-    Error("fail4\n");
-
-    (*Transmitter)->MaxQueues = 0;
-
-    XENBUS_CACHE(Release, &(*Transmitter)->CacheInterface);
-
-fail3:
-    Error("fail3\n");
-
-    XENBUS_RANGE_SET(Release, &(*Transmitter)->RangeSetInterface);
-
 fail2:
     Error("fail2\n");
+
+    (*Transmitter)->MaxQueues = 0;
 
     (*Transmitter)->Frontend = NULL;
 
@@ -4167,16 +4148,24 @@ TransmitterConnect(
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    status = XENBUS_GNTTAB(Acquire, &Transmitter->GnttabInterface);
+    status = XENBUS_RANGE_SET(Acquire, &Transmitter->RangeSetInterface);
     if (!NT_SUCCESS(status))
         goto fail4;
+
+    status = XENBUS_CACHE(Acquire, &Transmitter->CacheInterface);
+    if (!NT_SUCCESS(status))
+        goto fail5;
+
+    status = XENBUS_GNTTAB(Acquire, &Transmitter->GnttabInterface);
+    if (!NT_SUCCESS(status))
+        goto fail6;
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
                                 "%s_transmitter_packet",
                                 FrontendGetPath(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail7;
 
     for (Index = 0; Name[Index] != '\0'; Index++)
         if (Name[Index] == '/')
@@ -4194,7 +4183,7 @@ TransmitterConnect(
                           Transmitter,
                           &Transmitter->PacketCache);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail8;
 
     status = XENBUS_STORE(Read,
                           &Transmitter->StoreInterface,
@@ -4237,7 +4226,7 @@ TransmitterConnect(
 
         status = __TransmitterRingConnect(Ring);
         if (!NT_SUCCESS(status))
-            goto fail7;
+            goto fail9;
 
         Index++;
     }    
@@ -4249,18 +4238,18 @@ TransmitterConnect(
                           Transmitter,
                           &Transmitter->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail8;
+        goto fail10;
 
     Trace("<====\n");
     return STATUS_SUCCESS;
 
-fail8:
-    Error("fail8\n");
+fail10:
+    Error("fail10\n");
 
     Index = Transmitter->NumQueues;
 
-fail7:
-    Error("fail7\n");
+fail9:
+    Error("fail9\n");
 
     while (--Index >= 0) {
         PXENVIF_TRANSMITTER_RING    Ring;
@@ -4277,13 +4266,23 @@ fail7:
                  Transmitter->PacketCache);
     Transmitter->PacketCache = NULL;
 
+fail8:
+    Error("fail8\n");
+
+fail7:
+    Error("fail7\n");
+
+    XENBUS_GNTTAB(Release, &Transmitter->GnttabInterface);
+
 fail6:
     Error("fail6\n");
+
+    XENBUS_CACHE(Release, &Transmitter->CacheInterface);
 
 fail5:
     Error("fail5\n");
 
-    XENBUS_GNTTAB(Release, &Transmitter->GnttabInterface);
+    XENBUS_RANGE_SET(Release, &Transmitter->RangeSetInterface);
 
 fail4:
     Error("fail4\n");
@@ -4426,6 +4425,10 @@ TransmitterDisconnect(
 
     XENBUS_GNTTAB(Release, &Transmitter->GnttabInterface);
 
+    XENBUS_CACHE(Release, &Transmitter->CacheInterface);
+
+    XENBUS_RANGE_SET(Release, &Transmitter->RangeSetInterface);
+
     XENBUS_EVTCHN(Release, &Transmitter->EvtchnInterface);
 
     XENBUS_STORE(Release, &Transmitter->StoreInterface);
@@ -4456,10 +4459,6 @@ TransmitterTeardown(
     __TransmitterFree(Transmitter->Ring);
     Transmitter->Ring = NULL;
     Transmitter->MaxQueues = 0;
-
-    XENBUS_CACHE(Release, &Transmitter->CacheInterface);
-
-    XENBUS_RANGE_SET(Release, &Transmitter->RangeSetInterface);
 
     Transmitter->Frontend = NULL;
 
