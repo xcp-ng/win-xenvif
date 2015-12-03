@@ -2033,7 +2033,6 @@ __ReceiverRingInitialize(
     )
 {
     PXENVIF_FRONTEND            Frontend;
-    CHAR                        Name[MAXNAMELEN];
     NTSTATUS                    status;
 
     Frontend = Receiver->Frontend;
@@ -2057,85 +2056,13 @@ __ReceiverRingInitialize(
 
     KeInitializeDpc(&(*Ring)->Dpc, ReceiverRingDpc, *Ring);
 
-    status = RtlStringCbPrintfA(Name,
-                                sizeof (Name),
-                                "%s_receiver_packet",
-                                (*Ring)->Path);
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
-    for (Index = 0; Name[Index] != '\0'; Index++)
-        if (Name[Index] == '/')
-            Name[Index] = '_';
-
-    status = XENBUS_CACHE(Create,
-                          &Receiver->CacheInterface,
-                          Name,
-                          sizeof (XENVIF_RECEIVER_PACKET),
-                          0,
-                          ReceiverPacketCtor,
-                          ReceiverPacketDtor,
-                          ReceiverRingAcquireLock,
-                          ReceiverRingReleaseLock,
-                          *Ring,
-                          &(*Ring)->PacketCache);
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
-    status = RtlStringCbPrintfA(Name,
-                                sizeof (Name),
-                                "%s_receiver_fragment",
-                                (*Ring)->Path);
-    if (!NT_SUCCESS(status))
-        goto fail5;
-
-    for (Index = 0; Name[Index] != '\0'; Index++)
-        if (Name[Index] == '/')
-            Name[Index] = '_';
-
-    status = XENBUS_CACHE(Create,
-                          &Receiver->CacheInterface,
-                          Name,
-                          sizeof (XENVIF_RECEIVER_FRAGMENT),
-                          0,
-                          ReceiverFragmentCtor,
-                          ReceiverFragmentDtor,
-                          ReceiverRingAcquireLock,
-                          ReceiverRingReleaseLock,
-                          *Ring,
-                          &(*Ring)->FragmentCache);
-    if (!NT_SUCCESS(status))
-        goto fail6;
-
     status = ThreadCreate(ReceiverRingWatchdog,
                           *Ring,
                           &(*Ring)->WatchdogThread);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail3;
 
     return STATUS_SUCCESS;
-
-fail7:
-    Error("fail7\n");
-
-    XENBUS_CACHE(Destroy,
-                 &Receiver->CacheInterface,
-                 (*Ring)->FragmentCache);
-    (*Ring)->FragmentCache = NULL;
-
-fail6:
-    Error("fail6\n");
-
-fail5:
-    Error("fail5\n");
-
-    XENBUS_CACHE(Destroy,
-                 &Receiver->CacheInterface,
-                 (*Ring)->PacketCache);
-    (*Ring)->PacketCache = NULL;
-
-fail4:
-    Error("fail4\n");
 
 fail3:
     Error("fail3\n");
@@ -2183,10 +2110,60 @@ __ReceiverRingConnect(
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
-                                "%s_receiver",
+                                "%s_receiver_packet",
                                 Ring->Path);
     if (!NT_SUCCESS(status))
         goto fail1;
+
+    for (Index = 0; Name[Index] != '\0'; Index++)
+        if (Name[Index] == '/')
+            Name[Index] = '_';
+
+    status = XENBUS_CACHE(Create,
+                          &Receiver->CacheInterface,
+                          Name,
+                          sizeof (XENVIF_RECEIVER_PACKET),
+                          0,
+                          ReceiverPacketCtor,
+                          ReceiverPacketDtor,
+                          ReceiverRingAcquireLock,
+                          ReceiverRingReleaseLock,
+                          Ring,
+                          &Ring->PacketCache);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = RtlStringCbPrintfA(Name,
+                                sizeof (Name),
+                                "%s_receiver_fragment",
+                                Ring->Path);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    for (Index = 0; Name[Index] != '\0'; Index++)
+        if (Name[Index] == '/')
+            Name[Index] = '_';
+
+    status = XENBUS_CACHE(Create,
+                          &Receiver->CacheInterface,
+                          Name,
+                          sizeof (XENVIF_RECEIVER_FRAGMENT),
+                          0,
+                          ReceiverFragmentCtor,
+                          ReceiverFragmentDtor,
+                          ReceiverRingAcquireLock,
+                          ReceiverRingReleaseLock,
+                          Ring,
+                          &Ring->FragmentCache);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
+    status = RtlStringCbPrintfA(Name,
+                                sizeof (Name),
+                                "%s_receiver",
+                                Ring->Path);
+    if (!NT_SUCCESS(status))
+        goto fail5;
 
     for (Index = 0; Name[Index] != '\0'; Index++)
         if (Name[Index] == '/')
@@ -2201,13 +2178,13 @@ __ReceiverRingConnect(
                            Ring,
                            &Ring->GnttabCache);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail6;
 
     Ring->Mdl = __AllocatePage();
 
     status = STATUS_NO_MEMORY;
     if (Ring->Mdl == NULL)
-        goto fail3;
+        goto fail7;
 
     Ring->Shared = MmGetSystemAddressForMdlSafe(Ring->Mdl, NormalPagePriority);
     ASSERT(Ring->Shared != NULL);
@@ -2227,14 +2204,14 @@ __ReceiverRingConnect(
                            FALSE,
                            &Ring->Entry);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail8;
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
                                 __MODULE__ "|RECEIVER[%u]",
                                 Ring->Index);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail9;
 
     ASSERT(!Ring->Connected);
 
@@ -2248,7 +2225,7 @@ __ReceiverRingConnect(
 
     status = STATUS_UNSUCCESSFUL;
     if (Ring->Channel == NULL)
-        goto fail6;
+        goto fail10;
 
     status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
     ASSERT(NT_SUCCESS(status));
@@ -2275,12 +2252,12 @@ __ReceiverRingConnect(
                           Ring,
                           &Ring->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail11;
 
     return STATUS_SUCCESS;
 
-fail7:
-    Error("fail7\n");
+fail11:
+    Error("fail11\n");
 
     Ring->Connected = FALSE;
 
@@ -2291,11 +2268,11 @@ fail7:
 
     Ring->Events = 0;
 
-fail6:
-    Error("fail6\n");
+fail10:
+    Error("fail10\n");
 
-fail5:
-    Error("fail5\n");
+fail9:
+    Error("fail9\n");
 
     (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
                          &Receiver->GnttabInterface,
@@ -2304,8 +2281,8 @@ fail5:
                          Ring->Entry);
     Ring->Entry = NULL;
 
-fail4:
-    Error("fail4\n");
+fail8:
+    Error("fail8\n");
 
     RtlZeroMemory(&Ring->Front, sizeof (netif_rx_front_ring_t));
     RtlZeroMemory(Ring->Shared, PAGE_SIZE);
@@ -2314,13 +2291,35 @@ fail4:
     __FreePage(Ring->Mdl);
     Ring->Mdl = NULL;
 
-fail3:
-    Error("fail3\n");
+fail7:
+    Error("fail7\n");
 
     XENBUS_GNTTAB(DestroyCache,
                   &Receiver->GnttabInterface,
                   Ring->GnttabCache);
     Ring->GnttabCache = NULL;
+
+fail6:
+    Error("fail6\n");
+
+fail5:
+    Error("fail5\n");
+
+    XENBUS_CACHE(Destroy,
+                 &Receiver->CacheInterface,
+                 Ring->FragmentCache);
+    Ring->FragmentCache = NULL;
+
+fail4:
+    Error("fail4\n");
+
+fail3:
+    Error("fail3\n");
+
+    XENBUS_CACHE(Destroy,
+                 &Receiver->CacheInterface,
+                 Ring->PacketCache);
+    Ring->PacketCache = NULL;
 
 fail2:
     Error("fail2\n");
@@ -2494,6 +2493,16 @@ __ReceiverRingDisconnect(
                   &Receiver->GnttabInterface,
                   Ring->GnttabCache);
     Ring->GnttabCache = NULL;
+
+    XENBUS_CACHE(Destroy,
+                 &Receiver->CacheInterface,
+                 Ring->FragmentCache);
+    Ring->FragmentCache = NULL;
+
+    XENBUS_CACHE(Destroy,
+                 &Receiver->CacheInterface,
+                 Ring->PacketCache);
+    Ring->PacketCache = NULL;
 }
 
 static FORCEINLINE VOID
@@ -2515,16 +2524,6 @@ __ReceiverRingTeardown(
     ThreadAlert(Ring->WatchdogThread);
     ThreadJoin(Ring->WatchdogThread);
     Ring->WatchdogThread = NULL;
-
-    XENBUS_CACHE(Destroy,
-                 &Receiver->CacheInterface,
-                 Ring->FragmentCache);
-    Ring->FragmentCache = NULL;
-
-    XENBUS_CACHE(Destroy,
-                 &Receiver->CacheInterface,
-                 Ring->PacketCache);
-    Ring->PacketCache = NULL;
 
     ASSERT(IsListEmpty(&Ring->PacketList));
     RtlZeroMemory(&Ring->PacketList, sizeof (LIST_ENTRY));
@@ -2664,17 +2663,13 @@ ReceiverInitialize(
 
     (*Receiver)->Frontend = Frontend;
 
-    status = XENBUS_CACHE(Acquire, &(*Receiver)->CacheInterface);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
     (*Receiver)->MaxQueues = FrontendGetMaxQueues(Frontend);
     (*Receiver)->Ring = __ReceiverAllocate(sizeof (PXENVIF_RECEIVER_RING) *
                                            (*Receiver)->MaxQueues);
 
     status = STATUS_NO_MEMORY;
     if ((*Receiver)->Ring == NULL)
-        goto fail3;
+        goto fail2;
 
     Index = 0;
     while (Index < (*Receiver)->MaxQueues) {
@@ -2682,7 +2677,7 @@ ReceiverInitialize(
 
         status = __ReceiverRingInitialize(*Receiver, Index, &Ring);
         if (!NT_SUCCESS(status))
-            goto fail4;
+            goto fail3;
 
         (*Receiver)->Ring[Index] = Ring;
         Index++;
@@ -2690,8 +2685,8 @@ ReceiverInitialize(
 
     return STATUS_SUCCESS;
 
-fail4:
-    Error("fail4\n");
+fail3:
+    Error("fail3\n");
 
     while (--Index >= 0) {
         PXENVIF_RECEIVER_RING   Ring = (*Receiver)->Ring[Index];
@@ -2701,18 +2696,13 @@ fail4:
     }
 
     __ReceiverFree((*Receiver)->Ring);
+
     (*Receiver)->Ring = NULL;
-
-fail3:
-    Error("fail3\n");
-
-    (*Receiver)->MaxQueues = 0;
-
-    XENBUS_CACHE(Release, &(*Receiver)->CacheInterface);
 
 fail2:
     Error("fail2\n");
 
+    (*Receiver)->MaxQueues = 0;
     (*Receiver)->Frontend = NULL;
 
     RtlZeroMemory(&(*Receiver)->EvtchnInterface,
@@ -2774,9 +2764,13 @@ ReceiverConnect(
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    status = XENBUS_GNTTAB(Acquire, &Receiver->GnttabInterface);
+    status = XENBUS_CACHE(Acquire, &Receiver->CacheInterface);
     if (!NT_SUCCESS(status))
         goto fail4;
+
+    status = XENBUS_GNTTAB(Acquire, &Receiver->GnttabInterface);
+    if (!NT_SUCCESS(status))
+        goto fail5;
 
     status = XENBUS_STORE(Read,
                           &Receiver->StoreInterface,
@@ -2803,7 +2797,7 @@ ReceiverConnect(
 
         status = __ReceiverRingConnect(Ring);
         if (!NT_SUCCESS(status))
-            goto fail5;
+            goto fail6;
 
         Index++;
     }    
@@ -2815,18 +2809,18 @@ ReceiverConnect(
                           Receiver,
                           &Receiver->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail7;
 
     Trace("<====\n");
     return STATUS_SUCCESS;
 
-fail6:
-    Error("fail6\n");
+fail7:
+    Error("fail7\n");
 
     Index = Receiver->NumQueues;
 
-fail5:
-    Error("fail5\n");
+fail6:
+    Error("fail6\n");
 
     while (--Index >= 0) {
         PXENVIF_RECEIVER_RING   Ring = Receiver->Ring[Index];
@@ -2837,6 +2831,11 @@ fail5:
     Receiver->NumQueues = 0;
 
     XENBUS_GNTTAB(Release, &Receiver->GnttabInterface);
+
+fail5:
+    Error("fail5\n");
+
+    XENBUS_CACHE(Release, &Receiver->CacheInterface);
 
 fail4:
     Error("fail4\n");
@@ -3116,6 +3115,8 @@ ReceiverDisconnect(
 
     XENBUS_GNTTAB(Release, &Receiver->GnttabInterface);
 
+    XENBUS_CACHE(Release, &Receiver->CacheInterface);
+
     XENBUS_EVTCHN(Release, &Receiver->EvtchnInterface);
 
     XENBUS_STORE(Release, &Receiver->StoreInterface);
@@ -3150,8 +3151,6 @@ ReceiverTeardown(
     __ReceiverFree(Receiver->Ring);
     Receiver->Ring = NULL;
     Receiver->MaxQueues = 0;
-
-    XENBUS_CACHE(Release, &Receiver->CacheInterface);
 
     Receiver->Frontend = NULL;
 

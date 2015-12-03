@@ -115,6 +115,26 @@ VifMac(
     return STATUS_SUCCESS;
 }
 
+static DECLSPEC_NOINLINE VOID
+VifSuspendCallbackLate(
+    IN  PVOID           Argument
+    )
+{
+    PXENVIF_VIF_CONTEXT Context = Argument;
+    NTSTATUS            status;
+
+    if (!Context->Enabled)
+        return;
+
+    status = FrontendSetState(Context->Frontend, FRONTEND_ENABLED);
+    ASSERT(NT_SUCCESS(status));
+
+    // We do this three times to make sure switches take note
+    FrontendAdvertiseIpAddresses(Context->Frontend);
+    FrontendAdvertiseIpAddresses(Context->Frontend);
+    FrontendAdvertiseIpAddresses(Context->Frontend);
+}
+
 static NTSTATUS
 VifEnable(
     IN  PINTERFACE          Interface,
@@ -124,11 +144,13 @@ VifEnable(
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
     KIRQL                   Irql;
+    BOOLEAN                 Exclusive;
     NTSTATUS                status;
 
     Trace("====>\n");
 
     AcquireMrswLockExclusive(&Context->Lock, &Irql);
+    Exclusive = TRUE;
 
     if (Context->Enabled)
         goto done;
@@ -140,24 +162,74 @@ VifEnable(
 
     KeMemoryBarrier();
 
-    status = FrontendSetState(Context->Frontend, FRONTEND_ENABLED);
+    status = XENBUS_SUSPEND(Acquire, &Context->SuspendInterface);
     if (!NT_SUCCESS(status))
         goto fail1;
 
+    status = FrontendSetState(Context->Frontend, FRONTEND_ENABLED);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = XENBUS_SUSPEND(Register,
+                            &Context->SuspendInterface,
+                            SUSPEND_CALLBACK_LATE,
+                            VifSuspendCallbackLate,
+                            Context,
+                            &Context->SuspendCallbackLate);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
 done:
+    ASSERT(Exclusive);
     ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
 
     Trace("<====\n");
 
     return STATUS_SUCCESS;
 
+fail3:
+    Error("fail3\n");
+
+    (VOID) FrontendSetState(Context->Frontend, FRONTEND_CONNECTED);
+
+    ReleaseMrswLockExclusive(&Context->Lock, Irql, TRUE);
+    Exclusive = FALSE;
+
+    ReceiverWaitForPackets(FrontendGetReceiver(Context->Frontend));
+    TransmitterAbortPackets(FrontendGetTransmitter(Context->Frontend));
+
+    Trace("waiting for mac thread..\n");
+
+    KeClearEvent(&Context->MacEvent);
+    ThreadWake(Context->MacThread);
+
+    (VOID) KeWaitForSingleObject(&Context->MacEvent,
+                                 Executive,
+                                 KernelMode,
+                                 FALSE,
+                                 NULL);
+
+    Trace("done\n");
+
+fail2:
+    Error("fail2\n");
+
+    XENBUS_SUSPEND(Release, &Context->SuspendInterface);
+
 fail1:
     Error("fail1 (%08x)\n", status);
+
+    Context->Enabled = FALSE;
+
+    KeMemoryBarrier();
 
     Context->Argument = NULL;
     Context->Callback = NULL;
 
-    ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
+    if (Exclusive)
+        ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
+    else
+        ReleaseMrswLockShared(&Context->Lock);
 
     return status;
 }
@@ -183,6 +255,11 @@ VifDisable(
 
     KeMemoryBarrier();
 
+    XENBUS_SUSPEND(Deregister,
+                   &Context->SuspendInterface,
+                   Context->SuspendCallbackLate);
+    Context->SuspendCallbackLate = NULL;
+
     (VOID) FrontendSetState(Context->Frontend, FRONTEND_CONNECTED);
 
     ReleaseMrswLockExclusive(&Context->Lock, Irql, TRUE);
@@ -202,6 +279,8 @@ VifDisable(
                                  NULL);
 
     Trace("done\n");
+
+    XENBUS_SUSPEND(Release, &Context->SuspendInterface);
 
     Context->Argument = NULL;
     Context->Callback = NULL;
@@ -592,26 +671,6 @@ VifTransmitterQueryRingSize(
     ReleaseMrswLockShared(&Context->Lock);
 }
 
-static DECLSPEC_NOINLINE VOID
-VifSuspendCallbackLate(
-    IN  PVOID           Argument
-    )
-{
-    PXENVIF_VIF_CONTEXT Context = Argument;
-    NTSTATUS            status;
-
-    if (!Context->Enabled)
-        return;
-
-    status = FrontendSetState(Context->Frontend, FRONTEND_ENABLED);
-    ASSERT(NT_SUCCESS(status));
-
-    // We do this three times to make sure switches take note
-    FrontendAdvertiseIpAddresses(Context->Frontend);
-    FrontendAdvertiseIpAddresses(Context->Frontend);
-    FrontendAdvertiseIpAddresses(Context->Frontend);
-}
-
 static NTSTATUS
 VifAcquire(
     PINTERFACE              Interface
@@ -619,7 +678,6 @@ VifAcquire(
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
     KIRQL                   Irql;
-    NTSTATUS                status;
 
     AcquireMrswLockExclusive(&Context->Lock, &Irql);
 
@@ -627,19 +685,6 @@ VifAcquire(
         goto done;
 
     Trace("====>\n");
-
-    status = XENBUS_SUSPEND(Acquire, &Context->SuspendInterface);
-    if (!NT_SUCCESS(status))
-        goto fail1;   
-
-    status = XENBUS_SUSPEND(Register,
-                            &Context->SuspendInterface,
-                            SUSPEND_CALLBACK_LATE,
-                            VifSuspendCallbackLate,
-                            Context,
-                            &Context->SuspendCallbackLate);
-    if (!NT_SUCCESS(status))
-        goto fail2;
 
     Context->Frontend = PdoGetFrontend(Context->Pdo);
 
@@ -649,20 +694,6 @@ done:
     ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
 
     return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
-
-    XENBUS_SUSPEND(Release, &Context->SuspendInterface);
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-
-    --Context->References;
-    ASSERT3U(Context->References, ==, 0);
-    ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
-
-    return status;
 }
 
 VOID
@@ -683,13 +714,6 @@ VifRelease(
     ASSERT(!Context->Enabled);
 
     Context->Frontend = NULL;
-
-    XENBUS_SUSPEND(Deregister,
-                   &Context->SuspendInterface,
-                   Context->SuspendCallbackLate);
-    Context->SuspendCallbackLate = NULL;
-
-    XENBUS_SUSPEND(Release, &Context->SuspendInterface);
 
     Trace("<====\n");
 
