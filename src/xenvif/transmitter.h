@@ -115,8 +115,21 @@ TransmitterQueryRingSize(
     OUT PULONG              Size
     );
 
-extern VOID
-TransmitterQueuePackets(
+extern NTSTATUS
+TransmitterQueuePacket(
+    IN  PXENVIF_TRANSMITTER         Transmitter,
+    IN  PMDL                        Mdl,
+    IN  ULONG                       Offset,
+    IN  ULONG                       Length,
+    IN  XENVIF_VIF_OFFLOAD_OPTIONS  OffloadOptions,
+    IN  USHORT                      MaximumSegmentSize,
+    IN  USHORT                      TagControlInformation,
+    IN  PXENVIF_PACKET_HASH         Hash,
+    IN  PVOID                       Cookie
+    );
+
+extern NTSTATUS
+TransmitterQueuePacketsVersion2(
     IN  PXENVIF_TRANSMITTER Transmitter,
     IN  PLIST_ENTRY         List
     );
@@ -135,11 +148,11 @@ TransmitterQueryLargePacketSize(
     );
 
 extern NTSTATUS
-TransmitterGetPacketHeaders(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  PXENVIF_TRANSMITTER_PACKET  Packet,
-    OUT PVOID                       Headers,
-    OUT PXENVIF_PACKET_INFO         Info
+TransmitterGetPacketHeadersVersion2(
+    IN  PXENVIF_TRANSMITTER                     Transmitter,
+    IN  struct _XENVIF_TRANSMITTER_PACKET_V2    *Packet,
+    OUT PVOID                                   Headers,
+    OUT PXENVIF_PACKET_INFO                     Info
     );
 
 #endif  // _XENVIF_TRANSMITTER_H

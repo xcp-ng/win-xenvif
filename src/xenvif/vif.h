@@ -63,15 +63,35 @@ VifTeardown(
 // CALLBACKS
 
 extern VOID
-VifReceiverQueuePackets(
+VifReceiverQueuePacketsVersion1(
     IN  PXENVIF_VIF_CONTEXT Context,
     IN  PLIST_ENTRY         List
     );
 
 extern VOID
-VifTransmitterReturnPackets(
+VifReceiverQueuePacket(
+    IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  PMDL                            Mdl,
+    IN  ULONG                           Offset,
+    IN  ULONG                           Length,
+    IN  XENVIF_PACKET_CHECKSUM_FLAGS    Flags,
+    IN  USHORT                          MaximumSegmentSize,
+    IN  USHORT                          TagControlInformation,
+    IN  PXENVIF_PACKET_INFO             Info,
+    IN  PVOID                           Cookie
+    );
+
+extern VOID
+VifTransmitterReturnPacketsVersion2(
     IN  PXENVIF_VIF_CONTEXT Context,
     IN  PLIST_ENTRY         List
+    );
+
+extern VOID
+VifTransmitterReturnPacket(
+    IN  PXENVIF_VIF_CONTEXT                         Context,
+    IN  PVOID                                       Cookie,
+    IN  PXENVIF_TRANSMITTER_PACKET_COMPLETION_INFO  Completion
     );
 
 extern PXENVIF_THREAD

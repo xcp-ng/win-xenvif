@@ -64,6 +64,24 @@
 
 #define MAXNAMELEN  128
 
+#define XENVIF_TRANSMITTER_MAXIMUM_HEADER_LENGTH    512
+
+typedef struct _XENVIF_TRANSMITTER_PACKET {
+    LIST_ENTRY                                  ListEntry;
+    PVOID                                       Cookie;
+    ULONG                                       Reference;
+    XENVIF_VIF_OFFLOAD_OPTIONS                  OffloadOptions;
+    USHORT                                      MaximumSegmentSize;
+    USHORT                                      TagControlInformation;
+    XENVIF_TRANSMITTER_PACKET_COMPLETION_INFO   Completion;
+    PMDL                                        Mdl;
+    ULONG                                       Offset;
+    ULONG                                       Length;
+    PUCHAR                                      Header;
+    XENVIF_PACKET_INFO                          Info;
+    XENVIF_PACKET_PAYLOAD                       Payload;
+} XENVIF_TRANSMITTER_PACKET, *PXENVIF_TRANSMITTER_PACKET;
+
 typedef struct _XENVIF_TRANSMITTER_REQUEST_ARP_PARAMETERS {
     IPV4_ADDRESS    Address;
 } XENVIF_TRANSMITTER_REQUEST_ARP_PARAMETERS, *PXENVIF_TRANSMITTER_REQUEST_ARP_PARAMETERS;
@@ -139,10 +157,6 @@ typedef struct _XENVIF_TRANSMITTER_FRAGMENT {
 
 typedef struct _XENVIF_TRANSMITTER_STATE {
     PXENVIF_TRANSMITTER_PACKET          Packet;
-    XENVIF_TRANSMITTER_PACKET_SEND_INFO Send;
-    PUCHAR                              StartVa;
-    XENVIF_PACKET_INFO                  Info;
-    XENVIF_PACKET_PAYLOAD               Payload;
     LIST_ENTRY                          List;
     ULONG                               Count;
 } XENVIF_TRANSMITTER_STATE, *PXENVIF_TRANSMITTER_STATE;
@@ -252,24 +266,54 @@ TransmitterPacketReleaseLock(
 
 static NTSTATUS
 TransmitterPacketCtor(
-    IN  PVOID   Argument,
-    IN  PVOID   Object
+    IN  PVOID                   Argument,
+    IN  PVOID                   Object
     )
 {
+    PXENVIF_TRANSMITTER_PACKET  Packet = Object;
+    PUCHAR                      Header;
+    NTSTATUS                    status;
+
     UNREFERENCED_PARAMETER(Argument);
-    UNREFERENCED_PARAMETER(Object);
+
+    ASSERT(IsZeroMemory(Packet, sizeof (XENVIF_TRANSMITTER_PACKET)));
+
+    Header = __TransmitterAllocate(XENVIF_TRANSMITTER_MAXIMUM_HEADER_LENGTH);
+
+    status = STATUS_NO_MEMORY;
+    if (Header == NULL)
+        goto fail1;
+
+    Packet->Header = Header;
 
     return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    ASSERT(IsZeroMemory(Packet, sizeof (XENVIF_TRANSMITTER_PACKET)));
+
+    return status;
 }
 
 static VOID
 TransmitterPacketDtor(
-    IN  PVOID   Argument,
-    IN  PVOID   Object
+    IN  PVOID                   Argument,
+    IN  PVOID                   Object
     )
 {
+    PXENVIF_TRANSMITTER_PACKET  Packet = Object;
+    PUCHAR                      Header;
+
     UNREFERENCED_PARAMETER(Argument);
-    UNREFERENCED_PARAMETER(Object);
+
+    Header = Packet->Header;
+    Packet->Header = NULL;
+
+    ASSERT(IsZeroMemory(Header, XENVIF_TRANSMITTER_MAXIMUM_HEADER_LENGTH));
+    __TransmitterFree(Header);
+
+    ASSERT(IsZeroMemory(Packet, sizeof (XENVIF_TRANSMITTER_PACKET)));
 }
 
 static FORCEINLINE PXENVIF_TRANSMITTER_PACKET
@@ -289,7 +333,21 @@ __TransmitterPutPacket(
     IN  PXENVIF_TRANSMITTER_PACKET  Packet
     )
 {
-    RtlZeroMemory(Packet, sizeof(XENVIF_TRANSMITTER_PACKET));
+    ASSERT(IsZeroMemory(&Packet->ListEntry, sizeof (LIST_ENTRY)));
+    ASSERT3U(Packet->Reference, ==, 0);
+
+    Packet->Mdl = NULL;
+    Packet->Offset = 0;
+    Packet->Length = 0;
+    Packet->OffloadOptions.Value = 0;
+    Packet->MaximumSegmentSize = 0;
+    Packet->TagControlInformation = 0;
+    RtlZeroMemory(&Packet->Completion, sizeof (XENVIF_TRANSMITTER_PACKET_COMPLETION_INFO));
+    Packet->Cookie = NULL;
+
+    RtlZeroMemory(Packet->Header, XENVIF_TRANSMITTER_MAXIMUM_HEADER_LENGTH);
+    RtlZeroMemory(&Packet->Info, sizeof (XENVIF_PACKET_INFO));
+    RtlZeroMemory(&Packet->Payload, sizeof (XENVIF_PACKET_PAYLOAD));
 
     XENBUS_CACHE(Put,
                  &Transmitter->CacheInterface,
@@ -721,7 +779,7 @@ TransmitterRingDebugCallback(
 }
 
 static BOOLEAN
-TransmitterRingPullup(
+TransmitterPullup(
     IN      PVOID                   Argument,
     IN      PUCHAR                  DestinationVa,
     IN OUT  PXENVIF_PACKET_PAYLOAD  Payload,
@@ -800,10 +858,10 @@ __TransmitterRingCopyPayload(
 
     State = &Ring->State;
     Packet = State->Packet;
-    Payload = State->Payload;
+    Payload = Packet->Payload;
 
     ASSERT(Packet != NULL);
-    ASSERT3U(Packet->Value, ==, 1);
+    ASSERT3U(Packet->Reference, ==, 1);
 
     while (Payload.Length != 0) {
         PMDL        Mdl;
@@ -818,14 +876,14 @@ __TransmitterRingCopyPayload(
             goto fail1;
 
         Buffer->Context = Packet;
-        Packet->Value++;
+        Packet->Reference++;
 
         Mdl = Buffer->Mdl;
 
         Length = __min(Payload.Length, PAGE_SIZE);
 
         MdlMappedSystemVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-        TransmitterRingPullup(Ring, MdlMappedSystemVa, &Payload, Length);
+        (VOID) TransmitterPullup(Transmitter, MdlMappedSystemVa, &Payload, Length);
 
         Mdl->ByteCount = Length;
 
@@ -884,14 +942,14 @@ fail2:
     ASSERT3P(Buffer->Context, ==, Packet);
     Buffer->Context = NULL;        
 
-    Packet->Value--;
+    --Packet->Reference;
 
     __TransmitterPutBuffer(Ring, Buffer);
 
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    while (Packet->Value != 1) {
+    while (Packet->Reference != 1) {
         PLIST_ENTRY         ListEntry;
 
         ASSERT(State->Count != 0);
@@ -927,7 +985,7 @@ fail1:
         ASSERT3P(Buffer->Context, ==, Packet);
         Buffer->Context = NULL;        
 
-        Packet->Value--;
+        --Packet->Reference;
 
         __TransmitterPutBuffer(Ring, Buffer);
     }
@@ -956,10 +1014,10 @@ __TransmitterRingGrantPayload(
 
     State = &Ring->State;
     Packet = State->Packet;
-    Payload = &State->Payload;
+    Payload = &Packet->Payload;
 
     ASSERT(Packet != NULL);
-    ASSERT3U(Packet->Value, ==, 1);
+    ASSERT3U(Packet->Reference, ==, 1);
 
     Mdl = Payload->Mdl;
     Offset = Payload->Offset;
@@ -988,7 +1046,7 @@ __TransmitterRingGrantPayload(
 
             Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_PACKET;
             Fragment->Context = Packet;
-            Packet->Value++;
+            Packet->Reference++;
 
             Pfn = MmGetMdlPfnArray(Mdl)[MdlOffset / PAGE_SIZE];
             PageOffset = MdlOffset & (PAGE_SIZE - 1);
@@ -1045,7 +1103,7 @@ fail2:
         Fragment->Context = NULL;
         Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID;
 
-        Packet->Value--;
+        --Packet->Reference;
 
         __TransmitterPutFragment(Ring, Fragment);
     }
@@ -1056,7 +1114,7 @@ fail1:
 
     ASSERT3P(Fragment, ==, NULL);
 
-    while (Packet->Value != 1) {
+    while (Packet->Reference != 1) {
         PLIST_ENTRY         ListEntry;
 
         ASSERT(State->Count != 0);
@@ -1083,7 +1141,7 @@ fail1:
         Fragment->Context = NULL;
         Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID;
 
-        Packet->Value--;
+        --Packet->Reference;
 
         __TransmitterPutFragment(Ring, Fragment);
     }
@@ -1117,10 +1175,11 @@ __TransmitterRingPrepareHeader(
 
     State = &Ring->State;
     Packet = State->Packet;
-    Payload = &State->Payload;
-    Info = &State->Info;
 
-    ASSERT3U(Packet->Value, ==, 0);
+    Payload = &Packet->Payload;
+    Info = &Packet->Info;
+
+    ASSERT3U(Packet->Reference, ==, 0);
 
     Buffer = __TransmitterGetBuffer(Ring);
 
@@ -1129,18 +1188,14 @@ __TransmitterRingPrepareHeader(
         goto fail1;
 
     Buffer->Context = Packet;
-    Packet->Value++;
+    Packet->Reference++;
 
     Mdl = Buffer->Mdl;
 
     StartVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
     ASSERT(StartVa != NULL);
 
-    status = ParsePacket(StartVa, TransmitterRingPullup, Ring, Payload, Info);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
-    State->StartVa = StartVa;
+    RtlCopyMemory(StartVa, Packet->Header, Info->Length);
 
     Mdl->ByteCount = Info->Length;
 
@@ -1148,7 +1203,7 @@ __TransmitterRingPrepareHeader(
 
     status = STATUS_NO_MEMORY;
     if (Fragment == NULL)
-        goto fail3;
+        goto fail2;
 
     Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_BUFFER;
     Fragment->Context = Buffer;
@@ -1166,7 +1221,7 @@ __TransmitterRingPrepareHeader(
                            TRUE,
                            &Fragment->Entry);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail3;
 
     Fragment->Offset = 0;
     Fragment->Length = Mdl->ByteCount + Payload->Length;
@@ -1178,7 +1233,7 @@ __TransmitterRingPrepareHeader(
     ASSERT(Info->EthernetHeader.Length != 0);
     EthernetHeader = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);        
 
-    if (State->Send.OffloadOptions.OffloadTagManipulation) {
+    if (Packet->OffloadOptions.OffloadTagManipulation) {
         ULONG   Offset;
 
         Offset = FIELD_OFFSET(ETHERNET_TAGGED_HEADER, Tag);
@@ -1189,9 +1244,10 @@ __TransmitterRingPrepareHeader(
 
         // Insert the tag
         EthernetHeader->Tagged.Tag.ProtocolID = HTONS(ETHERTYPE_TPID);
-        EthernetHeader->Tagged.Tag.ControlInformation = HTONS(State->Send.TagControlInformation);
+        EthernetHeader->Tagged.Tag.ControlInformation = HTONS(Packet->TagControlInformation);
         ASSERT(ETHERNET_HEADER_IS_TAGGED(EthernetHeader));
 
+        Packet->Length += sizeof (ETHERNET_TAG);
         Mdl->ByteCount += sizeof (ETHERNET_TAG);
         Fragment->Length += sizeof (ETHERNET_TAG);
 
@@ -1215,7 +1271,7 @@ __TransmitterRingPrepareHeader(
             Info->TcpOptions.Offset += sizeof (ETHERNET_TAG);
     }
 
-    if (State->Send.OffloadOptions.OffloadIpVersion4LargePacket) {
+    if (Packet->OffloadOptions.OffloadIpVersion4LargePacket) {
         PIP_HEADER  IpHeader;
         PTCP_HEADER TcpHeader;
         ULONG       Length;
@@ -1242,20 +1298,20 @@ __TransmitterRingPrepareHeader(
         IpHeader->Version4.PacketLength = HTONS((USHORT)Length);
 
         // IP checksum calulcation must be offloaded for large packets
-        State->Send.OffloadOptions.OffloadIpVersion4HeaderChecksum = 1;
+        Packet->OffloadOptions.OffloadIpVersion4HeaderChecksum = 1;
 
         // TCP checksum calulcation must be offloaded for large packets
         TcpHeader->Checksum = ChecksumPseudoHeader(StartVa, Info);
-        State->Send.OffloadOptions.OffloadIpVersion4TcpChecksum = 1;
+        Packet->OffloadOptions.OffloadIpVersion4TcpChecksum = 1;
 
         // If the MSS is such that the payload would constitute only a single fragment then
         // we no longer need trate the packet as a large packet.
-        ASSERT3U(State->Send.MaximumSegmentSize, <=, Payload->Length);
-        if (State->Send.MaximumSegmentSize == Payload->Length)
-            State->Send.OffloadOptions.OffloadIpVersion4LargePacket = 0;
+        ASSERT3U(Packet->MaximumSegmentSize, <=, Payload->Length);
+        if (Packet->MaximumSegmentSize == Payload->Length)
+            Packet->OffloadOptions.OffloadIpVersion4LargePacket = 0;
     }
     
-    if (State->Send.OffloadOptions.OffloadIpVersion6LargePacket) {
+    if (Packet->OffloadOptions.OffloadIpVersion6LargePacket) {
         PIP_HEADER  IpHeader;
         PTCP_HEADER TcpHeader;
         ULONG       Length;
@@ -1282,29 +1338,29 @@ __TransmitterRingPrepareHeader(
 
         // TCP checksum calulcation must be offloaded for large packets
         TcpHeader->Checksum = ChecksumPseudoHeader(StartVa, Info);
-        State->Send.OffloadOptions.OffloadIpVersion6TcpChecksum = 1;
+        Packet->OffloadOptions.OffloadIpVersion6TcpChecksum = 1;
 
         // If the MSS is such that the payload would constitute only a single fragment then
         // we no longer need treat the packet as a large packet.
-        ASSERT3U(State->Send.MaximumSegmentSize, <=, Payload->Length);
-        if (State->Send.MaximumSegmentSize == Payload->Length)
-            State->Send.OffloadOptions.OffloadIpVersion6LargePacket = 0;
+        ASSERT3U(Packet->MaximumSegmentSize, <=, Payload->Length);
+        if (Packet->MaximumSegmentSize == Payload->Length)
+            Packet->OffloadOptions.OffloadIpVersion6LargePacket = 0;
     }
 
     // Non-GSO packets must not exceed MTU
-    if (!State->Send.OffloadOptions.OffloadIpVersion4LargePacket &&
-        !State->Send.OffloadOptions.OffloadIpVersion6LargePacket) {
+    if (!Packet->OffloadOptions.OffloadIpVersion4LargePacket &&
+        !Packet->OffloadOptions.OffloadIpVersion6LargePacket) {
         ULONG   MaximumFrameSize;
 
         MacQueryMaximumFrameSize(Mac, &MaximumFrameSize);
         
         if (Fragment->Length > MaximumFrameSize) {
             status = STATUS_INVALID_PARAMETER;
-            goto fail5;
+            goto fail4;
         }
     }
 
-    if (State->Send.OffloadOptions.OffloadIpVersion4HeaderChecksum) {
+    if (Packet->OffloadOptions.OffloadIpVersion4HeaderChecksum) {
         PIP_HEADER  IpHeader;
 
         ASSERT(Info->IpHeader.Length != 0);
@@ -1316,8 +1372,8 @@ __TransmitterRingPrepareHeader(
 
     return STATUS_SUCCESS;
 
-fail5:
-    Error("fail5\n");
+fail4:
+    Error("fail4\n");
 
     ASSERT(State->Count != 0);
     --State->Count;
@@ -1335,8 +1391,8 @@ fail5:
                          Fragment->Entry);
     Fragment->Entry = NULL;
 
-fail4:
-    Error("fail4\n");
+fail3:
+    Error("fail3\n");
 
     Fragment->Context = NULL;
     Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID;
@@ -1346,15 +1402,10 @@ fail4:
 
     __TransmitterPutFragment(Ring, Fragment);
 
-fail3:
-    Error("fail3\n");
-
-    Mdl->ByteCount = 0;
-
 fail2:
     Error("fail2\n");
 
-    Packet->Value--;
+    --Packet->Reference;
     Buffer->Context = NULL;
 
     __TransmitterPutBuffer(Ring, Buffer);
@@ -1362,7 +1413,7 @@ fail2:
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    ASSERT3U(Packet->Value, ==, 0);
+    ASSERT3U(Packet->Reference, ==, 0);
 
     return status;
 }
@@ -1461,7 +1512,7 @@ __TransmitterRingUnprepareFragments(
         }
 
         if (Packet != NULL)
-            Packet->Value--;
+            --Packet->Reference;
 
         __TransmitterPutFragment(Ring, Fragment);
     }
@@ -1478,11 +1529,6 @@ __TransmitterRingUnprepareFragments(
     if (Packet != NULL) {
         Ring->PacketsUnprepared++;
 
-        RtlZeroMemory(&State->Payload, sizeof (XENVIF_PACKET_PAYLOAD));
-
-        Packet->Send = State->Send;
-        RtlZeroMemory(&State->Send, sizeof (XENVIF_TRANSMITTER_PACKET_SEND_INFO));
-
         State->Packet = NULL;
     }
 
@@ -1493,8 +1539,8 @@ __TransmitterRingUnprepareFragments(
 
 static FORCEINLINE NTSTATUS
 __TransmitterRingPreparePacket(
-    IN  PXENVIF_TRANSMITTER_RING        Ring,
-    IN  PXENVIF_TRANSMITTER_PACKET      Packet
+    IN  PXENVIF_TRANSMITTER_RING    Ring,
+    IN  PXENVIF_TRANSMITTER_PACKET  Packet
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -1511,14 +1557,6 @@ __TransmitterRingPreparePacket(
 
     State->Packet = Packet;
 
-    State->Send = Packet->Send;
-    RtlZeroMemory(&Packet->Send, sizeof (XENVIF_TRANSMITTER_PACKET_SEND_INFO));
-
-    Payload = &State->Payload;
-    Payload->Mdl = Packet->Mdl;
-    Payload->Offset = Packet->Offset;
-    Payload->Length = Packet->Length;
-
     InitializeListHead(&State->List);
     ASSERT3U(State->Count, ==, 0);
 
@@ -1526,9 +1564,10 @@ __TransmitterRingPreparePacket(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    ASSERT3U(State->Count, ==, Packet->Value);
+    ASSERT3U(State->Count, ==, Packet->Reference);
 
-    Info = &State->Info;
+    Info = &Packet->Info;
+    Payload = &Packet->Payload;
 
     // Is the packet too short?
     if (Info->Length + Payload->Length < ETHERNET_MIN) {
@@ -1584,7 +1623,7 @@ __TransmitterRingPreparePacket(
 
         if (Transmitter->AlwaysCopy != 0 ||
             (!NT_SUCCESS(status) && status == STATUS_BUFFER_OVERFLOW)) {
-            ASSERT3U(State->Count, ==, Packet->Value);
+            ASSERT3U(State->Count, ==, Packet->Reference);
 
             status = __TransmitterRingCopyPayload(Ring);
         }
@@ -1593,7 +1632,7 @@ __TransmitterRingPreparePacket(
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    ASSERT3U(State->Count, ==, Packet->Value);
+    ASSERT3U(State->Count, ==, Packet->Reference);
 
     Ring->PacketsPrepared++;
     return STATUS_SUCCESS;
@@ -1606,16 +1645,8 @@ fail2:
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    State->StartVa = NULL;
-    RtlZeroMemory(&State->Info, sizeof (XENVIF_PACKET_INFO));
-
     ASSERT(IsListEmpty(&State->List));
     RtlZeroMemory(&State->List, sizeof (LIST_ENTRY));
-
-    RtlZeroMemory(&State->Payload, sizeof (XENVIF_PACKET_PAYLOAD));
-
-    Packet->Send = State->Send;
-    RtlZeroMemory(&State->Send, sizeof (XENVIF_TRANSMITTER_PACKET_SEND_INFO));
 
     State->Packet = NULL;
 
@@ -2002,11 +2033,10 @@ __TransmitterRingPostFragments(
     PXENVIF_FRONTEND                Frontend;
     PXENVIF_TRANSMITTER_STATE       State;
     PXENVIF_TRANSMITTER_PACKET      Packet;
-    PXENVIF_PACKET_PAYLOAD          Payload;
+    XENVIF_VIF_OFFLOAD_OPTIONS      OffloadOptions;
     RING_IDX                        req_prod;
     RING_IDX                        rsp_cons;
     ULONG                           Extra;
-    ULONG                           PacketLength;
     BOOLEAN                         FirstRequest;
     PLIST_ENTRY                     ListEntry;
     PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
@@ -2018,12 +2048,15 @@ __TransmitterRingPostFragments(
 
     State = &Ring->State;
     Packet = State->Packet;
-    Payload = &State->Payload;
+
+    if (Packet != NULL)
+        OffloadOptions = Packet->OffloadOptions;
+    else
+        OffloadOptions.Value = 0;
 
     ASSERT(!IsListEmpty(&State->List));
     ASSERT(State->Count != 0);
     ASSERT3U(State->Count, <=, XEN_NETIF_NR_SLOTS_MIN);
-    ASSERT(IMPLY(Packet != NULL, State->Count == Packet->Value));
 
     req_prod = Ring->Front.req_prod_pvt;
     rsp_cons = Ring->Front.rsp_cons;
@@ -2033,8 +2066,8 @@ __TransmitterRingPostFragments(
                                  XENVIF_TRANSMITTER_FRAGMENT,
                                  ListEntry);
 
-    Extra = (State->Send.OffloadOptions.OffloadIpVersion4LargePacket ||
-             State->Send.OffloadOptions.OffloadIpVersion6LargePacket ||
+    Extra = (OffloadOptions.OffloadIpVersion4LargePacket ||
+             OffloadOptions.OffloadIpVersion6LargePacket ||
              Fragment->Type == XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL) ?
             1 :
             0;
@@ -2048,7 +2081,6 @@ __TransmitterRingPostFragments(
     req = NULL;
 
     FirstRequest = TRUE;
-    PacketLength = 0;
     while (State->Count != 0) {
         --State->Count;
 
@@ -2078,14 +2110,14 @@ __TransmitterRingPostFragments(
         if (FirstRequest) {
             FirstRequest = FALSE;
 
-            if (State->Send.OffloadOptions.OffloadIpVersion4TcpChecksum ||
-                State->Send.OffloadOptions.OffloadIpVersion4UdpChecksum ||
-                State->Send.OffloadOptions.OffloadIpVersion6TcpChecksum ||
-                State->Send.OffloadOptions.OffloadIpVersion6UdpChecksum)
+            if (OffloadOptions.OffloadIpVersion4TcpChecksum ||
+                OffloadOptions.OffloadIpVersion4UdpChecksum ||
+                OffloadOptions.OffloadIpVersion6TcpChecksum ||
+                OffloadOptions.OffloadIpVersion6UdpChecksum)
                 req->flags |= NETTXF_csum_blank | NETTXF_data_validated;
 
-            if (State->Send.OffloadOptions.OffloadIpVersion4LargePacket ||
-                State->Send.OffloadOptions.OffloadIpVersion6LargePacket ||
+            if (OffloadOptions.OffloadIpVersion4LargePacket ||
+                OffloadOptions.OffloadIpVersion6LargePacket ||
                 Fragment->Type == XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL) {
                 struct netif_extra_info *extra;
 
@@ -2096,17 +2128,17 @@ __TransmitterRingPostFragments(
                 req_prod++;
                 Ring->RequestsPosted++;
 
-                if (State->Send.OffloadOptions.OffloadIpVersion4LargePacket ||
-                    State->Send.OffloadOptions.OffloadIpVersion6LargePacket) {
-                    ASSERT(State->Send.MaximumSegmentSize != 0);
+                if (OffloadOptions.OffloadIpVersion4LargePacket ||
+                    OffloadOptions.OffloadIpVersion6LargePacket) {
+                    ASSERT(Packet->MaximumSegmentSize != 0);
 
                     extra->type = XEN_NETIF_EXTRA_TYPE_GSO;
                     extra->flags = 0;
 
-                    extra->u.gso.type = (State->Send.OffloadOptions.OffloadIpVersion4LargePacket) ?
+                    extra->u.gso.type = (OffloadOptions.OffloadIpVersion4LargePacket) ?
                                         XEN_NETIF_GSO_TYPE_TCPV4 :
-                                        XEN_NETIF_GSO_TYPE_TCPV6;;
-                    extra->u.gso.size = State->Send.MaximumSegmentSize;
+                                        XEN_NETIF_GSO_TYPE_TCPV6;
+                    extra->u.gso.size = Packet->MaximumSegmentSize;
                     extra->u.gso.pad = 0;
                     extra->u.gso.features = 0;
 
@@ -2129,9 +2161,6 @@ __TransmitterRingPostFragments(
 
                 req->flags |= NETTXF_extra_info;
             }
-
-            // The first fragment length is the length of the entire packet
-            PacketLength = Fragment->Length;
         }
 
         // Store a copy of the request in case we need to fake a response ourselves
@@ -2151,14 +2180,14 @@ __TransmitterRingPostFragments(
 
     // Set the initial completion information
     if (Packet != NULL) {
-        PUCHAR              StartVa;
-        PXENVIF_PACKET_INFO Info;
-        PETHERNET_HEADER    Header;
+        PUCHAR                  StartVa;
+        PXENVIF_PACKET_INFO     Info;
+        PXENVIF_PACKET_PAYLOAD  Payload;
+        PETHERNET_HEADER        Header;
 
-        ASSERT(PacketLength != 0);
-
-        StartVa = State->StartVa;
-        Info = &State->Info;
+        StartVa = Packet->Header;
+        Info = &Packet->Info;
+        Payload = &Packet->Payload;
 
         ASSERT(IsZeroMemory(&Packet->Completion, sizeof (XENVIF_TRANSMITTER_PACKET_COMPLETION_INFO)));
 
@@ -2166,14 +2195,9 @@ __TransmitterRingPostFragments(
         Header = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);
 
         Packet->Completion.Type = GET_ETHERNET_ADDRESS_TYPE(&Header->Untagged.DestinationAddress);
-        Packet->Completion.Status = XENVIF_TRANSMITTER_PACKET_PENDING;
-        Packet->Completion.PacketLength = (USHORT)PacketLength;
+        Packet->Completion.PacketLength = (USHORT)Packet->Length;
         Packet->Completion.PayloadLength = (USHORT)Payload->Length;
 
-        State->StartVa = NULL;
-        RtlZeroMemory(&State->Info, sizeof (XENVIF_PACKET_INFO));
-        RtlZeroMemory(&State->Payload, sizeof (XENVIF_PACKET_PAYLOAD));
-        RtlZeroMemory(&State->Send, sizeof (XENVIF_TRANSMITTER_PACKET_SEND_INFO));
         State->Packet = NULL;
 
         Ring->PacketsSent++;
@@ -2268,7 +2292,7 @@ __TransmitterRingCompletePacket(
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
-    ASSERT(Packet->Completion.Status != XENVIF_TRANSMITTER_PACKET_PENDING);
+    ASSERT(Packet->Completion.Status != 0);
 
     if (Packet->Completion.Status != XENVIF_TRANSMITTER_PACKET_OK) {
         FrontendIncrementStatistic(Frontend,
@@ -2447,10 +2471,10 @@ TransmitterRingPoll(
                 continue;
             }
 
-            Packet->Value--;
+            --Packet->Reference;
 
             if (rsp->status != NETIF_RSP_OKAY &&
-                Packet->Completion.Status == XENVIF_TRANSMITTER_PACKET_PENDING) {
+                Packet->Completion.Status == 0) {
                 switch (rsp->status) {
                 case NETIF_RSP_DROPPED:
                     Packet->Completion.Status = XENVIF_TRANSMITTER_PACKET_DROPPED;
@@ -2468,10 +2492,10 @@ TransmitterRingPoll(
 
             RtlZeroMemory(rsp, sizeof (netif_tx_response_t));
 
-            if (Packet->Value != 0)
+            if (Packet->Reference != 0)
                 continue;
 
-            if (Packet->Completion.Status == XENVIF_TRANSMITTER_PACKET_PENDING)
+            if (Packet->Completion.Status == 0)
                 Packet->Completion.Status = XENVIF_TRANSMITTER_PACKET_OK;
 
             __TransmitterRingCompletePacket(Ring, Packet);
@@ -2589,11 +2613,12 @@ TransmitterRingSwizzle(
         ListEntry = NextEntry;
     }
 
-    ListEntry = List.Flink;
     if (!IsListEmpty(&List)) {
+        ListEntry = List.Flink;
+
         RemoveEntryList(&List);
-        InitializeListHead(&List);
         AppendTailList(&Ring->PacketQueue, ListEntry);
+
         Ring->PacketsQueued += Count;
     }
 }
@@ -2632,6 +2657,8 @@ TransmitterRingSchedule(
             PXENVIF_TRANSMITTER_REQUEST Request;
 
             ListEntry = RemoveHeadList(&Ring->RequestQueue);
+            ASSERT3P(ListEntry, !=, &Ring->RequestQueue);
+
             RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
 
             Request = CONTAINING_RECORD(ListEntry,
@@ -2669,13 +2696,15 @@ TransmitterRingSchedule(
             PXENVIF_TRANSMITTER_PACKET  Packet;
 
             ListEntry = RemoveHeadList(&Ring->PacketQueue);
+            ASSERT3P(ListEntry, !=, &Ring->PacketQueue);
+
             RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
 
             Packet = CONTAINING_RECORD(ListEntry,
                                        XENVIF_TRANSMITTER_PACKET,
                                        ListEntry);
 
-            Packet->Value = 0;
+            Packet->Reference = 0;
 
             status = __TransmitterRingPreparePacket(Ring, Packet);
             if (!NT_SUCCESS(status)) {
@@ -2712,20 +2741,70 @@ TransmitterRingSchedule(
 }
 
 static FORCEINLINE VOID
+__TransmitterReturnPacketVersion2(
+    IN  PXENVIF_TRANSMITTER                         Transmitter,
+    IN  PVOID                                       Cookie,
+    IN  PXENVIF_TRANSMITTER_PACKET_COMPLETION_INFO  Completion
+    )
+{
+    struct _XENVIF_TRANSMITTER_PACKET_V2            *PacketVersion2;
+    PXENVIF_FRONTEND                                Frontend;
+    PXENVIF_VIF_CONTEXT                             Context;
+    LIST_ENTRY                                      List;
+
+    PacketVersion2 = Cookie;
+    PacketVersion2->Completion = *Completion;
+
+    Frontend = Transmitter->Frontend;
+    Context = PdoGetVifContext(FrontendGetPdo(Frontend));
+
+    InitializeListHead(&List);
+
+    ASSERT(IsZeroMemory(&PacketVersion2->ListEntry, sizeof (LIST_ENTRY)));
+    InsertTailList(&List, &PacketVersion2->ListEntry);
+
+    VifTransmitterReturnPacketsVersion2(Context, &List);
+    ASSERT(IsListEmpty(&List));
+}
+
+static FORCEINLINE VOID
 __TransmitterReturnPackets(
     IN  PXENVIF_TRANSMITTER Transmitter,
     IN  PLIST_ENTRY         List
     )
 {
     PXENVIF_FRONTEND        Frontend;
-
-    if (IsListEmpty(List))
-        return;
+    PXENVIF_VIF_CONTEXT     Context;
+    ULONG                   Version;
 
     Frontend = Transmitter->Frontend;
+    Context = PdoGetVifContext(FrontendGetPdo(Frontend));
+    Version = VifGetVersion(Context);
 
-    VifTransmitterReturnPackets(PdoGetVifContext(FrontendGetPdo(Frontend)),
-                                List);
+    while (!IsListEmpty(List)) {
+        PLIST_ENTRY                 ListEntry;
+        PXENVIF_TRANSMITTER_PACKET  Packet;
+
+        ListEntry = RemoveHeadList(List);
+        ASSERT3P(ListEntry, !=, List);
+
+        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
+
+        Packet = CONTAINING_RECORD(ListEntry,
+                                   XENVIF_TRANSMITTER_PACKET,
+                                   ListEntry);
+
+        if  (Version < 4)
+            __TransmitterReturnPacketVersion2(Transmitter,
+                                              Packet->Cookie,
+                                              &Packet->Completion);
+        else
+            VifTransmitterReturnPacket(Context,
+                                       Packet->Cookie,
+                                       &Packet->Completion);
+
+        __TransmitterPutPacket(Transmitter, Packet);
+    }
 }
 
 static FORCEINLINE BOOLEAN
@@ -2837,13 +2916,12 @@ __TransmitterRingReleaseLock(
     // thread could be simuntaneously adding to the list.
 
     do {
-        PLIST_ENTRY     ListEntry;
-
         TransmitterRingSwizzle(Ring);
         TransmitterRingSchedule(Ring);
 
-        ListEntry = Ring->PacketComplete.Flink;
         if (!IsListEmpty(&Ring->PacketComplete)) {
+            PLIST_ENTRY     ListEntry = Ring->PacketComplete.Flink;
+
             RemoveEntryList(&Ring->PacketComplete);
             InitializeListHead(&Ring->PacketComplete);
             AppendTailList(&List, ListEntry);
@@ -3752,21 +3830,24 @@ __TransmitterRingTeardown(
 }
 
 static FORCEINLINE VOID
-__TransmitterRingQueuePackets(
+__TransmitterRingQueuePacket(
     IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PLIST_ENTRY                 List
+    IN  PXENVIF_TRANSMITTER_PACKET  Packet
     )
 {
+    PLIST_ENTRY                     ListEntry;
     ULONG_PTR                       Old;
     ULONG_PTR                       LockBit;
     ULONG_PTR                       New;
+
+    ListEntry = &Packet->ListEntry;
 
     do {
         Old = (ULONG_PTR)Ring->Lock;
         LockBit = Old & XENVIF_TRANSMITTER_LOCK_BIT;
 
-        List->Flink->Blink = (PVOID)(Old & ~XENVIF_TRANSMITTER_LOCK_BIT);
-        New = (ULONG_PTR)List->Blink;
+        ListEntry->Blink = (PVOID)(Old & ~XENVIF_TRANSMITTER_LOCK_BIT);
+        New = (ULONG_PTR)ListEntry;
         ASSERT((New & XENVIF_TRANSMITTER_LOCK_BIT) == 0);
         New |= LockBit;
     } while ((ULONG_PTR)InterlockedCompareExchangePointer(&Ring->Lock, (PVOID)New, (PVOID)Old) != Old);
@@ -4485,7 +4566,7 @@ TransmitterTeardown(
 }
 
 static BOOLEAN
-__TransmitterGetPacketHeadersPullup(
+TransmitterGetPacketHeadersVersion2Pullup(
     IN      PVOID                   Argument,
     IN      PUCHAR                  DestinationVa,
     IN OUT  PXENVIF_PACKET_PAYLOAD  Payload,
@@ -4546,22 +4627,22 @@ fail1:
 }
 
 NTSTATUS
-TransmitterGetPacketHeaders(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  PXENVIF_TRANSMITTER_PACKET  Packet,
-    OUT PVOID                       Headers,
-    OUT PXENVIF_PACKET_INFO         Info
+TransmitterGetPacketHeadersVersion2(
+    IN  PXENVIF_TRANSMITTER                     Transmitter,
+    IN  struct _XENVIF_TRANSMITTER_PACKET_V2    *PacketVersion2,
+    OUT PVOID                                   Headers,
+    OUT PXENVIF_PACKET_INFO                     Info
     )
 {
-    XENVIF_PACKET_PAYLOAD           Payload;
-    NTSTATUS                        status;
+    XENVIF_PACKET_PAYLOAD                       Payload;
+    NTSTATUS                                    status;
 
-    Payload.Mdl = Packet->Mdl;
-    Payload.Offset = Packet->Offset;
-    Payload.Length = Packet->Length;
+    Payload.Mdl = PacketVersion2->Mdl;
+    Payload.Offset = PacketVersion2->Offset;
+    Payload.Length = PacketVersion2->Length;
 
     status = ParsePacket(Headers,
-                         __TransmitterGetPacketHeadersPullup,
+                         TransmitterGetPacketHeadersVersion2Pullup,
                          Transmitter,
                          &Payload,
                          Info);
@@ -4574,70 +4655,241 @@ fail1:
     return status;
 }
 
-VOID
-TransmitterQueuePackets(
+static FORCEINLINE VOID
+__TransmitterHashAccumulate(
+    IN OUT  PULONG  Accumulator,
+    IN      PUCHAR  Array,
+    IN      ULONG   Length
+    )
+{
+    ULONG           Current;
+    ULONG           Index;
+
+    Current = *Accumulator;
+
+    for (Index = 0; Index < Length; Index++) {
+        ULONG   Overflow;
+
+        Current = (Current << 4) + Array[Index];
+
+        Overflow = Current & 0x000fff00;
+        if (Overflow != 0) {
+            Current ^= Overflow >> 8;
+            Current ^= Overflow;
+        }
+    }
+
+    *Accumulator = Current;
+}
+
+static FORCEINLINE ULONG
+__TransmitterHashPacket(
+    IN  PXENVIF_TRANSMITTER_PACKET  Packet
+    )
+{
+    PUCHAR                          StartVa;
+    PXENVIF_PACKET_INFO             Info;
+    PIP_HEADER                      IpHeader;
+    ULONG                           Value;
+
+    Value = 0;
+
+    StartVa = Packet->Header;
+    Info = &Packet->Info;
+
+    if (Info->TcpHeader.Length == 0 && Info->UdpHeader.Length == 0)
+        goto done;
+
+    ASSERT(Info->IpHeader.Length != 0);
+    IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+
+    if (IpHeader->Version == 4) {
+        PIPV4_HEADER    Version4 = &IpHeader->Version4;
+
+        __TransmitterHashAccumulate(&Value,
+                                    Version4->SourceAddress.Byte,
+                                    IPV4_ADDRESS_LENGTH);
+        __TransmitterHashAccumulate(&Value,
+                                    Version4->DestinationAddress.Byte,
+                                    IPV4_ADDRESS_LENGTH);
+    } else {
+        PIPV6_HEADER    Version6 = &IpHeader->Version6;
+
+        ASSERT3U(IpHeader->Version, ==, 6);
+
+        __TransmitterHashAccumulate(&Value,
+                                    Version6->SourceAddress.Byte,
+                                    IPV6_ADDRESS_LENGTH);
+        __TransmitterHashAccumulate(&Value,
+                                    Version6->DestinationAddress.Byte,
+                                    IPV6_ADDRESS_LENGTH);
+    }
+
+    if (Info->TcpHeader.Length != 0) {
+        PTCP_HEADER TcpHeader;
+
+        TcpHeader = (PTCP_HEADER)(StartVa + Info->TcpHeader.Offset);
+
+        __TransmitterHashAccumulate(&Value,
+                                    (PUCHAR)&TcpHeader->SourcePort,
+                                    sizeof (USHORT));
+        __TransmitterHashAccumulate(&Value,
+                                    (PUCHAR)&TcpHeader->DestinationPort,
+                                    sizeof (USHORT));
+    } else {
+        PUDP_HEADER UdpHeader;
+
+        ASSERT(Info->UdpHeader.Length != 0);
+
+        UdpHeader = (PUDP_HEADER)(StartVa + Info->UdpHeader.Offset);
+
+        __TransmitterHashAccumulate(&Value,
+                                    (PUCHAR)&UdpHeader->SourcePort,
+                                    sizeof (USHORT));
+        __TransmitterHashAccumulate(&Value,
+                                    (PUCHAR)&UdpHeader->DestinationPort,
+                                    sizeof (USHORT));
+    }
+
+done:
+    return Value;
+}
+
+NTSTATUS
+TransmitterQueuePacket(
+    IN  PXENVIF_TRANSMITTER         Transmitter,
+    IN  PMDL                        Mdl,
+    IN  ULONG                       Offset,
+    IN  ULONG                       Length,
+    IN  XENVIF_VIF_OFFLOAD_OPTIONS  OffloadOptions,
+    IN  USHORT                      MaximumSegmentSize,
+    IN  USHORT                      TagControlInformation,
+    IN  PXENVIF_PACKET_HASH         Hash,
+    IN  PVOID                       Cookie
+    )
+{
+    PXENVIF_FRONTEND                Frontend;
+    PXENVIF_TRANSMITTER_PACKET      Packet;
+    PUCHAR                          StartVa;
+    PXENVIF_PACKET_PAYLOAD          Payload;
+    PXENVIF_PACKET_INFO             Info;
+    ULONG                           Index;
+    PXENVIF_TRANSMITTER_RING        Ring;
+    NTSTATUS                        status;
+
+    Frontend = Transmitter->Frontend;
+
+    Packet = __TransmitterGetPacket(Transmitter);
+
+    status = STATUS_NO_MEMORY;
+    if (Packet == NULL)
+        goto fail1;
+
+    Packet->Mdl = Mdl;
+    Packet->Offset = Offset;
+    Packet->Length = Length;
+    Packet->OffloadOptions = OffloadOptions;
+    Packet->MaximumSegmentSize = MaximumSegmentSize;
+    Packet->TagControlInformation = TagControlInformation;
+    Packet->Cookie = Cookie;
+
+    StartVa = Packet->Header;
+
+    Payload = &Packet->Payload;
+    Payload->Mdl = Packet->Mdl;
+    Payload->Offset = Packet->Offset;
+    Payload->Length = Packet->Length;
+
+    Info = &Packet->Info;
+
+    status = ParsePacket(StartVa, TransmitterPullup, Transmitter, Payload, Info);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    switch (Hash->Algorithm) {
+    case XENVIF_PACKET_HASH_ALGORITHM_NONE:
+        Index = __TransmitterHashPacket(Packet);
+        break;
+
+    case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
+        Index = Hash->Value;
+        break;
+
+    default:
+        ASSERT(FALSE);
+        Index = 0;
+        break;
+    }
+
+    Index %= FrontendGetNumQueues(Frontend);
+    Ring = Transmitter->Ring[Index];
+
+    __TransmitterRingQueuePacket(Ring, Packet);
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+    __TransmitterPutPacket(Transmitter, Packet);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+NTSTATUS
+TransmitterQueuePacketsVersion2(
     IN  PXENVIF_TRANSMITTER     Transmitter,
     IN  PLIST_ENTRY             List
     )
 {
-    PXENVIF_TRANSMITTER_RING    Ring;
-    PXENVIF_FRONTEND            Frontend;
-    LONG                        NumQueues;
+    LIST_ENTRY                  Reject;
 
-    Frontend = Transmitter->Frontend;
-    NumQueues = FrontendGetNumQueues(Frontend);
+    InitializeListHead(&Reject);
 
-    if (NumQueues == 1) {
-        Ring = Transmitter->Ring[0];
+    while (!IsListEmpty(List)) {
+        PLIST_ENTRY                             ListEntry;
+        struct _XENVIF_TRANSMITTER_PACKET_V2    *PacketVersion2;
+        XENVIF_PACKET_HASH                      Hash;
+        NTSTATUS                                status;
 
-        __TransmitterRingQueuePackets(Ring, List);
-    } else {
-        while (!IsListEmpty(List)) {
-            PXENVIF_TRANSMITTER_PACKET  Packet;
-            LIST_ENTRY                  HashList;
-            ULONG                       Index;
+        ListEntry = RemoveHeadList(List);
+        ASSERT3P(ListEntry, !=, List);
 
-            InitializeListHead(&HashList);
-            Index = 0;
+        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
 
-            while (!IsListEmpty(List)) {
-                PLIST_ENTRY ListEntry;
-                ULONG       Hash;
+        PacketVersion2 = CONTAINING_RECORD(ListEntry,
+                                           struct _XENVIF_TRANSMITTER_PACKET_V2,
+                                           ListEntry);
 
-                ListEntry = RemoveHeadList(List);
-                ASSERT3P(ListEntry, !=, List);
+        Hash.Algorithm = XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED;
+        Hash.Value = PacketVersion2->Value;
 
-                RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
-
-                Packet = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_PACKET, ListEntry);
-
-                Hash = Packet->Value % NumQueues;
-                if (Hash != Index) {
-                    if (!IsListEmpty(&HashList)) {
-                        Ring = Transmitter->Ring[Index];
-                        ASSERT3P(Ring, !=, NULL);
-
-                        __TransmitterRingQueuePackets(Ring, &HashList);
-                        InitializeListHead(&HashList);
-                    }
-
-                    Index = Hash;
-                }
-
-                InsertTailList(&HashList, ListEntry);
-            }
-
-            if (!IsListEmpty(&HashList)) {
-                Ring = Transmitter->Ring[Index];
-                ASSERT3P(Ring, !=, NULL);
-
-                __TransmitterRingQueuePackets(Ring, &HashList);
-                InitializeListHead(&HashList);
-            }
-
-            ASSERT(IsListEmpty(&HashList));
-        }
+        status = TransmitterQueuePacket(Transmitter,
+                                        PacketVersion2->Mdl,
+                                        PacketVersion2->Offset,
+                                        PacketVersion2->Length,
+                                        PacketVersion2->Send.OffloadOptions,
+                                        PacketVersion2->Send.MaximumSegmentSize,
+                                        PacketVersion2->Send.TagControlInformation,
+                                        &Hash,
+                                        PacketVersion2);
+        if (!NT_SUCCESS(status))
+            InsertTailList(&Reject, &PacketVersion2->ListEntry);
     }
+
+    ASSERT(IsListEmpty(List));
+
+    if (!IsListEmpty(&Reject)) {
+        PLIST_ENTRY ListEntry = Reject.Flink;
+
+        RemoveEntryList(&Reject);
+        AppendTailList(List, ListEntry);
+    }
+
+    return (IsListEmpty(List)) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }
 
 VOID
