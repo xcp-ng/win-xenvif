@@ -56,6 +56,7 @@ typedef struct _XENVIF_FRONTEND_STATISTICS {
     ULONGLONG   Value[XENVIF_VIF_STATISTIC_COUNT];
 } XENVIF_FRONTEND_STATISTICS, *PXENVIF_FRONTEND_STATISTICS;
 
+
 struct _XENVIF_FRONTEND {
     PXENVIF_PDO                 Pdo;
     PCHAR                       Path;
@@ -1898,6 +1899,7 @@ fail5:
 
     MacDisconnect(__FrontendGetMac(Frontend));
 
+    Frontend->Split = FALSE;
     Frontend->NumQueues = 0;
 
 fail4:
@@ -1938,6 +1940,7 @@ FrontendDisconnect(
     ReceiverDisconnect(__FrontendGetReceiver(Frontend));
     MacDisconnect(__FrontendGetMac(Frontend));
 
+    Frontend->Split = FALSE;
     Frontend->NumQueues = 0;
 
     XENBUS_DEBUG(Deregister,

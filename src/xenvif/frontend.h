@@ -127,6 +127,11 @@ FrontendIsSplit(
     IN  PXENVIF_FRONTEND    Frontend
     );
 
+extern BOOLEAN
+FrontendIsSplit(
+    IN  PXENVIF_FRONTEND    Frontend
+    );
+
 extern PCHAR
 FrontendFormatPath(
     IN  PXENVIF_FRONTEND    Frontend,
