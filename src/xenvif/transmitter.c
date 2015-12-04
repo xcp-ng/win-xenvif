@@ -199,9 +199,6 @@ struct _XENVIF_TRANSMITTER {
     XENBUS_RANGE_SET_INTERFACE  RangeSetInterface;
     XENBUS_EVTCHN_INTERFACE     EvtchnInterface;
     PXENVIF_TRANSMITTER_RING    *Ring;
-    LONG                        MaxQueues;
-    LONG                        NumQueues;
-    BOOLEAN                     Split;
     BOOLEAN                     MulticastControl;
     ULONG                       DisableIpVersion4Gso;
     ULONG                       DisableIpVersion6Gso;
@@ -645,10 +642,12 @@ TransmitterRingDebugCallback(
 {
     PXENVIF_TRANSMITTER_RING    Ring = Argument;
     PXENVIF_TRANSMITTER         Transmitter;
+    PXENVIF_FRONTEND            Frontend;
 
     UNREFERENCED_PARAMETER(Crashing);
 
     Transmitter = Ring->Transmitter;
+    Frontend = Transmitter->Frontend;
 
     XENBUS_DEBUG(Printf,
                  &Transmitter->DebugInterface,
@@ -711,7 +710,7 @@ TransmitterRingDebugCallback(
                  Ring->PacketsSent,
                  Ring->PacketsCompleted);
 
-    if (Transmitter->Split) {
+    if (FrontendIsSplit(Frontend)) {
         // Dump event channel
         XENBUS_DEBUG(Printf,
                      &Transmitter->DebugInterface,
@@ -2498,13 +2497,15 @@ __TransmitterRingSend(
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
+    PXENVIF_FRONTEND                Frontend;
 
     Transmitter = Ring->Transmitter;
+    Frontend = Transmitter->Frontend;
 
     if (!Ring->Connected)
         return;
 
-    if (Transmitter->Split) {
+    if (FrontendIsSplit(Frontend)) {
         ASSERT(Ring->Channel != NULL);
 
         (VOID) XENBUS_EVTCHN(Send,
@@ -2918,7 +2919,6 @@ TransmitterRingDpc(
     ASSERT(Ring != NULL);
 
     Transmitter = Ring->Transmitter;
-    ASSERT(Transmitter->Split);
 
     if (Ring->Enabled)
         __TransmitterRingNotify(Ring);
@@ -2942,7 +2942,6 @@ TransmitterRingEvtchnCallback(
     ASSERT(Ring != NULL);
 
     Transmitter = Ring->Transmitter;
-    ASSERT(Transmitter->Split);
 
     Ring->Events++;
 
@@ -3289,7 +3288,7 @@ __TransmitterRingConnect(
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
 
-    if (Transmitter->Split) {
+    if (FrontendIsSplit(Frontend)) {
         Ring->Channel = XENBUS_EVTCHN(Open,
                                       &Transmitter->EvtchnInterface,
                                       XENBUS_EVTCHN_TYPE_UNBOUND,
@@ -3461,7 +3460,7 @@ __TransmitterRingStoreWrite(
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
-    Path = (Transmitter->NumQueues == 1) ?
+    Path = (FrontendGetNumQueues(Frontend) == 1) ?
            FrontendGetPath(Frontend) :
            Ring->Path;
 
@@ -3477,7 +3476,7 @@ __TransmitterRingStoreWrite(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    if (!Transmitter->Split)
+    if (!FrontendIsSplit(Frontend))
         goto done;
 
     Port = XENBUS_EVTCHN(GetPort,
@@ -3512,15 +3511,17 @@ __TransmitterRingEnable(
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
+    PXENVIF_FRONTEND                Frontend;
 
     Transmitter = Ring->Transmitter;
+    Frontend = Transmitter->Frontend;
 
     __TransmitterRingAcquireLock(Ring);
 
     ASSERT(!Ring->Enabled);
     Ring->Enabled = TRUE;
 
-    if (Transmitter->Split &&
+    if (FrontendIsSplit(Frontend) &&
         KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
         Ring->Dpcs++;
 
@@ -3995,6 +3996,7 @@ TransmitterInitialize(
     )
 {
     HANDLE                  ParametersKey;
+    LONG                    MaxQueues;
     LONG                    Index;
     NTSTATUS                status;
 
@@ -4055,16 +4057,16 @@ TransmitterInitialize(
     (*Transmitter)->Frontend = Frontend;
     KeInitializeSpinLock(&(*Transmitter)->Lock);
 
-    (*Transmitter)->MaxQueues = FrontendGetMaxQueues(Frontend);
+    MaxQueues = FrontendGetMaxQueues(Frontend);
     (*Transmitter)->Ring = __TransmitterAllocate(sizeof (PXENVIF_TRANSMITTER_RING) *
-                                                 (*Transmitter)->MaxQueues);
+                                                 MaxQueues);
 
     status = STATUS_NO_MEMORY;
     if ((*Transmitter)->Ring == NULL)
         goto fail2;
 
     Index = 0;
-    while (Index < (*Transmitter)->MaxQueues) {
+    while (Index < MaxQueues) {
         PXENVIF_TRANSMITTER_RING    Ring;
 
         status = __TransmitterRingInitialize(*Transmitter, Index, &Ring);
@@ -4092,8 +4094,6 @@ fail3:
 
 fail2:
     Error("fail2\n");
-
-    (*Transmitter)->MaxQueues = 0;
 
     (*Transmitter)->Frontend = NULL;
 
@@ -4208,13 +4208,8 @@ TransmitterConnect(
                      Buffer);
     }
 
-    Transmitter->Split = FrontendIsSplit(Frontend);
-
-    Transmitter->NumQueues = FrontendGetNumQueues(Frontend);
-    ASSERT3U(Transmitter->NumQueues, <=, Transmitter->MaxQueues);
-
     Index = 0;
-    while (Index < Transmitter->NumQueues) {
+    while (Index < (LONG)FrontendGetNumQueues(Frontend)) {
         PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
 
         status = __TransmitterRingConnect(Ring);
@@ -4239,7 +4234,7 @@ TransmitterConnect(
 fail10:
     Error("fail10\n");
 
-    Index = Transmitter->NumQueues;
+    Index = FrontendGetNumQueues(Frontend);
 
 fail9:
     Error("fail9\n");
@@ -4252,8 +4247,6 @@ fail9:
         __TransmitterRingDisconnect(Ring);
     }
 
-    Transmitter->NumQueues = 0;
-    Transmitter->Split = FALSE;
     Transmitter->MulticastControl = FALSE;
 
     XENBUS_CACHE(Destroy,
@@ -4323,7 +4316,7 @@ TransmitterStoreWrite(
         goto fail1;
 
     Index = 0;
-    while (Index < Transmitter->NumQueues) {
+    while (Index < (LONG)FrontendGetNumQueues(Frontend)) {
         PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
 
         status = __TransmitterRingStoreWrite(Ring, Transaction);
@@ -4349,12 +4342,15 @@ TransmitterEnable(
     IN  PXENVIF_TRANSMITTER Transmitter
     )
 {
+    PXENVIF_FRONTEND        Frontend;
     LONG                    Index;
 
     Trace("====>\n");
 
+    Frontend = Transmitter->Frontend;
+
     Index = 0;
-    while (Index < Transmitter->NumQueues) {
+    while (Index < (LONG)FrontendGetNumQueues(Frontend)) {
         PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
 
         __TransmitterRingEnable(Ring);
@@ -4370,11 +4366,14 @@ TransmitterDisable(
     IN  PXENVIF_TRANSMITTER Transmitter
     )
 {
+    PXENVIF_FRONTEND       Frontend;
     LONG                   Index;
 
     Trace("====>\n");
 
-    Index = Transmitter->NumQueues;
+    Frontend = Transmitter->Frontend;
+
+    Index = FrontendGetNumQueues(Frontend);
     while (--Index >= 0) {
         PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
 
@@ -4401,16 +4400,14 @@ TransmitterDisconnect(
                  Transmitter->DebugCallback);
     Transmitter->DebugCallback = NULL;
 
-    Index = Transmitter->NumQueues;
+    Index = FrontendGetNumQueues(Frontend);
     while (--Index >= 0) {
         PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
 
         __TransmitterRingDisconnect(Ring);
     }
 
-    Transmitter->NumQueues = 0;
     Transmitter->MulticastControl = FALSE;
-    Transmitter->Split = FALSE;
 
     XENBUS_CACHE(Destroy,
                  &Transmitter->CacheInterface,
@@ -4437,12 +4434,15 @@ TransmitterTeardown(
     IN  PXENVIF_TRANSMITTER Transmitter
     )
 {
+    PXENVIF_FRONTEND        Frontend;
     LONG                    Index;
+
+    Frontend = Transmitter->Frontend;
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
     KeFlushQueuedDpcs();
 
-    Index = Transmitter->MaxQueues;
+    Index = FrontendGetMaxQueues(Frontend);
     while (--Index >= 0) {
         PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
 
@@ -4452,7 +4452,6 @@ TransmitterTeardown(
 
     __TransmitterFree(Transmitter->Ring);
     Transmitter->Ring = NULL;
-    Transmitter->MaxQueues = 0;
 
     Transmitter->Frontend = NULL;
 
@@ -4583,10 +4582,12 @@ TransmitterQueuePackets(
 {
     PXENVIF_TRANSMITTER_RING    Ring;
     PXENVIF_FRONTEND            Frontend;
+    LONG                        NumQueues;
 
     Frontend = Transmitter->Frontend;
+    NumQueues = FrontendGetNumQueues(Frontend);
 
-    if (Transmitter->NumQueues == 1) {
+    if (NumQueues == 1) {
         Ring = Transmitter->Ring[0];
 
         __TransmitterRingQueuePackets(Ring, List);
@@ -4610,7 +4611,7 @@ TransmitterQueuePackets(
 
                 Packet = CONTAINING_RECORD(ListEntry, XENVIF_TRANSMITTER_PACKET, ListEntry);
 
-                Hash = Packet->Value % Transmitter->NumQueues;
+                Hash = Packet->Value % NumQueues;
                 if (Hash != Index) {
                     if (!IsListEmpty(&HashList)) {
                         Ring = Transmitter->Ring[Index];
@@ -4644,12 +4645,15 @@ TransmitterAbortPackets(
     IN  PXENVIF_TRANSMITTER Transmitter
     )
 {
+    PXENVIF_FRONTEND        Frontend;
     KIRQL                   Irql;
     LONG                    Index;
 
+    Frontend = Transmitter->Frontend;
+
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 
-    Index = Transmitter->NumQueues;
+    Index = FrontendGetNumQueues(Frontend);
     while (--Index >= 0) {
         PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
 
@@ -4712,7 +4716,6 @@ TransmitterNotify(
 {
     PXENVIF_TRANSMITTER_RING    Ring;
 
-    ASSERT3U(Index, <, (ULONG)Transmitter->NumQueues);
     Ring = Transmitter->Ring[Index];
 
     __TransmitterRingNotify(Ring);
