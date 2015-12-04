@@ -2536,11 +2536,6 @@ __TransmitterRingSend(
                              &Transmitter->EvtchnInterface,
                              Ring->Channel);
     } else {
-        PXENVIF_FRONTEND        Frontend;
-
-        ASSERT(Ring->Channel == NULL);
-        Frontend = Transmitter->Frontend;
-
         ReceiverSend(FrontendGetReceiver(Frontend),
                      Ring->Index);
     }
