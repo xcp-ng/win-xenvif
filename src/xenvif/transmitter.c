@@ -710,6 +710,15 @@ TransmitterRingDebugCallback(
                  Ring->PacketsUnprepared,
                  Ring->PacketsSent,
                  Ring->PacketsCompleted);
+
+    if (Transmitter->Split) {
+        // Dump event channel
+        XENBUS_DEBUG(Printf,
+                     &Transmitter->DebugInterface,
+                     "Events = %lu Dpcs = %lu\n",
+                     Ring->Events,
+                     Ring->Dpcs);
+    }
 }
 
 static BOOLEAN
@@ -3618,8 +3627,6 @@ __TransmitterRingDisconnect(
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
-    Transmitter->Split = FALSE;
-
     if (Ring->Channel != NULL) {
         XENBUS_EVTCHN(Close,
                       &Transmitter->EvtchnInterface,
@@ -4189,22 +4196,6 @@ TransmitterConnect(
                           &Transmitter->StoreInterface,
                           NULL,
                           FrontendGetBackendPath(Frontend),
-                          "feature-split-event-channels",
-                          &Buffer);
-    if (!NT_SUCCESS(status)) {
-        Transmitter->Split = FALSE;
-    } else {
-        Transmitter->Split = (BOOLEAN)strtol(Buffer, NULL, 2);
-
-        XENBUS_STORE(Free,
-                     &Transmitter->StoreInterface,
-                     Buffer);
-    }
-
-    status = XENBUS_STORE(Read,
-                          &Transmitter->StoreInterface,
-                          NULL,
-                          FrontendGetBackendPath(Frontend),
                           "feature-multicast-control",
                           &Buffer);
     if (!NT_SUCCESS(status)) {
@@ -4216,6 +4207,8 @@ TransmitterConnect(
                      &Transmitter->StoreInterface,
                      Buffer);
     }
+
+    Transmitter->Split = FrontendIsSplit(Frontend);
 
     Transmitter->NumQueues = FrontendGetNumQueues(Frontend);
     ASSERT3U(Transmitter->NumQueues, <=, Transmitter->MaxQueues);
@@ -4260,6 +4253,8 @@ fail9:
     }
 
     Transmitter->NumQueues = 0;
+    Transmitter->Split = FALSE;
+    Transmitter->MulticastControl = FALSE;
 
     XENBUS_CACHE(Destroy,
                  &Transmitter->CacheInterface,
@@ -4401,9 +4396,6 @@ TransmitterDisconnect(
 
     Frontend = Transmitter->Frontend;
 
-    Transmitter->MulticastControl = FALSE;
-    Transmitter->Split = FALSE;
-
     XENBUS_DEBUG(Deregister,
                  &Transmitter->DebugInterface,
                  Transmitter->DebugCallback);
@@ -4417,6 +4409,8 @@ TransmitterDisconnect(
     }
 
     Transmitter->NumQueues = 0;
+    Transmitter->MulticastControl = FALSE;
+    Transmitter->Split = FALSE;
 
     XENBUS_CACHE(Destroy,
                  &Transmitter->CacheInterface,
