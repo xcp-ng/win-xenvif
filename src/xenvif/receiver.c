@@ -111,9 +111,6 @@ struct _XENVIF_RECEIVER {
     XENBUS_GNTTAB_INTERFACE GnttabInterface;
     XENBUS_EVTCHN_INTERFACE EvtchnInterface;
     PXENVIF_RECEIVER_RING   *Ring;
-    LONG                    MaxQueues;
-    LONG                    NumQueues;
-    BOOLEAN                 Split;
     LONG                    Loaned;
     LONG                    Returned;
     KEVENT                  Event;
@@ -1737,10 +1734,12 @@ ReceiverRingDebugCallback(
 {
     PXENVIF_RECEIVER_RING       Ring = Argument;
     PXENVIF_RECEIVER            Receiver;
+    PXENVIF_FRONTEND            Frontend;
 
     UNREFERENCED_PARAMETER(Crashing);
 
     Receiver = Ring->Receiver;
+    Frontend = Receiver->Frontend;
 
     XENBUS_DEBUG(Printf,
                  &Receiver->DebugInterface,
@@ -1779,7 +1778,7 @@ ReceiverRingDebugCallback(
     XENBUS_DEBUG(Printf,
                  &Receiver->DebugInterface,
                  "[%s]: Events = %lu Dpcs = %lu\n",
-                 Receiver->Split ? "RX" : "COMBINED",
+                 FrontendIsSplit(Frontend) ? "RX" : "COMBINED",
                  Ring->Events,
                  Ring->Dpcs);
 }
@@ -2014,7 +2013,7 @@ ReceiverRingDpc(
 
     if (Ring->Enabled) {
         __ReceiverRingNotify(Ring);
-        if (!Receiver->Split)
+        if (!FrontendIsSplit(Frontend))
             TransmitterNotify(FrontendGetTransmitter(Frontend),
                               Ring->Index);
     }
@@ -2441,7 +2440,7 @@ __ReceiverRingStoreWrite(
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
-    Path = (Receiver->NumQueues == 1) ?
+    Path = (FrontendGetNumQueues(Frontend) == 1) ?
            FrontendGetPath(Frontend) :
            Ring->Path;
 
@@ -2465,7 +2464,7 @@ __ReceiverRingStoreWrite(
                           &Receiver->StoreInterface,
                           Transaction,
                           Path,
-                          Receiver->Split ? "event-channel-rx" : "event-channel",
+                          FrontendIsSplit(Frontend) ? "event-channel-rx" : "event-channel",
                           "%u",
                           Port);
     if (!NT_SUCCESS(status))
@@ -2695,6 +2694,7 @@ ReceiverInitialize(
     )
 {
     HANDLE                  ParametersKey;
+    LONG                    MaxQueues;
     LONG                    Index;
     NTSTATUS                status;
 
@@ -2777,16 +2777,16 @@ ReceiverInitialize(
 
     (*Receiver)->Frontend = Frontend;
 
-    (*Receiver)->MaxQueues = FrontendGetMaxQueues(Frontend);
+    MaxQueues = FrontendGetMaxQueues(Frontend);
     (*Receiver)->Ring = __ReceiverAllocate(sizeof (PXENVIF_RECEIVER_RING) *
-                                           (*Receiver)->MaxQueues);
+                                           MaxQueues);
 
     status = STATUS_NO_MEMORY;
     if ((*Receiver)->Ring == NULL)
         goto fail2;
 
     Index = 0;
-    while (Index < (*Receiver)->MaxQueues) {
+    while (Index < MaxQueues) {
         PXENVIF_RECEIVER_RING   Ring;
 
         status = __ReceiverRingInitialize(*Receiver, Index, &Ring);
@@ -2816,7 +2816,6 @@ fail3:
 fail2:
     Error("fail2\n");
 
-    (*Receiver)->MaxQueues = 0;
     (*Receiver)->Frontend = NULL;
 
     RtlZeroMemory(&(*Receiver)->EvtchnInterface,
@@ -2885,13 +2884,8 @@ ReceiverConnect(
     if (!NT_SUCCESS(status))
         goto fail5;
 
-    Receiver->Split = FrontendIsSplit(Frontend);
-
-    Receiver->NumQueues = FrontendGetNumQueues(Frontend);
-    ASSERT3U(Receiver->NumQueues, <=, Receiver->MaxQueues);
-
     Index = 0;
-    while (Index < Receiver->NumQueues) {
+    while (Index < (LONG)FrontendGetNumQueues(Frontend)) {
         PXENVIF_RECEIVER_RING   Ring = Receiver->Ring[Index];
 
         status = __ReceiverRingConnect(Ring);
@@ -2916,7 +2910,7 @@ ReceiverConnect(
 fail7:
     Error("fail7\n");
 
-    Index = Receiver->NumQueues;
+    Index = FrontendGetNumQueues(Frontend);
 
 fail6:
     Error("fail6\n");
@@ -2926,8 +2920,6 @@ fail6:
 
         __ReceiverRingDisconnect(Ring);
     }
-
-    Receiver->NumQueues = 0;
 
     XENBUS_GNTTAB(Release, &Receiver->GnttabInterface);
 
@@ -3092,7 +3084,7 @@ ReceiverStoreWrite(
         goto fail5;
 
     Index = 0;
-    while (Index < Receiver->NumQueues) {
+    while (Index < (LONG)FrontendGetNumQueues(Frontend)) {
         PXENVIF_RECEIVER_RING   Ring = Receiver->Ring[Index];
 
         status = __ReceiverRingStoreWrite(Ring, Transaction);
@@ -3130,13 +3122,16 @@ ReceiverEnable(
     IN  PXENVIF_RECEIVER    Receiver
     )
 {
+    PXENVIF_FRONTEND        Frontend;
     LONG                    Index;
     NTSTATUS                status;
 
     Trace("====>\n");
 
+    Frontend = Receiver->Frontend;
+
     Index = 0;
-    while (Index < Receiver->NumQueues) {
+    while (Index < (LONG)FrontendGetNumQueues(Frontend)) {
         PXENVIF_RECEIVER_RING   Ring = Receiver->Ring[Index];
 
         status = __ReceiverRingEnable(Ring);
@@ -3170,11 +3165,14 @@ ReceiverDisable(
     IN  PXENVIF_RECEIVER    Receiver
     )
 {
+    PXENVIF_FRONTEND        Frontend;
     LONG                    Index;
 
     Trace("====>\n");
 
-    Index = Receiver->NumQueues;
+    Frontend = Receiver->Frontend;
+
+    Index = FrontendGetNumQueues(Frontend);
     while (--Index >= 0) {
         PXENVIF_RECEIVER_RING   Ring = Receiver->Ring[Index];
 
@@ -3201,15 +3199,12 @@ ReceiverDisconnect(
                  Receiver->DebugCallback);
     Receiver->DebugCallback = NULL;
 
-    Index = Receiver->NumQueues;
+    Index = FrontendGetNumQueues(Frontend);
     while (--Index >= 0) {
         PXENVIF_RECEIVER_RING   Ring = Receiver->Ring[Index];
 
         __ReceiverRingDisconnect(Ring);
     }
-
-    Receiver->NumQueues = 0;
-    Receiver->Split = FALSE;
 
     XENBUS_GNTTAB(Release, &Receiver->GnttabInterface);
 
@@ -3229,7 +3224,10 @@ ReceiverTeardown(
     IN  PXENVIF_RECEIVER    Receiver
     )
 {
+    PXENVIF_FRONTEND        Frontend;
     LONG                    Index;
+
+    Frontend = Receiver->Frontend;
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
     KeFlushQueuedDpcs();
@@ -3238,7 +3236,7 @@ ReceiverTeardown(
     Receiver->Loaned = 0;
     Receiver->Returned = 0;
 
-    Index = Receiver->MaxQueues;
+    Index = FrontendGetMaxQueues(Frontend);
     while (--Index >= 0) {
         PXENVIF_RECEIVER_RING   Ring = Receiver->Ring[Index];
 
@@ -3248,7 +3246,6 @@ ReceiverTeardown(
 
     __ReceiverFree(Receiver->Ring);
     Receiver->Ring = NULL;
-    Receiver->MaxQueues = 0;
 
     Receiver->Frontend = NULL;
 
@@ -3286,7 +3283,10 @@ ReceiverSetOffloadOptions(
     IN  XENVIF_VIF_OFFLOAD_OPTIONS  Options
     )
 {
+    PXENVIF_FRONTEND                Frontend;
     LONG                            Index;
+
+    Frontend = Receiver->Frontend;
 
     if (Receiver->AllowGsoPackets == 0) {
         Warning("RECEIVER GSO DISALLOWED\n");
@@ -3294,7 +3294,9 @@ ReceiverSetOffloadOptions(
         Options.OffloadIpVersion6LargePacket = 0;
     }
 
-    for (Index = 0; Index < Receiver->MaxQueues; ++Index) {
+    for (Index = 0;
+         Index < (LONG)FrontendGetMaxQueues(Frontend);
+         ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
         Ring = Receiver->Ring[Index];
@@ -3311,11 +3313,16 @@ ReceiverSetBackfillSize(
     IN  ULONG               Size
     )
 {
-    LONG                    Index;
+    PXENVIF_FRONTEND                Frontend;
+    LONG                            Index;
+
+    Frontend = Receiver->Frontend;
 
     ASSERT3U(Size, <, PAGE_SIZE);
 
-    for (Index = 0; Index < Receiver->MaxQueues; ++Index) {
+    for (Index = 0;
+         Index < (LONG)FrontendGetMaxQueues(Frontend);
+         ++Index) {
         PXENVIF_RECEIVER_RING   Ring;
 
         Ring = Receiver->Ring[Index];
@@ -3419,7 +3426,6 @@ ReceiverSend(
 {
     PXENVIF_RECEIVER_RING   Ring;
 
-    ASSERT3U(Index, <, (ULONG)Receiver->NumQueues);
     Ring = Receiver->Ring[Index];
 
     __ReceiverRingSend(Ring, FALSE);
