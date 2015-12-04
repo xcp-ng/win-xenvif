@@ -70,6 +70,7 @@ struct _XENVIF_FRONTEND {
     USHORT                      BackendDomain;
     ULONG                       MaxQueues;
     ULONG                       NumQueues;
+    BOOLEAN                     Split;
 
     PXENVIF_MAC                 Mac;
     PXENVIF_RECEIVER            Receiver;
@@ -1674,7 +1675,8 @@ FrontendSetNumQueues(
         BackendMaxQueues = 1;
     }
 
-    Frontend->NumQueues = __min(Frontend->MaxQueues, BackendMaxQueues);
+    Frontend->NumQueues = __min(__FrontendGetMaxQueues(Frontend),
+                                BackendMaxQueues);
 
     Info("%s: %u\n", __FrontendGetPath(Frontend), Frontend->NumQueues);
 }
@@ -1693,6 +1695,50 @@ FrontendGetNumQueues(
     )
 {
     return __FrontendGetNumQueues(Frontend);
+}
+
+static VOID
+FrontendSetSplit(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    PCHAR                   Buffer;
+    NTSTATUS                status;
+
+    status = XENBUS_STORE(Read,
+                          &Frontend->StoreInterface,
+                          NULL,
+                          __FrontendGetBackendPath(Frontend),
+                          "feature-split-event-channels",
+                          &Buffer);
+    if (NT_SUCCESS(status)) {
+        Frontend->Split = (BOOLEAN)strtol(Buffer, NULL, 2);
+
+        XENBUS_STORE(Free,
+                     &Frontend->StoreInterface,
+                     Buffer);
+    } else {
+        Frontend->Split = FALSE;
+    }
+
+    Info("%s: %s\n", __FrontendGetPath(Frontend),
+         (Frontend->Split) ? "TRUE" : "FALSE");
+}
+
+static FORCEINLINE BOOLEAN
+__FrontendIsSplit(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    return Frontend->Split;
+}
+
+BOOLEAN
+FrontendIsSplit(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    return __FrontendIsSplit(Frontend);
 }
 
 static NTSTATUS
@@ -1731,6 +1777,7 @@ FrontendConnect(
         goto fail4;
 
     FrontendSetNumQueues(Frontend);
+    FrontendSetSplit(Frontend);
 
     status = ReceiverConnect(__FrontendGetReceiver(Frontend));
     if (!NT_SUCCESS(status))

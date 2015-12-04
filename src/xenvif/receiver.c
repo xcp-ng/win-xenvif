@@ -2859,7 +2859,6 @@ ReceiverConnect(
 {
     PXENVIF_FRONTEND        Frontend;
     LONG                    Index;
-    PCHAR                   Buffer;
     NTSTATUS                status;
 
     Trace("====>\n");
@@ -2886,21 +2885,7 @@ ReceiverConnect(
     if (!NT_SUCCESS(status))
         goto fail5;
 
-    status = XENBUS_STORE(Read,
-                          &Receiver->StoreInterface,
-                          NULL,
-                          FrontendGetBackendPath(Frontend),
-                          "feature-split-event-channels",
-                          &Buffer);
-    if (!NT_SUCCESS(status)) {
-        Receiver->Split = FALSE;
-    } else {
-        Receiver->Split = (BOOLEAN)strtol(Buffer, NULL, 2);
-
-        XENBUS_STORE(Free,
-                     &Receiver->StoreInterface,
-                     Buffer);
-    }
+    Receiver->Split = FrontendIsSplit(Frontend);
 
     Receiver->NumQueues = FrontendGetNumQueues(Frontend);
     ASSERT3U(Receiver->NumQueues, <=, Receiver->MaxQueues);
@@ -3211,8 +3196,6 @@ ReceiverDisconnect(
 
     Frontend = Receiver->Frontend;
 
-    Receiver->Split = FALSE;
-
     XENBUS_DEBUG(Deregister,
                  &Receiver->DebugInterface,
                  Receiver->DebugCallback);
@@ -3226,6 +3209,7 @@ ReceiverDisconnect(
     }
 
     Receiver->NumQueues = 0;
+    Receiver->Split = FALSE;
 
     XENBUS_GNTTAB(Release, &Receiver->GnttabInterface);
 
