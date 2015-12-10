@@ -45,7 +45,7 @@ __LinkAllocate(
     IN  ULONG   Length
     )
 {
-    return __AllocateNonPagedPoolWithTag(Length, LINK_TAG);
+    return __AllocatePoolWithTag(NonPagedPool, Length, LINK_TAG);
 }
 
 static FORCEINLINE VOID

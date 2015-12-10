@@ -29,8 +29,8 @@
  * SUCH DAMAGE.
  */
 
-#ifndef _UTIL_H
-#define _UTIL_H
+#ifndef _XENVIF_UTIL_H
+#define _XENVIF_UTIL_H
 
 #include <ntddk.h>
 
@@ -138,85 +138,32 @@ __InterlockedSubtract(
     return New;
 }
 
-typedef struct _NON_PAGED_BUFFER_HEADER {
-    SIZE_T  Length;
-    ULONG   Tag;
-} NON_PAGED_BUFFER_HEADER, *PNON_PAGED_BUFFER_HEADER;
-
-typedef struct _NON_PAGED_BUFFER_TRAILER {
-    ULONG   Tag;
-} NON_PAGED_BUFFER_TRAILER, *PNON_PAGED_BUFFER_TRAILER;
-
 static FORCEINLINE PVOID
-__AllocateNonPagedPoolWithTag(
-    IN  SIZE_T                  Length,
-    IN  ULONG                   Tag
+__AllocatePoolWithTag(
+    IN  POOL_TYPE   PoolType,
+    IN  SIZE_T      NumberOfBytes,
+    IN  ULONG       Tag
     )
 {
-    PUCHAR                      Buffer;
-    PNON_PAGED_BUFFER_HEADER    Header;
-    PNON_PAGED_BUFFER_TRAILER   Trailer;
+    PUCHAR          Buffer;
 
-    ASSERT(Length != 0);
+    __analysis_assume(PoolType == NonPagedPool ||
+                      PoolType == PagedPool);
 
-    Buffer = ExAllocatePoolWithTag(NonPagedPool,
-                                   sizeof (NON_PAGED_BUFFER_HEADER) +
-                                   Length +
-                                   sizeof (NON_PAGED_BUFFER_TRAILER),
-                                   Tag);
+    Buffer = ExAllocatePoolWithTag(PoolType, NumberOfBytes, Tag);
     if (Buffer == NULL)
-        goto done;
+        return NULL;
 
-    RtlZeroMemory(Buffer,
-                  sizeof (NON_PAGED_BUFFER_HEADER) +
-                  Length +
-                  sizeof (NON_PAGED_BUFFER_TRAILER));
-
-    Header = (PNON_PAGED_BUFFER_HEADER)Buffer;
-    Header->Length = Length;
-    Header->Tag = Tag;
-
-    Buffer += sizeof (NON_PAGED_BUFFER_HEADER);
-
-    Trailer = (PNON_PAGED_BUFFER_TRAILER)(Buffer + Length);
-    Trailer->Tag = Tag;
-
-done:
+    RtlZeroMemory(Buffer, NumberOfBytes);
     return Buffer;
 }
 
 static FORCEINLINE VOID
 __FreePoolWithTag(
-    IN  PVOID                   _Buffer,
-    IN  ULONG                   Tag
+    IN  PVOID   Buffer,
+    IN  ULONG   Tag
     )
 {
-    PUCHAR                      Buffer = _Buffer;
-    SIZE_T                      Length;
-    PNON_PAGED_BUFFER_HEADER    Header;
-    PNON_PAGED_BUFFER_TRAILER   Trailer;
-
-    ASSERT(Buffer != NULL);
-
-    Buffer -= sizeof (NON_PAGED_BUFFER_HEADER);
-
-    Header = (PNON_PAGED_BUFFER_HEADER)Buffer;
-    ASSERT3U(Tag, ==, Header->Tag);
-    Length = Header->Length;
-
-    Buffer += sizeof (NON_PAGED_BUFFER_HEADER);
-
-    Trailer = (PNON_PAGED_BUFFER_TRAILER)(Buffer + Length);
-    ASSERT3U(Tag, ==, Trailer->Tag);
-
-    Buffer -= sizeof (NON_PAGED_BUFFER_HEADER);
-
-    RtlFillMemory(Buffer,
-                  sizeof (NON_PAGED_BUFFER_HEADER) +
-                  Length +
-                  sizeof (NON_PAGED_BUFFER_TRAILER),
-                  0xAA);
-
     ExFreePoolWithTag(Buffer, Tag);
 }
 
@@ -340,4 +287,26 @@ __strtok_r(
     return Token;
 }
 
-#endif  // _UTIL_H
+static FORCEINLINE CHAR
+__toupper(
+    IN  CHAR    Character
+    )
+{
+    if (Character < 'a' || Character > 'z')
+        return Character;
+
+    return 'A' + Character - 'a';
+}
+
+static FORCEINLINE CHAR
+__tolower(
+    IN  CHAR    Character
+    )
+{
+    if (Character < 'A' || Character > 'Z')
+        return Character;
+
+    return 'a' + Character - 'A';
+}
+
+#endif  // _XENVIF_UTIL_H

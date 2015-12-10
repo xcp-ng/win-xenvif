@@ -45,7 +45,7 @@ __SettingsAllocate(
     IN  ULONG   Length
     )
 {
-    return __AllocateNonPagedPoolWithTag(Length, SETTINGS_TAG);
+    return __AllocatePoolWithTag(NonPagedPool, Length, SETTINGS_TAG);
 }
 
 static FORCEINLINE VOID

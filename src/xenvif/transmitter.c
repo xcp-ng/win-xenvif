@@ -232,7 +232,7 @@ __TransmitterAllocate(
     IN  ULONG   Length
     )
 {
-    return __AllocateNonPagedPoolWithTag(Length, XENVIF_TRANSMITTER_TAG);
+    return __AllocatePoolWithTag(NonPagedPool, Length, XENVIF_TRANSMITTER_TAG);
 }
 
 static FORCEINLINE VOID
