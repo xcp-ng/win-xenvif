@@ -53,7 +53,7 @@ __BusAllocate(
     IN  ULONG   Length
     )
 {
-    return __AllocateNonPagedPoolWithTag(Length, BUS_TAG);
+    return __AllocatePoolWithTag(NonPagedPool, Length, BUS_TAG);
 }
 
 static FORCEINLINE VOID

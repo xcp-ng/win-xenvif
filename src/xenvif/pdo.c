@@ -100,7 +100,7 @@ __PdoAllocate(
     IN  ULONG   Length
     )
 {
-    return __AllocateNonPagedPoolWithTag(Length, PDO_POOL);
+    return __AllocatePoolWithTag(NonPagedPool, Length, PDO_POOL);
 }
 
 static FORCEINLINE VOID

@@ -145,7 +145,7 @@ __ReceiverAllocate(
     IN  ULONG   Length
     )
 {
-    return __AllocateNonPagedPoolWithTag(Length, XENVIF_RECEIVER_TAG);
+    return __AllocatePoolWithTag(NonPagedPool, Length, XENVIF_RECEIVER_TAG);
 }
 
 static FORCEINLINE VOID

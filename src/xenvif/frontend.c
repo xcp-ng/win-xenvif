@@ -126,7 +126,7 @@ __FrontendAllocate(
     IN  ULONG   Length
     )
 {
-    return __AllocateNonPagedPoolWithTag(Length, FRONTEND_POOL);
+    return __AllocatePoolWithTag(NonPagedPool, Length, FRONTEND_POOL);
 }
 
 static FORCEINLINE VOID

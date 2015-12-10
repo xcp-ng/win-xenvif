@@ -73,7 +73,7 @@ __MacAllocate(
     IN  ULONG   Length
     )
 {
-    return __AllocateNonPagedPoolWithTag(Length, XENVIF_MAC_TAG);
+    return __AllocatePoolWithTag(NonPagedPool, Length, XENVIF_MAC_TAG);
 }
 
 static FORCEINLINE VOID

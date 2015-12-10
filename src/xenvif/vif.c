@@ -64,7 +64,7 @@ __VifAllocate(
     IN  ULONG   Length
     )
 {
-    return __AllocateNonPagedPoolWithTag(Length, XENVIF_VIF_TAG);
+    return __AllocatePoolWithTag(NonPagedPool, Length, XENVIF_VIF_TAG);
 }
 
 static FORCEINLINE VOID
