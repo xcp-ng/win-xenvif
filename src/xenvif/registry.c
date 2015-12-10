@@ -30,13 +30,12 @@
  */
 
 #include <ntddk.h>
-#include <stdlib.h>
 
 #include "registry.h"
 #include "assert.h"
 #include "util.h"
 
-#define REGISTRY_POOL 'GERX'
+#define REGISTRY_TAG 'GERX'
 
 static UNICODE_STRING   RegistryPath;
 
@@ -45,7 +44,7 @@ __RegistryAllocate(
     IN  ULONG   Length
     )
 {
-    return __AllocatePoolWithTag(NonPagedPool, Length, REGISTRY_POOL);
+    return __AllocatePoolWithTag(NonPagedPool, Length, REGISTRY_TAG);
 }
 
 static FORCEINLINE VOID
@@ -53,7 +52,7 @@ __RegistryFree(
     IN  PVOID   Buffer
     )
 {
-    __FreePoolWithTag(Buffer, REGISTRY_POOL);
+    __FreePoolWithTag(Buffer, REGISTRY_TAG);
 }
 
 NTSTATUS
@@ -117,12 +116,54 @@ fail1:
 }
 
 NTSTATUS
+RegistryCreateKey(
+    IN  HANDLE          Parent,
+    IN  PUNICODE_STRING Path,
+    IN  ULONG           Options,
+    OUT PHANDLE         Key
+    )
+{
+    OBJECT_ATTRIBUTES   Attributes;
+    NTSTATUS            status;
+
+    InitializeObjectAttributes(&Attributes,
+                               Path,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                               Parent,
+                               NULL);
+
+    status = ZwCreateKey(Key,
+                         KEY_ALL_ACCESS,
+                         &Attributes,
+                         0,
+                         NULL,
+                         Options,
+                         NULL
+                         );
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    return STATUS_SUCCESS;
+
+fail1:
+    return status;
+}
+
+NTSTATUS
 RegistryOpenServiceKey(
     IN  ACCESS_MASK     DesiredAccess,
     OUT PHANDLE         Key
     )
 {
     return RegistryOpenKey(NULL, &RegistryPath, DesiredAccess, Key);
+}
+
+NTSTATUS
+RegistryCreateServiceKey(
+    OUT PHANDLE         Key
+    )
+{
+    return RegistryCreateKey(NULL, &RegistryPath, REG_OPTION_NON_VOLATILE, Key);
 }
 
 NTSTATUS
@@ -330,6 +371,8 @@ RegistryDeleteSubKey(
         goto fail3;
 
     ZwClose(SubKey);
+
+    (VOID) ZwFlushKey(Key);
 
     RtlFreeUnicodeString(&Unicode);
 
@@ -569,6 +612,8 @@ RegistryDeleteValue(
 
     RtlFreeUnicodeString(&Unicode);
 
+    (VOID) ZwFlushKey(Key);
+
     return STATUS_SUCCESS;
 
 fail2:
@@ -688,6 +733,8 @@ RegistryUpdateDwordValue(
         goto fail3;
 
     __RegistryFree(Partial);
+
+    (VOID) ZwFlushKey(Key);
 
     RtlFreeUnicodeString(&Unicode);
 
@@ -938,30 +985,25 @@ RegistryQueryBinaryValue(
     if (!NT_SUCCESS(status))
         goto fail4;
 
-    *Buffer = NULL;
-
     switch (Partial->Type) {
     case REG_BINARY:
-        *Length = Partial->DataLength;
-
-        if (*Length == 0)
-            break;
-
         *Buffer = __RegistryAllocate(Partial->DataLength);
 
         status = STATUS_NO_MEMORY;
         if (*Buffer == NULL)
             break;
 
+        *Length = Partial->DataLength;
         RtlCopyMemory(*Buffer, Partial->Data, Partial->DataLength);
         break;
 
     default:
         status = STATUS_INVALID_PARAMETER;
+        *Buffer = NULL;
         break;
     }
 
-    if (!NT_SUCCESS(status))
+    if (*Buffer == NULL)
         goto fail5;
 
     __RegistryFree(Partial);
@@ -1002,7 +1044,7 @@ RegistryUpdateBinaryValue(
         goto fail1;
 
     Partial = __RegistryAllocate(FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data) +
-                                 __min(Length, 1));
+                                 Length);
 
     status = STATUS_NO_MEMORY;
     if (Partial == NULL)
@@ -1010,11 +1052,8 @@ RegistryUpdateBinaryValue(
 
     Partial->TitleIndex = 0;
     Partial->Type = REG_BINARY;
-
-    if (Length != 0) {
-        Partial->DataLength = Length;
-        RtlCopyMemory(Partial->Data, Buffer, Partial->DataLength);
-    }
+    Partial->DataLength = Length;
+    RtlCopyMemory(Partial->Data, Buffer, Partial->DataLength);
 
     status = ZwSetValueKey(Key,
                            &Unicode,
@@ -1026,6 +1065,8 @@ RegistryUpdateBinaryValue(
         goto fail3;
 
     __RegistryFree(Partial);
+
+    (VOID) ZwFlushKey(Key);
 
     RtlFreeUnicodeString(&Unicode);
 
@@ -1316,6 +1357,8 @@ RegistryUpdateSzValue(
         goto fail3;
 
     __RegistryFree(Partial);
+
+    (VOID) ZwFlushKey(Key);
 
     RtlFreeUnicodeString(&Unicode);
 
