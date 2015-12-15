@@ -32,9 +32,11 @@
 #include <ntddk.h>
 #include <ntstrsafe.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #include <xen.h>
 
 #include "pdo.h"
+#include "parse.h"
 #include "vif.h"
 #include "mrsw.h"
 #include "thread.h"
@@ -326,8 +328,25 @@ VifReceiverReturnPacketsVersion1(
 
     AcquireMrswLockShared(&Context->Lock);
 
-    ReceiverReturnPacketsVersion1(FrontendGetReceiver(Context->Frontend),
-                                  List);
+    while (!IsListEmpty(List)) {
+        PLIST_ENTRY                         ListEntry;
+        struct _XENVIF_RECEIVER_PACKET_V1   *PacketVersion1;
+
+        ListEntry = RemoveHeadList(List);
+        ASSERT3P(ListEntry, !=, List);
+
+        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
+
+        PacketVersion1 = CONTAINING_RECORD(ListEntry,
+                                           struct _XENVIF_RECEIVER_PACKET_V1,
+                                           ListEntry);
+
+        ReceiverReturnPacket(FrontendGetReceiver(Context->Frontend),
+                             PacketVersion1->Cookie);
+
+        __VifFree(PacketVersion1->Info);
+        __VifFree(PacketVersion1);
+    }
 
     ReleaseMrswLockShared(&Context->Lock);
 }
@@ -348,6 +367,67 @@ VifReceiverReturnPacket(
     ReleaseMrswLockShared(&Context->Lock);
 }
 
+static BOOLEAN
+VifTransmitterGetPacketHeadersVersion2Pullup(
+    IN      PVOID                   Argument,
+    IN      PUCHAR                  DestinationVa,
+    IN OUT  PXENVIF_PACKET_PAYLOAD  Payload,
+    IN      ULONG                   Length
+    )
+{
+    PMDL                            Mdl;
+    ULONG                           Offset;
+
+    UNREFERENCED_PARAMETER(Argument);
+
+    Mdl = Payload->Mdl;
+    Offset = Payload->Offset;
+
+    if (Payload->Length < Length)
+        goto fail1;
+
+    Payload->Length -= Length;
+
+    while (Length != 0) {
+        PUCHAR  MdlMappedSystemVa;
+        ULONG   MdlByteCount;
+        ULONG   CopyLength;
+
+        ASSERT(Mdl != NULL);
+
+        MdlMappedSystemVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+        ASSERT(MdlMappedSystemVa != NULL);
+
+        MdlMappedSystemVa += Offset;
+
+        MdlByteCount = Mdl->ByteCount - Offset;
+
+        CopyLength = __min(MdlByteCount, Length);
+
+        RtlCopyMemory(DestinationVa, MdlMappedSystemVa, CopyLength);
+        DestinationVa += CopyLength;
+
+        Offset += CopyLength;
+        Length -= CopyLength;
+
+        MdlByteCount -= CopyLength;
+        if (MdlByteCount == 0) {
+            Mdl = Mdl->Next;
+            Offset = 0;
+        }
+    }
+
+    Payload->Mdl = Mdl;
+    Payload->Offset = Offset;
+
+    return TRUE;
+
+fail1:
+    Error("fail1\n");
+
+    return FALSE;
+}
+
 static NTSTATUS
 VifTransmitterGetPacketHeadersVersion2(
     IN  PINTERFACE                              Interface,
@@ -357,14 +437,20 @@ VifTransmitterGetPacketHeadersVersion2(
     )
 {
     PXENVIF_VIF_CONTEXT                         Context = Interface->Context;
+    XENVIF_PACKET_PAYLOAD                       Payload;
     NTSTATUS                                    status;
 
     AcquireMrswLockShared(&Context->Lock);
 
-    status = TransmitterGetPacketHeadersVersion2(FrontendGetTransmitter(Context->Frontend),
-                                                 Packet,
-                                                 Headers,
-                                                 Info);
+    Payload.Mdl = Packet->Mdl;
+    Payload.Offset = Packet->Offset;
+    Payload.Length = Packet->Length;
+
+    status = ParsePacket(Headers,
+                         VifTransmitterGetPacketHeadersVersion2Pullup,
+                         Context,
+                         &Payload,
+                         Info);
 
     ReleaseMrswLockShared(&Context->Lock);
 
@@ -378,21 +464,59 @@ VifTransmitterQueuePacketsVersion2(
     )
 {
     PXENVIF_VIF_CONTEXT Context = Interface->Context;
-    NTSTATUS            status;
+    LIST_ENTRY          Reject;
 
     AcquireMrswLockShared(&Context->Lock);
 
-    status = STATUS_UNSUCCESSFUL;
     if (Context->Enabled == FALSE)
         goto done;
 
-    status = TransmitterQueuePacketsVersion2(FrontendGetTransmitter(Context->Frontend),
-                                             List);
+    InitializeListHead(&Reject);
+
+    while (!IsListEmpty(List)) {
+        PLIST_ENTRY                             ListEntry;
+        struct _XENVIF_TRANSMITTER_PACKET_V2    *PacketVersion2;
+        XENVIF_PACKET_HASH                      Hash;
+        NTSTATUS                                status;
+
+        ListEntry = RemoveHeadList(List);
+        ASSERT3P(ListEntry, !=, List);
+
+        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
+
+        PacketVersion2 = CONTAINING_RECORD(ListEntry,
+                                           struct _XENVIF_TRANSMITTER_PACKET_V2,
+                                           ListEntry);
+
+        Hash.Algorithm = XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED;
+        Hash.Value = PacketVersion2->Value;
+
+        status = TransmitterQueuePacket(FrontendGetTransmitter(Context->Frontend),
+                                        PacketVersion2->Mdl,
+                                        PacketVersion2->Offset,
+                                        PacketVersion2->Length,
+                                        PacketVersion2->Send.OffloadOptions,
+                                        PacketVersion2->Send.MaximumSegmentSize,
+                                        PacketVersion2->Send.TagControlInformation,
+                                        &Hash,
+                                        PacketVersion2);
+        if (!NT_SUCCESS(status))
+            InsertTailList(&Reject, &PacketVersion2->ListEntry);
+    }
+
+    ASSERT(IsListEmpty(List));
+
+    if (!IsListEmpty(&Reject)) {
+        PLIST_ENTRY ListEntry = Reject.Flink;
+
+        RemoveEntryList(&Reject);
+        AppendTailList(List, ListEntry);
+    }
 
 done:
     ReleaseMrswLockShared(&Context->Lock);
 
-    return status;
+    return (IsListEmpty(List)) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }
 
 static VOID
@@ -417,7 +541,6 @@ VifTransmitterQueuePacketVersion4(
     if (Context->Enabled == FALSE)
         goto done;
 
-    ASSERT3U(VifGetVersion(Context), >=, 4);
     status = TransmitterQueuePacket(FrontendGetTransmitter(Context->Frontend),
                                     Mdl,
                                     Offset,
@@ -466,7 +589,6 @@ VifTransmitterQueuePacket(
     if (Context->Enabled == FALSE)
         goto done;
 
-    ASSERT3U(VifGetVersion(Context), >=, 5);
     status = TransmitterQueuePacket(FrontendGetTransmitter(Context->Frontend),
                                     Mdl,
                                     Offset,
@@ -1054,15 +1176,75 @@ VifTeardown(
     Trace("<====\n");
 }
 
-VOID
-VifReceiverQueuePacketsVersion1(
-    IN  PXENVIF_VIF_CONTEXT Context,
-    IN  PLIST_ENTRY         List
+static FORCEINLINE VOID
+__VifReceiverQueuePacketVersion1(
+    IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  PMDL                            Mdl,
+    IN  ULONG                           Offset,
+    IN  ULONG                           Length,
+    IN  XENVIF_PACKET_CHECKSUM_FLAGS    Flags,
+    IN  USHORT                          MaximumSegmentSize,
+    IN  USHORT                          TagControlInformation,
+    IN  PXENVIF_PACKET_INFO             Info,
+    IN  PVOID                           Cookie
     )
 {
+    struct _XENVIF_PACKET_INFO_V1       *InfoVersion1;
+    struct _XENVIF_RECEIVER_PACKET_V1   *PacketVersion1;
+    LIST_ENTRY                          List;
+    NTSTATUS                            status;
+
+    InfoVersion1 = __VifAllocate(sizeof (struct _XENVIF_PACKET_INFO_V1));
+
+    status = STATUS_NO_MEMORY;
+    if (InfoVersion1 == NULL)
+        goto fail1;
+
+    InfoVersion1->Length = Info->Length;
+    InfoVersion1->TagControlInformation = TagControlInformation;
+    InfoVersion1->IsAFragment = Info->IsAFragment;
+    InfoVersion1->EthernetHeader = Info->EthernetHeader;
+    InfoVersion1->LLCSnapHeader = Info->LLCSnapHeader;
+    InfoVersion1->IpHeader = Info->IpHeader;
+    InfoVersion1->IpOptions = Info->IpOptions;
+    InfoVersion1->TcpHeader = Info->TcpHeader;
+    InfoVersion1->TcpOptions = Info->TcpOptions;
+    InfoVersion1->UdpHeader = Info->UdpHeader;
+
+    PacketVersion1 = __VifAllocate(sizeof (struct _XENVIF_RECEIVER_PACKET_V1));
+
+    status = STATUS_NO_MEMORY;
+    if (PacketVersion1 == NULL)
+        goto fail2;
+
+    PacketVersion1->Info = InfoVersion1;
+    PacketVersion1->Offset = Offset;
+    PacketVersion1->Length = Length;
+    PacketVersion1->Flags = Flags;
+    PacketVersion1->MaximumSegmentSize = MaximumSegmentSize;
+    PacketVersion1->Cookie = Cookie;
+    PacketVersion1->Mdl = *Mdl;
+    PacketVersion1->__Pfn = MmGetMdlPfnArray(Mdl)[0];
+
+    InitializeListHead(&List);
+    InsertTailList(&List, &PacketVersion1->ListEntry);
+
     Context->Callback(Context->Argument,
                       XENVIF_RECEIVER_QUEUE_PACKET,
-                      List);
+                      &List);
+
+    ASSERT(IsListEmpty(&List));
+
+    return;
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    ReceiverReturnPacket(FrontendGetReceiver(Context->Frontend),
+                         Cookie);
 }
 
 VOID
@@ -1078,29 +1260,61 @@ VifReceiverQueuePacket(
     IN  PVOID                           Cookie
     )
 {
-    Context->Callback(Context->Argument,
-                      XENVIF_RECEIVER_QUEUE_PACKET,
-                      Mdl,
-                      Offset,
-                      Length,
-                      Flags,
-                      MaximumSegmentSize,
-                      TagControlInformation,
-                      Info,
-                      Cookie);
+    switch (Context->Version) {
+    case 2:
+    case 3:
+        __VifReceiverQueuePacketVersion1(Context,
+                                         Mdl,
+                                         Offset,
+                                         Length,
+                                         Flags,
+                                         MaximumSegmentSize,
+                                         TagControlInformation,
+                                         Info,
+                                         Cookie);
+        break;
+
+    case 4:
+    case 5:
+        Context->Callback(Context->Argument,
+                          XENVIF_RECEIVER_QUEUE_PACKET,
+                          Mdl,
+                          Offset,
+                          Length,
+                          Flags,
+                          MaximumSegmentSize,
+                          TagControlInformation,
+                          Info,
+                          Cookie);
+        break;
+
+    default:
+        ASSERT(FALSE);
+        break;
+    }
 }
 
-VOID
-VifTransmitterReturnPacketsVersion2(
-    IN  PXENVIF_VIF_CONTEXT Context,
-    IN  PLIST_ENTRY         List
+static FORCEINLINE VOID
+__VifTransmitterReturnPacketVersion2(
+    IN  PXENVIF_VIF_CONTEXT                         Context,
+    IN  PVOID                                       Cookie,
+    IN  PXENVIF_TRANSMITTER_PACKET_COMPLETION_INFO  Completion
     )
 {
-    ASSERT3U(VifGetVersion(Context), >=, 2);
+    struct _XENVIF_TRANSMITTER_PACKET_V2            *PacketVersion2;
+    LIST_ENTRY                                      List;
+
+    PacketVersion2 = Cookie;
+    PacketVersion2->Completion = *Completion;
+
+    InitializeListHead(&List);
+    InsertTailList(&List, &PacketVersion2->ListEntry);
 
     Context->Callback(Context->Argument,
                       XENVIF_TRANSMITTER_RETURN_PACKET,
-                      List);
+                      &List);
+
+    ASSERT(IsListEmpty(&List));
 }
 
 VOID
@@ -1110,12 +1324,26 @@ VifTransmitterReturnPacket(
     IN  PXENVIF_TRANSMITTER_PACKET_COMPLETION_INFO  Completion
     )
 {
-    ASSERT3U(VifGetVersion(Context), >=, 4);
+    switch (Context->Version) {
+    case 2:
+    case 3:
+        __VifTransmitterReturnPacketVersion2(Context,
+                                             Cookie,
+                                             Completion);
+        break;
 
-    Context->Callback(Context->Argument,
-                      XENVIF_TRANSMITTER_RETURN_PACKET,
-                      Cookie,
-                      Completion);
+    case 4:
+    case 5:
+        Context->Callback(Context->Argument,
+                          XENVIF_TRANSMITTER_RETURN_PACKET,
+                          Cookie,
+                          Completion);
+        break;
+
+    default:
+        ASSERT(FALSE);
+        break;
+    }
 }
 
 PXENVIF_THREAD
@@ -1124,12 +1352,4 @@ VifGetMacThread(
     )
 {
     return Context->MacThread;
-}
-
-ULONG
-VifGetVersion(
-    IN  PXENVIF_VIF_CONTEXT Context
-    )
-{
-    return Context->Version;
 }

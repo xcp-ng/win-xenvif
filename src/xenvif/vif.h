@@ -99,10 +99,5 @@ VifGetMacThread(
     IN  PXENVIF_VIF_CONTEXT Context
     );
 
-extern ULONG
-VifGetVersion(
-    IN  PXENVIF_VIF_CONTEXT Context
-    );
-
 #endif  // _XENVIF_VIF_H
 
