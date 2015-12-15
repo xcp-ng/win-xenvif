@@ -101,12 +101,6 @@ ReceiverSetBackfillSize(
     );
 
 extern VOID
-ReceiverReturnPacketsVersion1(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  PLIST_ENTRY         List
-    );
-
-extern VOID
 ReceiverReturnPacket(
     IN  PXENVIF_RECEIVER    Receiver,
     IN  PVOID               Cookie

@@ -2736,33 +2736,6 @@ TransmitterRingSchedule(
 }
 
 static FORCEINLINE VOID
-__TransmitterReturnPacketVersion2(
-    IN  PXENVIF_TRANSMITTER                         Transmitter,
-    IN  PVOID                                       Cookie,
-    IN  PXENVIF_TRANSMITTER_PACKET_COMPLETION_INFO  Completion
-    )
-{
-    struct _XENVIF_TRANSMITTER_PACKET_V2            *PacketVersion2;
-    PXENVIF_FRONTEND                                Frontend;
-    PXENVIF_VIF_CONTEXT                             Context;
-    LIST_ENTRY                                      List;
-
-    PacketVersion2 = Cookie;
-    PacketVersion2->Completion = *Completion;
-
-    Frontend = Transmitter->Frontend;
-    Context = PdoGetVifContext(FrontendGetPdo(Frontend));
-
-    InitializeListHead(&List);
-
-    ASSERT(IsZeroMemory(&PacketVersion2->ListEntry, sizeof (LIST_ENTRY)));
-    InsertTailList(&List, &PacketVersion2->ListEntry);
-
-    VifTransmitterReturnPacketsVersion2(Context, &List);
-    ASSERT(IsListEmpty(&List));
-}
-
-static FORCEINLINE VOID
 __TransmitterReturnPackets(
     IN  PXENVIF_TRANSMITTER Transmitter,
     IN  PLIST_ENTRY         List
@@ -2770,11 +2743,9 @@ __TransmitterReturnPackets(
 {
     PXENVIF_FRONTEND        Frontend;
     PXENVIF_VIF_CONTEXT     Context;
-    ULONG                   Version;
 
     Frontend = Transmitter->Frontend;
     Context = PdoGetVifContext(FrontendGetPdo(Frontend));
-    Version = VifGetVersion(Context);
 
     while (!IsListEmpty(List)) {
         PLIST_ENTRY                 ListEntry;
@@ -2789,14 +2760,9 @@ __TransmitterReturnPackets(
                                    XENVIF_TRANSMITTER_PACKET,
                                    ListEntry);
 
-        if  (Version < 4)
-            __TransmitterReturnPacketVersion2(Transmitter,
-                                              Packet->Cookie,
-                                              &Packet->Completion);
-        else
-            VifTransmitterReturnPacket(Context,
-                                       Packet->Cookie,
-                                       &Packet->Completion);
+        VifTransmitterReturnPacket(Context,
+                                   Packet->Cookie,
+                                   &Packet->Completion);
 
         __TransmitterPutPacket(Transmitter, Packet);
     }
@@ -4560,96 +4526,6 @@ TransmitterTeardown(
     __TransmitterFree(Transmitter);
 }
 
-static BOOLEAN
-TransmitterGetPacketHeadersVersion2Pullup(
-    IN      PVOID                   Argument,
-    IN      PUCHAR                  DestinationVa,
-    IN OUT  PXENVIF_PACKET_PAYLOAD  Payload,
-    IN      ULONG                   Length
-    )
-{
-    PMDL                            Mdl;
-    ULONG                           Offset;
-
-    UNREFERENCED_PARAMETER(Argument);
-
-    Mdl = Payload->Mdl;
-    Offset = Payload->Offset;
-
-    if (Payload->Length < Length)
-        goto fail1;
-
-    Payload->Length -= Length;
-
-    while (Length != 0) {
-        PUCHAR  MdlMappedSystemVa;
-        ULONG   MdlByteCount;
-        ULONG   CopyLength;
-
-        ASSERT(Mdl != NULL);
-
-        MdlMappedSystemVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-        ASSERT(MdlMappedSystemVa != NULL);
-
-        MdlMappedSystemVa += Offset;
-
-        MdlByteCount = Mdl->ByteCount - Offset;
-
-        CopyLength = __min(MdlByteCount, Length);
-
-        RtlCopyMemory(DestinationVa, MdlMappedSystemVa, CopyLength);
-        DestinationVa += CopyLength;
-
-        Offset += CopyLength;
-        Length -= CopyLength;
-
-        MdlByteCount -= CopyLength;
-        if (MdlByteCount == 0) {
-            Mdl = Mdl->Next;
-            Offset = 0;
-        }
-    }
-
-    Payload->Mdl = Mdl;
-    Payload->Offset = Offset;
-
-    return TRUE;
-
-fail1:
-    Error("fail1\n");
-
-    return FALSE;
-}
-
-NTSTATUS
-TransmitterGetPacketHeadersVersion2(
-    IN  PXENVIF_TRANSMITTER                     Transmitter,
-    IN  struct _XENVIF_TRANSMITTER_PACKET_V2    *PacketVersion2,
-    OUT PVOID                                   Headers,
-    OUT PXENVIF_PACKET_INFO                     Info
-    )
-{
-    XENVIF_PACKET_PAYLOAD                       Payload;
-    NTSTATUS                                    status;
-
-    Payload.Mdl = PacketVersion2->Mdl;
-    Payload.Offset = PacketVersion2->Offset;
-    Payload.Length = PacketVersion2->Length;
-
-    status = ParsePacket(Headers,
-                         TransmitterGetPacketHeadersVersion2Pullup,
-                         Transmitter,
-                         &Payload,
-                         Info);
-    if (!NT_SUCCESS(status))
-        goto fail1;
-
-    return STATUS_SUCCESS;
-
-fail1:
-    return status;
-}
-
 static FORCEINLINE VOID
 __TransmitterHashAccumulate(
     IN OUT  PULONG  Accumulator,
@@ -4832,59 +4708,6 @@ fail1:
     Error("fail1 (%08x)\n", status);
 
     return status;
-}
-
-NTSTATUS
-TransmitterQueuePacketsVersion2(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  PLIST_ENTRY             List
-    )
-{
-    LIST_ENTRY                  Reject;
-
-    InitializeListHead(&Reject);
-
-    while (!IsListEmpty(List)) {
-        PLIST_ENTRY                             ListEntry;
-        struct _XENVIF_TRANSMITTER_PACKET_V2    *PacketVersion2;
-        XENVIF_PACKET_HASH                      Hash;
-        NTSTATUS                                status;
-
-        ListEntry = RemoveHeadList(List);
-        ASSERT3P(ListEntry, !=, List);
-
-        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
-
-        PacketVersion2 = CONTAINING_RECORD(ListEntry,
-                                           struct _XENVIF_TRANSMITTER_PACKET_V2,
-                                           ListEntry);
-
-        Hash.Algorithm = XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED;
-        Hash.Value = PacketVersion2->Value;
-
-        status = TransmitterQueuePacket(Transmitter,
-                                        PacketVersion2->Mdl,
-                                        PacketVersion2->Offset,
-                                        PacketVersion2->Length,
-                                        PacketVersion2->Send.OffloadOptions,
-                                        PacketVersion2->Send.MaximumSegmentSize,
-                                        PacketVersion2->Send.TagControlInformation,
-                                        &Hash,
-                                        PacketVersion2);
-        if (!NT_SUCCESS(status))
-            InsertTailList(&Reject, &PacketVersion2->ListEntry);
-    }
-
-    ASSERT(IsListEmpty(List));
-
-    if (!IsListEmpty(&Reject)) {
-        PLIST_ENTRY ListEntry = Reject.Flink;
-
-        RemoveEntryList(&Reject);
-        AppendTailList(List, ListEntry);
-    }
-
-    return (IsListEmpty(List)) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }
 
 VOID

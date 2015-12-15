@@ -1373,79 +1373,6 @@ __ReceiverRingAcquireLock(
     KeAcquireSpinLockAtDpcLevel(&Ring->Lock);
 }
 
-static FORCEINLINE VOID
-__ReceiverQueuePacketVersion1(
-    IN  PXENVIF_RECEIVER                Receiver,
-    IN  PMDL                            Mdl,
-    IN  ULONG                           Offset,
-    IN  ULONG                           Length,
-    IN  XENVIF_PACKET_CHECKSUM_FLAGS    Flags,
-    IN  USHORT                          MaximumSegmentSize,
-    IN  USHORT                          TagControlInformation,
-    IN  PXENVIF_PACKET_INFO             Info,
-    IN  PVOID                           Cookie
-    )
-{
-    struct _XENVIF_PACKET_INFO_V1       *InfoVersion1;
-    struct _XENVIF_RECEIVER_PACKET_V1   *PacketVersion1;
-    PXENVIF_FRONTEND                    Frontend;
-    PXENVIF_VIF_CONTEXT                 Context;
-    LIST_ENTRY                          List;
-    NTSTATUS                            status;
-
-    InfoVersion1 = __ReceiverAllocate(sizeof (struct _XENVIF_PACKET_INFO_V1));
-
-    status = STATUS_NO_MEMORY;
-    if (InfoVersion1 == NULL)
-        goto fail1;
-
-    InfoVersion1->Length = Info->Length;
-    InfoVersion1->TagControlInformation = TagControlInformation;
-    InfoVersion1->IsAFragment = Info->IsAFragment;
-    InfoVersion1->EthernetHeader = Info->EthernetHeader;
-    InfoVersion1->LLCSnapHeader = Info->LLCSnapHeader;
-    InfoVersion1->IpHeader = Info->IpHeader;
-    InfoVersion1->IpOptions = Info->IpOptions;
-    InfoVersion1->TcpHeader = Info->TcpHeader;
-    InfoVersion1->TcpOptions = Info->TcpOptions;
-    InfoVersion1->UdpHeader = Info->UdpHeader;
-
-    PacketVersion1 = __ReceiverAllocate(sizeof (struct _XENVIF_RECEIVER_PACKET_V1));
-
-    status = STATUS_NO_MEMORY;
-    if (PacketVersion1 == NULL)
-        goto fail2;
-
-    PacketVersion1->Info = InfoVersion1;
-    PacketVersion1->Offset = Offset;
-    PacketVersion1->Length = Length;
-    PacketVersion1->Flags = Flags;
-    PacketVersion1->MaximumSegmentSize = MaximumSegmentSize;
-    PacketVersion1->Cookie = Cookie;
-    PacketVersion1->Mdl = *Mdl;
-    PacketVersion1->__Pfn = MmGetMdlPfnArray(Mdl)[0];
-
-    Frontend = Receiver->Frontend;
-    Context = PdoGetVifContext(FrontendGetPdo(Frontend));
-
-    InitializeListHead(&List);
-
-    InsertTailList(&List, &PacketVersion1->ListEntry);
-
-    VifReceiverQueuePacketsVersion1(Context, &List);
-    ASSERT(IsListEmpty(&List));
-
-    return;
-
-fail2:
-    Error("fail2\n");
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-
-    ReceiverReturnPacket(Receiver, Cookie);
-}
-
 static DECLSPEC_NOINLINE VOID
 ReceiverRingAcquireLock(
     IN  PXENVIF_RECEIVER_RING   Ring
@@ -1463,7 +1390,6 @@ __ReceiverRingReleaseLock(
     PXENVIF_RECEIVER            Receiver;
     PXENVIF_FRONTEND            Frontend;
     PXENVIF_VIF_CONTEXT         Context;
-    ULONG                       Version;
     LIST_ENTRY                  List;
     ULONG                       Count;
 
@@ -1472,7 +1398,6 @@ __ReceiverRingReleaseLock(
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
     Context = PdoGetVifContext(FrontendGetPdo(Frontend));
-    Version = VifGetVersion(Context);
 
     InitializeListHead(&List);
     Count = 0;
@@ -1502,26 +1427,15 @@ __ReceiverRingReleaseLock(
                                    XENVIF_RECEIVER_PACKET,
                                    ListEntry);
 
-        if (Version < 4)
-            __ReceiverQueuePacketVersion1(Receiver,
-                                          &Packet->Mdl,
-                                          Packet->Offset,
-                                          Packet->Length,
-                                          Packet->Flags,
-                                          Packet->MaximumSegmentSize,
-                                          Packet->TagControlInformation,
-                                          &Packet->Info,
-                                          Packet);
-        else
-            VifReceiverQueuePacket(Context,
-                                   &Packet->Mdl,
-                                   Packet->Offset,
-                                   Packet->Length,
-                                   Packet->Flags,
-                                   Packet->MaximumSegmentSize,
-                                   Packet->TagControlInformation,
-                                   &Packet->Info,
-                                   Packet);
+        VifReceiverQueuePacket(Context,
+                               &Packet->Mdl,
+                               Packet->Offset,
+                               Packet->Length,
+                               Packet->Flags,
+                               Packet->MaximumSegmentSize,
+                               Packet->TagControlInformation,
+                               &Packet->Info,
+                               Packet);
     }
 
     ASSERT(IsListEmpty(&List));
@@ -3468,32 +3382,6 @@ ReceiverReturnPacket(
     ASSERT3S(Loaned - Returned, >=, 0);
 
     KeSetEvent(&Receiver->Event, 0, FALSE);
-}
-
-VOID
-ReceiverReturnPacketsVersion1(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  PLIST_ENTRY         List
-    )
-{
-    while (!IsListEmpty(List)) {
-        PLIST_ENTRY                         ListEntry;
-        struct _XENVIF_RECEIVER_PACKET_V1   *PacketVersion1;
-
-        ListEntry = RemoveHeadList(List);
-        ASSERT3P(ListEntry, !=, List);
-
-        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
-
-        PacketVersion1 = CONTAINING_RECORD(ListEntry,
-                                           struct _XENVIF_RECEIVER_PACKET_V1,
-                                           ListEntry);
-
-        ReceiverReturnPacket(Receiver, PacketVersion1->Cookie);
-
-        __ReceiverFree(PacketVersion1->Info);
-        __ReceiverFree(PacketVersion1);
-    }
 }
 
 VOID
