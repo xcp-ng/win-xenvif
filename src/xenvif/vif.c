@@ -396,7 +396,7 @@ done:
 }
 
 static VOID
-VifTransmitterQueuePacket(
+VifTransmitterQueuePacketVersion4(
     IN  PINTERFACE                  Interface,
     IN  PMDL                        Mdl,
     IN  ULONG                       Offset,
@@ -442,6 +442,45 @@ done:
                                    Cookie,
                                    &Completion);
     }
+}
+
+static NTSTATUS
+VifTransmitterQueuePacket(
+    IN  PINTERFACE                  Interface,
+    IN  PMDL                        Mdl,
+    IN  ULONG                       Offset,
+    IN  ULONG                       Length,
+    IN  XENVIF_VIF_OFFLOAD_OPTIONS  OffloadOptions,
+    IN  USHORT                      MaximumSegmentSize,
+    IN  USHORT                      TagControlInformation,
+    IN  PXENVIF_PACKET_HASH         Hash,
+    IN  PVOID                       Cookie
+    )
+{
+    PXENVIF_VIF_CONTEXT             Context = Interface->Context;
+    NTSTATUS                        status;
+
+    AcquireMrswLockShared(&Context->Lock);
+
+    status = STATUS_UNSUCCESSFUL;
+    if (Context->Enabled == FALSE)
+        goto done;
+
+    ASSERT3U(VifGetVersion(Context), >=, 5);
+    status = TransmitterQueuePacket(FrontendGetTransmitter(Context->Frontend),
+                                    Mdl,
+                                    Offset,
+                                    Length,
+                                    OffloadOptions,
+                                    MaximumSegmentSize,
+                                    TagControlInformation,
+                                    Hash,
+                                    Cookie);
+
+done:
+    ReleaseMrswLockShared(&Context->Lock);
+
+    return status;
 }
 
 static VOID
@@ -809,6 +848,31 @@ static struct _XENVIF_VIF_INTERFACE_V4 VifInterfaceVersion4 = {
     VifReceiverSetOffloadOptions,
     VifReceiverSetBackfillSize,
     VifReceiverQueryRingSize,
+    VifTransmitterQueuePacketVersion4,
+    VifTransmitterQueryOffloadOptions,
+    VifTransmitterQueryLargePacketSize,
+    VifTransmitterQueryRingSize,
+    VifMacQueryState,
+    VifMacQueryMaximumFrameSize,
+    VifMacQueryPermanentAddress,
+    VifMacQueryCurrentAddress,
+    VifMacQueryMulticastAddresses,
+    VifMacSetMulticastAddresses,
+    VifMacSetFilterLevel,
+    VifMacQueryFilterLevel
+};
+
+static struct _XENVIF_VIF_INTERFACE_V5 VifInterfaceVersion5 = {
+    { sizeof (struct _XENVIF_VIF_INTERFACE_V5), 5, NULL, NULL, NULL },
+    VifAcquire,
+    VifRelease,
+    VifEnable,
+    VifDisable,
+    VifQueryStatistic,
+    VifReceiverReturnPacket,
+    VifReceiverSetOffloadOptions,
+    VifReceiverSetBackfillSize,
+    VifReceiverQueryRingSize,
     VifTransmitterQueuePacket,
     VifTransmitterQueryOffloadOptions,
     VifTransmitterQueryLargePacketSize,
@@ -931,6 +995,23 @@ VifGetInterface(
             break;
 
         *VifInterface = VifInterfaceVersion4;
+
+        ASSERT3U(Interface->Version, ==, Version);
+        Interface->Context = Context;
+
+        status = STATUS_SUCCESS;
+        break;
+    }
+    case 5: {
+        struct _XENVIF_VIF_INTERFACE_V5 *VifInterface;
+
+        VifInterface = (struct _XENVIF_VIF_INTERFACE_V5 *)Interface;
+
+        status = STATUS_BUFFER_OVERFLOW;
+        if (Size < sizeof (struct _XENVIF_VIF_INTERFACE_V5))
+            break;
+
+        *VifInterface = VifInterfaceVersion5;
 
         ASSERT3U(Interface->Version, ==, Version);
         Interface->Context = Context;
