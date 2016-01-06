@@ -319,6 +319,42 @@ done:
 }
 
 static VOID
+VifQueryRingCount(
+    IN  PINTERFACE      Interface,
+    OUT PULONG          Count
+    )
+{
+    PXENVIF_VIF_CONTEXT Context = Interface->Context;
+
+    AcquireMrswLockShared(&Context->Lock);
+
+    *Count = FrontendGetNumQueues(Context->Frontend);
+
+    ReleaseMrswLockShared(&Context->Lock);
+}
+
+static NTSTATUS
+VifUpdateHashMapping(
+    IN  PINTERFACE          Interface,
+    IN  PPROCESSOR_NUMBER   Mapping,
+    IN  ULONG               Order
+    )
+{
+    PXENVIF_VIF_CONTEXT     Context = Interface->Context;
+    NTSTATUS                status;
+
+    AcquireMrswLockShared(&Context->Lock);
+
+    status = ReceiverUpdateHashMapping(FrontendGetReceiver(Context->Frontend),
+                                       Mapping,
+                                       Order);
+
+    ReleaseMrswLockShared(&Context->Lock);
+
+    return status;
+}
+
+static VOID
 VifReceiverReturnPacketsVersion1(
     IN  PINTERFACE      Interface,
     IN  PLIST_ENTRY     List
@@ -671,6 +707,82 @@ VifReceiverSetBackfillSize(
     ReleaseMrswLockShared(&Context->Lock);
 }
 
+static NTSTATUS
+VifReceiverSetHashAlgorithm(
+    IN  PINTERFACE                      Interface,
+    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
+    )
+{
+    PXENVIF_VIF_CONTEXT                 Context = Interface->Context;
+    NTSTATUS                            status;
+
+    AcquireMrswLockShared(&Context->Lock);
+
+    status = ReceiverSetHashAlgorithm(FrontendGetReceiver(Context->Frontend),
+                                      Algorithm);
+
+    ReleaseMrswLockShared(&Context->Lock);
+
+    return status;
+}
+
+static NTSTATUS
+VifReceiverQueryHashCapabilities(
+    IN  PINTERFACE      Interface,
+    ...
+    )
+{
+    PXENVIF_VIF_CONTEXT Context = Interface->Context;
+    va_list             Arguments;
+    PULONG              Types;
+    NTSTATUS            status;
+
+    AcquireMrswLockShared(&Context->Lock);
+
+    va_start(Arguments, Interface);
+
+    Types = va_arg(Arguments, PULONG);
+
+    status = ReceiverQueryHashCapabilities(FrontendGetReceiver(Context->Frontend),
+                                           Types);
+
+    va_end(Arguments);
+
+    ReleaseMrswLockShared(&Context->Lock);
+
+    return status;
+}
+
+static NTSTATUS
+VifReceiverUpdateHashParameters(
+    IN  PINTERFACE      Interface,
+    ...
+    )
+{
+    PXENVIF_VIF_CONTEXT Context = Interface->Context;
+    va_list             Arguments;
+    ULONG               Types;
+    PUCHAR              Key;
+    NTSTATUS            status;
+
+    AcquireMrswLockShared(&Context->Lock);
+
+    va_start(Arguments, Interface);
+
+    Types = va_arg(Arguments, ULONG);
+    Key = va_arg(Arguments, PUCHAR);
+
+    status = ReceiverUpdateHashParameters(FrontendGetReceiver(Context->Frontend),
+                                          Types,
+                                          Key);
+
+    va_end(Arguments);
+
+    ReleaseMrswLockShared(&Context->Lock);
+
+    return status;
+}
+
 static VOID
 VifMacQueryState(
     IN  PINTERFACE                  Interface,
@@ -1009,6 +1121,36 @@ static struct _XENVIF_VIF_INTERFACE_V5 VifInterfaceVersion5 = {
     VifMacQueryFilterLevel
 };
 
+static struct _XENVIF_VIF_INTERFACE_V6 VifInterfaceVersion6 = {
+    { sizeof (struct _XENVIF_VIF_INTERFACE_V6), 6, NULL, NULL, NULL },
+    VifAcquire,
+    VifRelease,
+    VifEnable,
+    VifDisable,
+    VifQueryStatistic,
+    VifQueryRingCount,
+    VifUpdateHashMapping,
+    VifReceiverReturnPacket,
+    VifReceiverSetOffloadOptions,
+    VifReceiverSetBackfillSize,
+    VifReceiverQueryRingSize,
+    VifReceiverSetHashAlgorithm,
+    VifReceiverQueryHashCapabilities,
+    VifReceiverUpdateHashParameters,
+    VifTransmitterQueuePacket,
+    VifTransmitterQueryOffloadOptions,
+    VifTransmitterQueryLargePacketSize,
+    VifTransmitterQueryRingSize,
+    VifMacQueryState,
+    VifMacQueryMaximumFrameSize,
+    VifMacQueryPermanentAddress,
+    VifMacQueryCurrentAddress,
+    VifMacQueryMulticastAddresses,
+    VifMacSetMulticastAddresses,
+    VifMacSetFilterLevel,
+    VifMacQueryFilterLevel
+};
+
 NTSTATUS
 VifInitialize(
     IN  PXENVIF_PDO         Pdo,
@@ -1141,6 +1283,23 @@ VifGetInterface(
         status = STATUS_SUCCESS;
         break;
     }
+    case 6: {
+        struct _XENVIF_VIF_INTERFACE_V6 *VifInterface;
+
+        VifInterface = (struct _XENVIF_VIF_INTERFACE_V6 *)Interface;
+
+        status = STATUS_BUFFER_OVERFLOW;
+        if (Size < sizeof (struct _XENVIF_VIF_INTERFACE_V6))
+            break;
+
+        *VifInterface = VifInterfaceVersion6;
+
+        ASSERT3U(Interface->Version, ==, Version);
+        Interface->Context = Context;
+
+        status = STATUS_SUCCESS;
+        break;
+    }
     default:
         status = STATUS_NOT_SUPPORTED;
         break;
@@ -1186,6 +1345,7 @@ __VifReceiverQueuePacketVersion1(
     IN  USHORT                          MaximumSegmentSize,
     IN  USHORT                          TagControlInformation,
     IN  PXENVIF_PACKET_INFO             Info,
+    IN  PXENVIF_PACKET_HASH             Hash,
     IN  PVOID                           Cookie
     )
 {
@@ -1193,6 +1353,8 @@ __VifReceiverQueuePacketVersion1(
     struct _XENVIF_RECEIVER_PACKET_V1   *PacketVersion1;
     LIST_ENTRY                          List;
     NTSTATUS                            status;
+
+    UNREFERENCED_PARAMETER(Hash);
 
     InfoVersion1 = __VifAllocate(sizeof (struct _XENVIF_PACKET_INFO_V1));
 
@@ -1247,6 +1409,34 @@ fail1:
                          Cookie);
 }
 
+static FORCEINLINE VOID
+__VifReceiverQueuePacketVersion4(
+    IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  PMDL                            Mdl,
+    IN  ULONG                           Offset,
+    IN  ULONG                           Length,
+    IN  XENVIF_PACKET_CHECKSUM_FLAGS    Flags,
+    IN  USHORT                          MaximumSegmentSize,
+    IN  USHORT                          TagControlInformation,
+    IN  PXENVIF_PACKET_INFO             Info,
+    IN  PXENVIF_PACKET_HASH             Hash,
+    IN  PVOID                           Cookie
+    )
+{
+    UNREFERENCED_PARAMETER(Hash);
+
+    Context->Callback(Context->Argument,
+                      XENVIF_RECEIVER_QUEUE_PACKET,
+                      Mdl,
+                      Offset,
+                      Length,
+                      Flags,
+                      MaximumSegmentSize,
+                      TagControlInformation,
+                      Info,
+                      Cookie);
+}
+
 VOID
 VifReceiverQueuePacket(
     IN  PXENVIF_VIF_CONTEXT             Context,
@@ -1257,6 +1447,7 @@ VifReceiverQueuePacket(
     IN  USHORT                          MaximumSegmentSize,
     IN  USHORT                          TagControlInformation,
     IN  PXENVIF_PACKET_INFO             Info,
+    IN  PXENVIF_PACKET_HASH             Hash,
     IN  PVOID                           Cookie
     )
 {
@@ -1271,11 +1462,25 @@ VifReceiverQueuePacket(
                                          MaximumSegmentSize,
                                          TagControlInformation,
                                          Info,
+                                         Hash,
                                          Cookie);
         break;
 
     case 4:
     case 5:
+        __VifReceiverQueuePacketVersion4(Context,
+                                         Mdl,
+                                         Offset,
+                                         Length,
+                                         Flags,
+                                         MaximumSegmentSize,
+                                         TagControlInformation,
+                                         Info,
+                                         Hash,
+                                         Cookie);
+        break;
+
+    case 6:
         Context->Callback(Context->Argument,
                           XENVIF_RECEIVER_QUEUE_PACKET,
                           Mdl,
@@ -1285,6 +1490,7 @@ VifReceiverQueuePacket(
                           MaximumSegmentSize,
                           TagControlInformation,
                           Info,
+                          Hash,
                           Cookie);
         break;
 
@@ -1334,6 +1540,7 @@ VifTransmitterReturnPacket(
 
     case 4:
     case 5:
+    case 6:
         Context->Callback(Context->Argument,
                           XENVIF_TRANSMITTER_RETURN_PACKET,
                           Cookie,

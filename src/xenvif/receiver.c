@@ -67,6 +67,11 @@ typedef struct _XENVIF_RECEIVER_FRAGMENT {
     PXENBUS_GNTTAB_ENTRY    Entry;
 } XENVIF_RECEIVER_FRAGMENT, *PXENVIF_RECEIVER_FRAGMENT;
 
+typedef struct _XENVIF_RECEIVER_HASH {
+    XENVIF_PACKET_HASH_ALGORITHM    Algorithm;
+    ULONG                           Types;
+} XENVIF_RECEIVER_HASH, *PXENVIF_RECEIVER_HASH;
+
 #define XENVIF_RECEIVER_RING_SIZE   (__CONST_RING_SIZE(netif_rx, PAGE_SIZE))
 
 #define XENVIF_RECEIVER_MAXIMUM_FRAGMENT_ID (XENVIF_RECEIVER_RING_SIZE - 1)
@@ -101,11 +106,13 @@ typedef struct _XENVIF_RECEIVER_RING {
     PXENBUS_DEBUG_CALLBACK      DebugCallback;
     PXENVIF_THREAD              WatchdogThread;
     LIST_ENTRY                  PacketList;
+    XENVIF_RECEIVER_HASH        Hash;
 } XENVIF_RECEIVER_RING, *PXENVIF_RECEIVER_RING;
 
 typedef struct _XENVIF_RECEIVER_PACKET {
     LIST_ENTRY                      ListEntry;
     XENVIF_PACKET_INFO              Info;
+    XENVIF_PACKET_HASH              Hash;
     ULONG                           Offset;
     ULONG                           Length;
     XENVIF_PACKET_CHECKSUM_FLAGS    Flags;
@@ -117,23 +124,23 @@ typedef struct _XENVIF_RECEIVER_PACKET {
 } XENVIF_RECEIVER_PACKET, *PXENVIF_RECEIVER_PACKET;
 
 struct _XENVIF_RECEIVER {
-    PXENVIF_FRONTEND        Frontend;
-    XENBUS_CACHE_INTERFACE  CacheInterface;
-    XENBUS_GNTTAB_INTERFACE GnttabInterface;
-    XENBUS_EVTCHN_INTERFACE EvtchnInterface;
-    PXENVIF_RECEIVER_RING   *Ring;
-    LONG                    Loaned;
-    LONG                    Returned;
-    KEVENT                  Event;
-    ULONG                   CalculateChecksums;
-    ULONG                   AllowGsoPackets;
-    ULONG                   DisableIpVersion4Gso;
-    ULONG                   DisableIpVersion6Gso;
-    ULONG                   IpAlignOffset;
-    ULONG                   AlwaysPullup;
-    XENBUS_STORE_INTERFACE  StoreInterface;
-    XENBUS_DEBUG_INTERFACE  DebugInterface;
-    PXENBUS_DEBUG_CALLBACK  DebugCallback;
+    PXENVIF_FRONTEND                Frontend;
+    XENBUS_CACHE_INTERFACE          CacheInterface;
+    XENBUS_GNTTAB_INTERFACE         GnttabInterface;
+    XENBUS_EVTCHN_INTERFACE         EvtchnInterface;
+    PXENVIF_RECEIVER_RING           *Ring;
+    LONG                            Loaned;
+    LONG                            Returned;
+    KEVENT                          Event;
+    ULONG                           CalculateChecksums;
+    ULONG                           AllowGsoPackets;
+    ULONG                           DisableIpVersion4Gso;
+    ULONG                           DisableIpVersion6Gso;
+    ULONG                           IpAlignOffset;
+    ULONG                           AlwaysPullup;
+    XENBUS_STORE_INTERFACE          StoreInterface;
+    XENBUS_DEBUG_INTERFACE          DebugInterface;
+    PXENBUS_DEBUG_CALLBACK          DebugCallback;
 };
 
 #define XENVIF_RECEIVER_TAG 'ECER'
@@ -269,6 +276,7 @@ __ReceiverRingPutPacket(
     Packet->TagControlInformation = 0;
 
     RtlZeroMemory(&Packet->Info, sizeof (XENVIF_PACKET_INFO));
+    RtlZeroMemory(&Packet->Hash, sizeof (XENVIF_PACKET_HASH));
 
     Mdl->MappedSystemVa = Mdl->StartVa;
     Mdl->ByteOffset = 0;
@@ -746,11 +754,12 @@ __ReceiverRingBuildSegment(
     if (Segment == NULL)
         goto fail1;
 
-    Segment->Info = Packet->Info;
-    Segment->Offset = Packet->Offset;
-    Segment->Flags = Packet->Flags;
-    Segment->MaximumSegmentSize = Packet->MaximumSegmentSize;
-    Segment->TagControlInformation = Packet->TagControlInformation;
+    RtlCopyMemory(Segment,
+                  Packet,
+                  FIELD_OFFSET(XENVIF_RECEIVER_PACKET, Mdl));
+
+    // The segment contains no data as yet
+    Segment->Length = 0;
 
     Mdl = &Segment->Mdl;
 
@@ -1178,9 +1187,8 @@ ReceiverRingProcessPacket(
     PXENVIF_FRONTEND                Frontend;
     PXENVIF_MAC                     Mac;
     ULONG                           Length;
-    XENVIF_PACKET_CHECKSUM_FLAGS    Flags;
-    USHORT                          MaximumSegmentSize;
     XENVIF_PACKET_PAYLOAD           Payload;
+    PXENVIF_RECEIVER_PACKET         New;
     PXENVIF_PACKET_INFO             Info;
     PUCHAR                          StartVa;
     PETHERNET_HEADER                EthernetHeader;
@@ -1194,16 +1202,25 @@ ReceiverRingProcessPacket(
 
     ASSERT3U(Packet->Offset, ==, 0);
     Length = Packet->Length;
-    Flags = Packet->Flags;
-    MaximumSegmentSize = Packet->MaximumSegmentSize;
     ASSERT3U(Packet->TagControlInformation, ==, 0);
 
     Payload.Mdl = &Packet->Mdl;
     Payload.Offset = 0;
     Payload.Length = Length;
 
-    // Get a new packet structure that will just contain the header after parsing
-    Packet = __ReceiverRingGetPacket(Ring, TRUE);
+    // Get a new packet structure that will just contain the header after
+    // parsing. We need to preserve metadata from the original.
+
+    New = __ReceiverRingGetPacket(Ring, TRUE);
+
+    RtlCopyMemory(New,
+                  Packet,
+                  FIELD_OFFSET(XENVIF_RECEIVER_PACKET, Mdl));
+
+    Packet = New;
+
+    // Override offset to align
+    Packet->Offset = Receiver->IpAlignOffset;
 
     status = STATUS_NO_MEMORY;
     if (Packet == NULL) {
@@ -1212,12 +1229,6 @@ ReceiverRingProcessPacket(
                                    1);
         goto fail1;
     }
-
-    // Copy in the extracted metadata
-    Packet->Offset = Receiver->IpAlignOffset;
-    Packet->Length = Length;
-    Packet->Flags = Flags;
-    Packet->MaximumSegmentSize = MaximumSegmentSize;
 
     StartVa = MmGetSystemAddressForMdlSafe(&Packet->Mdl, NormalPagePriority);
     ASSERT(StartVa != NULL);
@@ -1432,6 +1443,7 @@ __ReceiverRingReleaseLock(
                                Packet->MaximumSegmentSize,
                                Packet->TagControlInformation,
                                &Packet->Info,
+                               &Packet->Hash,
                                Packet);
     }
 
@@ -1472,17 +1484,24 @@ __ReceiverRingIsStopped(
 
 static FORCEINLINE VOID
 __ReceiverRingTrigger(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    IN  PXENVIF_RECEIVER_RING   Ring,
+    IN  BOOLEAN                 Locked
     )
 {
     PXENVIF_RECEIVER            Receiver;
 
     Receiver = Ring->Receiver;
 
+    if (!Locked)
+        __ReceiverRingAcquireLock(Ring);
+
     if (Ring->Connected)
         (VOID) XENBUS_EVTCHN(Trigger,
                              &Receiver->EvtchnInterface,
                              Ring->Channel);
+
+    if (!Locked)
+        __ReceiverRingReleaseLock(Ring);
 }
 
 static FORCEINLINE VOID
@@ -1539,7 +1558,7 @@ __ReceiverRingReturnPacket(
 
         if (__ReceiverRingIsStopped(Ring)) {
             __ReceiverRingStart(Ring);
-            __ReceiverRingTrigger(Ring);
+            __ReceiverRingTrigger(Ring, TRUE);
         }
 
         if (!Locked)
@@ -1809,6 +1828,7 @@ ReceiverRingPoll(
         BOOLEAN                 Extra;
         ULONG                   Info;
         USHORT                  MaximumSegmentSize;
+        XENVIF_PACKET_HASH      Hash;
         PXENVIF_RECEIVER_PACKET Packet;
         uint16_t                flags;
         PMDL                    TailMdl;
@@ -1820,6 +1840,7 @@ ReceiverRingPoll(
         Extra = FALSE;
         Info = 0;
         MaximumSegmentSize = 0;
+        RtlZeroMemory(&Hash, sizeof (Hash));
         Packet = NULL;
         flags = 0;
         TailMdl = NULL;
@@ -1884,6 +1905,35 @@ ReceiverRingPoll(
                     MaximumSegmentSize = extra->u.gso.size;
                     break;
 
+                case XEN_NETIF_EXTRA_TYPE_HASH:
+                    Hash.Algorithm = XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ;
+
+                    switch (extra->u.hash.type) {
+                    case _XEN_NETIF_CTRL_HASH_TYPE_IPV4:
+                        Hash.Type = XENVIF_PACKET_HASH_TYPE_IPV4;
+                        break;
+
+                    case _XEN_NETIF_CTRL_HASH_TYPE_IPV4_TCP:
+                        Hash.Type = XENVIF_PACKET_HASH_TYPE_IPV4_TCP;
+                        break;
+
+                    case _XEN_NETIF_CTRL_HASH_TYPE_IPV6:
+                        Hash.Type = XENVIF_PACKET_HASH_TYPE_IPV6;
+                        break;
+
+                    case _XEN_NETIF_CTRL_HASH_TYPE_IPV6_TCP:
+                        Hash.Type = XENVIF_PACKET_HASH_TYPE_IPV6_TCP;
+                        break;
+
+                    default:
+                        ASSERT(FALSE);
+                        Hash.Type = XENVIF_PACKET_HASH_TYPE_NONE;
+                        break;
+                    }
+
+                    Hash.Value = *(uint32_t *)extra->u.hash.value;
+                    break;
+
                 default:
                     ASSERT(FALSE);
                     break;
@@ -1940,6 +1990,14 @@ ReceiverRingPoll(
                         Packet->MaximumSegmentSize = MaximumSegmentSize;
                     }
 
+                    if (Info & (1 << XEN_NETIF_EXTRA_TYPE_HASH)) {
+                        ASSERT3U(Hash.Algorithm, ==, XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ);
+
+                        if (Hash.Algorithm == Ring->Hash.Algorithm &&
+                            ((1u << Hash.Type) & Ring->Hash.Types))
+                            Packet->Hash = Hash;
+                    }
+
                     Packet->Flags.Value = flags;
 
                     ASSERT(IsZeroMemory(&Packet->ListEntry, sizeof (LIST_ENTRY)));
@@ -1952,6 +2010,7 @@ ReceiverRingPoll(
                 Error = FALSE;
                 Info = 0;
                 MaximumSegmentSize = 0;
+                RtlZeroMemory(&Hash, sizeof (Hash));
                 Packet = NULL;
                 flags = 0;
                 TailMdl = NULL;
@@ -1963,6 +2022,7 @@ ReceiverRingPoll(
         ASSERT3P(Packet, ==, NULL);
         ASSERT3U(flags, ==, 0);
         ASSERT3U(MaximumSegmentSize, ==, 0);
+        ASSERT(IsZeroMemory(&Hash, sizeof (Hash)));
         ASSERT3P(TailMdl, ==, NULL);
         ASSERT(EOP);
 
@@ -2158,7 +2218,7 @@ ReceiverRingWatchdog(
                              Ring->DebugCallback);
 
                 // Try to move things along
-                ReceiverRingPoll(Ring);
+                __ReceiverRingTrigger(Ring, TRUE);
                 __ReceiverRingSend(Ring, TRUE);
             }
 
@@ -2679,6 +2739,7 @@ __ReceiverRingTeardown(
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
+    RtlZeroMemory(&Ring->Hash, sizeof (XENVIF_RECEIVER_HASH));
     RtlZeroMemory(&Ring->TimerDpc, sizeof (KDPC));
     RtlZeroMemory(&Ring->Timer, sizeof (KTIMER));
     RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
@@ -3486,6 +3547,19 @@ ReceiverWaitForPackets(
 }
 
 VOID
+ReceiverTrigger(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  ULONG               Index
+    )
+{
+    PXENVIF_RECEIVER_RING   Ring;
+
+    Ring = Receiver->Ring[Index];
+
+    __ReceiverRingTrigger(Ring, FALSE);
+}
+
+VOID
 ReceiverSend(
     IN  PXENVIF_RECEIVER    Receiver,
     IN  ULONG               Index
@@ -3496,4 +3570,192 @@ ReceiverSend(
     Ring = Receiver->Ring[Index];
 
     __ReceiverRingSend(Ring, FALSE);
+}
+
+NTSTATUS
+ReceiverSetHashAlgorithm(
+    IN  PXENVIF_RECEIVER                Receiver,
+    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
+    )
+{
+    PXENVIF_FRONTEND                    Frontend;
+    KIRQL                               Irql;
+    LONG                                Index;
+    NTSTATUS                            status;
+
+    Frontend = Receiver->Frontend;
+
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+
+    for (Index = 0;
+         Index < (LONG)FrontendGetMaxQueues(Frontend);
+         ++Index) {
+        PXENVIF_RECEIVER_RING   Ring;
+
+        Ring = Receiver->Ring[Index];
+        if (Ring == NULL)
+            break;
+
+        __ReceiverRingAcquireLock(Ring);
+        Ring->Hash.Algorithm = Algorithm;
+        __ReceiverRingReleaseLock(Ring);
+    }
+
+    KeLowerIrql(Irql);
+
+    status = FrontendSetHashAlgorithm(Frontend, Algorithm);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = FrontendUpdateHash(Frontend);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+NTSTATUS
+ReceiverQueryHashCapabilities(
+    IN  PXENVIF_RECEIVER    Receiver,
+    OUT PULONG              Types
+    )
+{
+    PXENVIF_FRONTEND        Frontend;
+    NTSTATUS                status;
+
+    Frontend = Receiver->Frontend;
+
+    status = FrontendQueryHashTypes(Frontend, Types);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+NTSTATUS
+ReceiverUpdateHashParameters(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  ULONG               Types,
+    IN  PUCHAR              Key
+    )
+{
+    PXENVIF_FRONTEND        Frontend;
+    KIRQL                   Irql;
+    LONG                    Index;
+    NTSTATUS                status;
+
+    Frontend = Receiver->Frontend;
+
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+
+    for (Index = 0;
+         Index < (LONG)FrontendGetMaxQueues(Frontend);
+         ++Index) {
+        PXENVIF_RECEIVER_RING   Ring;
+
+        Ring = Receiver->Ring[Index];
+        if (Ring == NULL)
+            break;
+
+        __ReceiverRingAcquireLock(Ring);
+        Ring->Hash.Types = Types;
+        __ReceiverRingReleaseLock(Ring);
+    }
+
+    KeLowerIrql(Irql);
+
+    status = FrontendSetHashTypes(Frontend, Types);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = FrontendSetHashKey(Frontend, Key);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = FrontendUpdateHash(Frontend);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+NTSTATUS
+ReceiverUpdateHashMapping(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  PPROCESSOR_NUMBER   ProcessorMapping,
+    IN  ULONG               Size
+    )
+{
+    PXENVIF_FRONTEND        Frontend;
+    PULONG                  QueueMapping;
+    ULONG                   NumQueues;
+    ULONG                   Index;
+    NTSTATUS                status;
+
+    Frontend = Receiver->Frontend;
+
+    QueueMapping = __ReceiverAllocate(sizeof (ULONG) * Size);
+
+    status = STATUS_NO_MEMORY;
+    if (QueueMapping == NULL)
+        goto fail1;
+
+    NumQueues = FrontendGetNumQueues(Frontend);
+
+    status = STATUS_INVALID_PARAMETER;
+    for (Index = 0; Index < Size; Index++) {
+        QueueMapping[Index] = KeGetProcessorIndexFromNumber(&ProcessorMapping[Index]);
+
+        if (QueueMapping[Index] >= NumQueues)
+            goto fail2;
+    }
+
+    status = FrontendSetHashMapping(Frontend, QueueMapping, Size);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    status = FrontendUpdateHash(Frontend);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
+    __ReceiverFree(QueueMapping);
+
+    return STATUS_SUCCESS;
+
+fail4:
+    Error("fail4\n");
+
+fail3:
+    Error("fail3\n");
+
+fail2:
+    Error("fail2\n");
+
+    __ReceiverFree(QueueMapping);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
 }

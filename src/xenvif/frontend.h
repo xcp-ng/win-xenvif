@@ -202,7 +202,49 @@ FrontendSetFilterLevel(
 
 extern VOID
 FrontendAdvertiseIpAddresses(
-    IN  PXENVIF_FRONTEND        Frontend
+    IN  PXENVIF_FRONTEND    Frontend
+    );
+
+extern NTSTATUS
+FrontendUpdateHash(
+    IN  PXENVIF_FRONTEND    Frontend
+    );
+
+extern NTSTATUS
+FrontendSetHashAlgorithm(
+    IN  PXENVIF_FRONTEND                Frontend,
+    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
+    );
+
+extern NTSTATUS
+FrontendQueryHashTypes(
+    IN  PXENVIF_FRONTEND    Frontend,
+    OUT PULONG              Types
+    );
+
+extern NTSTATUS
+FrontendSetHashMapping(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  PULONG              Mapping,
+    IN  ULONG               Order
+    );
+
+extern NTSTATUS
+FrontendSetHashKey(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  PUCHAR              Key
+    );
+
+extern NTSTATUS
+FrontendSetHashTypes(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  ULONG               Types
+    );
+
+extern ULONG
+FrontendGetQueue(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  ULONG               Index
     );
 
 #endif  // _XENVIF_FRONTEND_H

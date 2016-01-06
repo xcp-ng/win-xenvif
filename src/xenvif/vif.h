@@ -78,6 +78,7 @@ VifReceiverQueuePacket(
     IN  USHORT                          MaximumSegmentSize,
     IN  USHORT                          TagControlInformation,
     IN  PXENVIF_PACKET_INFO             Info,
+    IN  PXENVIF_PACKET_HASH             Hash,
     IN  PVOID                           Cookie
     );
 

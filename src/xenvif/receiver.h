@@ -107,9 +107,41 @@ ReceiverReturnPacket(
     );
 
 extern VOID
+ReceiverTrigger(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  ULONG               Index
+    );
+
+extern VOID
 ReceiverSend(
     IN  PXENVIF_RECEIVER    Receiver,
     IN  ULONG               Index
+    );
+
+NTSTATUS
+ReceiverSetHashAlgorithm(
+    IN  PXENVIF_RECEIVER                Receiver,
+    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
+    );
+
+NTSTATUS
+ReceiverQueryHashCapabilities(
+    IN  PXENVIF_RECEIVER    Receiver,
+    OUT PULONG              Types
+    );
+
+NTSTATUS
+ReceiverUpdateHashParameters(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  ULONG               Types,
+    IN  PUCHAR              Key
+    );
+
+NTSTATUS
+ReceiverUpdateHashMapping(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  PPROCESSOR_NUMBER   ProcessorMapping,
+    IN  ULONG               Order
     );
 
 #endif  // _XENVIF_RECEIVER_H

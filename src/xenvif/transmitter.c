@@ -2524,6 +2524,32 @@ done:
 }
 
 static FORCEINLINE VOID
+__TransmitterRingTrigger(
+    IN  PXENVIF_TRANSMITTER_RING    Ring
+    )
+{
+    PXENVIF_TRANSMITTER             Transmitter;
+    PXENVIF_FRONTEND                Frontend;
+
+    Transmitter = Ring->Transmitter;
+    Frontend = Transmitter->Frontend;
+
+    if (!Ring->Connected)
+        return;
+
+    if (FrontendIsSplit(Frontend)) {
+        ASSERT(Ring->Channel != NULL);
+
+        (VOID) XENBUS_EVTCHN(Trigger,
+                             &Transmitter->EvtchnInterface,
+                             Ring->Channel);
+    } else {
+        ReceiverTrigger(FrontendGetReceiver(Frontend),
+                        Ring->Index);
+    }
+}
+
+static FORCEINLINE VOID
 __TransmitterRingSend(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
@@ -3087,8 +3113,8 @@ TransmitterRingWatchdog(
                              Ring->DebugCallback);
 
                 // Try to move things along
+                __TransmitterRingTrigger(Ring);
                 __TransmitterRingSend(Ring);
-                (VOID) TransmitterRingPoll(Ring);
             }
 
             PacketsQueued = Ring->PacketsQueued;
@@ -4772,6 +4798,7 @@ TransmitterQueuePacket(
     PUCHAR                          StartVa;
     PXENVIF_PACKET_PAYLOAD          Payload;
     PXENVIF_PACKET_INFO             Info;
+    ULONG                           Value;
     ULONG                           Index;
     PXENVIF_TRANSMITTER_RING        Ring;
     NTSTATUS                        status;
@@ -4805,20 +4832,21 @@ TransmitterQueuePacket(
 
     switch (Hash->Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
-        Index = __TransmitterHashPacket(Packet);
+        Value = __TransmitterHashPacket(Packet);
         break;
 
     case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
-        Index = Hash->Value;
+    case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
+        Value = Hash->Value;
         break;
 
     default:
         ASSERT(FALSE);
-        Index = 0;
+        Value = 0;
         break;
     }
 
-    Index %= FrontendGetNumQueues(Frontend);
+    Index = FrontendGetQueue(Frontend, Value);
     Ring = Transmitter->Ring[Index];
 
     __TransmitterRingQueuePacket(Ring, Packet);

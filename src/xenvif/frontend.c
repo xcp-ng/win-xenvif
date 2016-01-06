@@ -56,6 +56,15 @@ typedef struct _XENVIF_FRONTEND_STATISTICS {
     ULONGLONG   Value[XENVIF_VIF_STATISTIC_COUNT];
 } XENVIF_FRONTEND_STATISTICS, *PXENVIF_FRONTEND_STATISTICS;
 
+#define XENVIF_FRONTEND_MAXIMUM_HASH_MAPPING_SIZE   128
+
+typedef struct _XENVIF_FRONTEND_HASH {
+    XENVIF_PACKET_HASH_ALGORITHM    Algorithm;
+    ULONG                           Flags;
+    UCHAR                           Key[XENVIF_VIF_HASH_KEY_SIZE];
+    ULONG                           Mapping[XENVIF_FRONTEND_MAXIMUM_HASH_MAPPING_SIZE];
+    ULONG                           Size;
+} XENVIF_FRONTEND_HASH, *PXENVIF_FRONTEND_HASH;
 
 struct _XENVIF_FRONTEND {
     PXENVIF_PDO                 Pdo;
@@ -95,6 +104,8 @@ struct _XENVIF_FRONTEND {
     NET_IFINDEX                 InterfaceIndex;
     PSOCKADDR_INET              AddressTable;
     ULONG                       AddressCount;
+
+    XENVIF_FRONTEND_HASH        Hash;
 };
 
 static const PCHAR
@@ -1790,6 +1801,295 @@ FrontendIsSplit(
     return __FrontendIsSplit(Frontend);
 }
 
+static FORCEINLINE NTSTATUS
+__FrontendUpdateHash(
+    IN  PXENVIF_FRONTEND                Frontend
+    )
+{
+    PXENVIF_FRONTEND_HASH               Hash = &Frontend->Hash;
+    PXENVIF_CONTROLLER                  Controller;
+    ULONG                               Zero = 0;
+    ULONG                               Size;
+    PULONG                              Mapping;
+    ULONG                               Flags;
+    NTSTATUS                            status;
+
+    Controller = __FrontendGetController(Frontend);
+
+    switch (Hash->Algorithm) {
+    case XENVIF_PACKET_HASH_ALGORITHM_NONE:
+        Size = 1;
+        Mapping = &Zero;
+        Flags = 0;
+        break;
+
+    case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
+        Size = Hash->Size;
+        Mapping = Hash->Mapping;
+        Flags = Hash->Flags;
+        break;
+
+    case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
+    default:
+        (VOID) ControllerSetHashAlgorithm(Controller,
+                                          XEN_NETIF_CTRL_HASH_ALGORITHM_NONE);
+        goto done;
+    }
+
+    status = ControllerSetHashAlgorithm(Controller,
+                                        XEN_NETIF_CTRL_HASH_ALGORITHM_TOEPLITZ);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = ControllerSetHashMappingSize(Controller, Size);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = ControllerSetHashMapping(Controller, Mapping, Size, 0);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    status = ControllerSetHashKey(Controller, Hash->Key, XENVIF_VIF_HASH_KEY_SIZE);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
+    status = ControllerSetHashFlags(Controller, Flags);
+    if (!NT_SUCCESS(status))
+        goto fail5;
+
+done:
+    return STATUS_SUCCESS;
+
+fail5:
+    Error("fail5\n");
+
+fail4:
+    Error("fail4\n");
+
+fail3:
+    Error("fail3\n");
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+NTSTATUS
+FrontendUpdateHash(
+    IN  PXENVIF_FRONTEND                Frontend
+    )
+{
+    KIRQL                               Irql;
+    NTSTATUS                            status;
+
+    KeAcquireSpinLock(&Frontend->Lock, &Irql);
+    status = __FrontendUpdateHash(Frontend);
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    return status;
+}
+
+NTSTATUS
+FrontendSetHashAlgorithm(
+    IN  PXENVIF_FRONTEND                Frontend,
+    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
+    )
+{
+    PXENVIF_FRONTEND_HASH               Hash = &Frontend->Hash;
+    KIRQL                               Irql;
+    NTSTATUS                            status;
+
+    KeAcquireSpinLock(&Frontend->Lock, &Irql);
+
+    if (Algorithm == Hash->Algorithm)
+        goto done;
+
+    switch (Algorithm) {
+    case XENVIF_PACKET_HASH_ALGORITHM_NONE:
+    case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
+    case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
+        status = STATUS_SUCCESS;
+        break;
+
+    default:
+        status = STATUS_NOT_SUPPORTED;
+        break;
+    }
+
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    Info("%s: %s\n", __FrontendGetPath(Frontend),
+         (Algorithm == XENVIF_PACKET_HASH_ALGORITHM_NONE) ? "NONE" :
+         (Algorithm == XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED) ? "UNSPECIFIED" :
+         (Algorithm == XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ) ? "TOEPLITZ" :
+         "");
+
+    Hash->Algorithm = Algorithm;
+
+done:
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n");
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    return status;
+}
+
+NTSTATUS
+FrontendQueryHashTypes(
+    IN  PXENVIF_FRONTEND    Frontend,
+    OUT PULONG              Types
+    )
+{
+    KIRQL                   Irql;
+    ULONG                   Flags;
+    NTSTATUS                status;
+
+    KeAcquireSpinLock(&Frontend->Lock, &Irql);
+
+    status = ControllerGetHashFlags(__FrontendGetController(Frontend),
+                                    &Flags);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    *Types = 0;
+    if (Flags & XEN_NETIF_CTRL_HASH_TYPE_IPV4)
+        *Types |= 1 << XENVIF_PACKET_HASH_TYPE_IPV4;
+    if (Flags & XEN_NETIF_CTRL_HASH_TYPE_IPV4_TCP)
+        *Types |= 1 << XENVIF_PACKET_HASH_TYPE_IPV4_TCP;
+    if (Flags & XEN_NETIF_CTRL_HASH_TYPE_IPV6)
+        *Types |= 1 << XENVIF_PACKET_HASH_TYPE_IPV6;
+    if (Flags & XEN_NETIF_CTRL_HASH_TYPE_IPV6_TCP)
+        *Types |= 1 << XENVIF_PACKET_HASH_TYPE_IPV6_TCP;
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    return status;
+}
+
+NTSTATUS
+FrontendSetHashMapping(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  PULONG              Mapping,
+    IN  ULONG               Size
+    )
+{
+    PXENVIF_FRONTEND_HASH   Hash = &Frontend->Hash;
+    KIRQL                   Irql;
+    NTSTATUS                status;
+
+    KeAcquireSpinLock(&Frontend->Lock, &Irql);
+
+    status = STATUS_INVALID_PARAMETER;
+    if (Size > XENVIF_FRONTEND_MAXIMUM_HASH_MAPPING_SIZE)
+        goto fail1;
+
+    RtlCopyMemory(Hash->Mapping, Mapping, sizeof (ULONG) * Size);
+    Hash->Size = Size;
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    return status;
+}
+
+NTSTATUS
+FrontendSetHashKey(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  PUCHAR              Key
+    )
+{
+    PXENVIF_FRONTEND_HASH   Hash = &Frontend->Hash;
+    KIRQL                   Irql;
+
+    KeAcquireSpinLock(&Frontend->Lock, &Irql);
+
+    RtlCopyMemory(Hash->Key, Key, XENVIF_VIF_HASH_KEY_SIZE);
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+FrontendSetHashTypes(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  ULONG               Types
+    )
+{
+    PXENVIF_FRONTEND_HASH   Hash = &Frontend->Hash;
+    KIRQL                   Irql;
+    ULONG                   Flags;
+
+    KeAcquireSpinLock(&Frontend->Lock, &Irql);
+
+    Flags = 0;
+    if (Types & (1 << XENVIF_PACKET_HASH_TYPE_IPV4))
+        Flags |= XEN_NETIF_CTRL_HASH_TYPE_IPV4;
+    if (Types & (1 << XENVIF_PACKET_HASH_TYPE_IPV4_TCP))
+        Flags |= XEN_NETIF_CTRL_HASH_TYPE_IPV4_TCP;
+    if (Types & (1 << XENVIF_PACKET_HASH_TYPE_IPV6))
+        Flags |= XEN_NETIF_CTRL_HASH_TYPE_IPV6;
+    if (Types & (1 << XENVIF_PACKET_HASH_TYPE_IPV6_TCP))
+        Flags |= XEN_NETIF_CTRL_HASH_TYPE_IPV6_TCP;
+
+    Hash->Flags = Flags;
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    return STATUS_SUCCESS;
+}
+
+ULONG
+FrontendGetQueue(
+    IN  PXENVIF_FRONTEND    Frontend,
+    IN  ULONG               Value
+    )
+{
+    PXENVIF_FRONTEND_HASH   Hash = &Frontend->Hash;
+    ULONG                   Queue;
+
+    switch (Hash->Algorithm) {
+    case XENVIF_PACKET_HASH_ALGORITHM_NONE:
+    case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
+        Queue = Value % __FrontendGetNumQueues(Frontend);
+        break;
+
+    case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
+        Queue = Hash->Mapping[Value % Hash->Size];
+        break;
+
+    default:
+        ASSERT(FALSE);
+        Queue = 0;
+        break;
+    }
+
+    return Queue;
+}
+
 static NTSTATUS
 FrontendConnect(
     IN  PXENVIF_FRONTEND    Frontend
@@ -2045,10 +2345,19 @@ FrontendEnable(
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    FrontendNotifyMulticastAddresses(Frontend, TRUE);
+    status = __FrontendUpdateHash(Frontend);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
+    (VOID) FrontendNotifyMulticastAddresses(Frontend, TRUE);
 
     Trace("<====\n");
     return STATUS_SUCCESS;
+
+fail4:
+    Error("fail4\n");
+
+    TransmitterDisable(__FrontendGetTransmitter(Frontend));
 
 fail3:
     Error("fail3\n");
@@ -2073,7 +2382,7 @@ FrontendDisable(
 {
     Trace("====>\n");
 
-    FrontendNotifyMulticastAddresses(Frontend, FALSE);
+    (VOID) FrontendNotifyMulticastAddresses(Frontend, FALSE);
 
     TransmitterDisable(__FrontendGetTransmitter(Frontend));
     ReceiverDisable(__FrontendGetReceiver(Frontend));
@@ -2461,6 +2770,7 @@ FrontendInitialize(
     FdoGetStoreInterface(PdoGetFdo(Pdo), &(*Frontend)->StoreInterface);
 
     FrontendSetMaxQueues(*Frontend);
+    (*Frontend)->Hash.Algorithm = XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED;
 
     status = MacInitialize(*Frontend, &(*Frontend)->Mac);
     if (!NT_SUCCESS(status))
@@ -2526,6 +2836,7 @@ fail7:
 fail6:
     Error("fail6\n");
 
+    RtlZeroMemory(&(*Frontend)->Hash, sizeof (XENVIF_FRONTEND_HASH));
     (*Frontend)->MaxQueues = 0;
 
     RtlZeroMemory(&(*Frontend)->StoreInterface,
@@ -2616,6 +2927,7 @@ FrontendTeardown(
     MacTeardown(__FrontendGetMac(Frontend));
     Frontend->Mac = NULL;
 
+    RtlZeroMemory(&Frontend->Hash, sizeof (XENVIF_FRONTEND_HASH));
     Frontend->MaxQueues = 0;
 
     RtlZeroMemory(&Frontend->StoreInterface,
