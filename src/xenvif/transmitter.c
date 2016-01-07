@@ -78,6 +78,7 @@ typedef struct _XENVIF_TRANSMITTER_PACKET {
     ULONG                                       Offset;
     ULONG                                       Length;
     PUCHAR                                      Header;
+    XENVIF_PACKET_HASH                          Hash;
     XENVIF_PACKET_INFO                          Info;
     XENVIF_PACKET_PAYLOAD                       Payload;
 } XENVIF_TRANSMITTER_PACKET, *PXENVIF_TRANSMITTER_PACKET;
@@ -150,7 +151,7 @@ typedef struct _XENVIF_TRANSMITTER_FRAGMENT {
     PXENBUS_GNTTAB_ENTRY                Entry;
     ULONG                               Offset;
     ULONG                               Length;
-    BOOLEAN                             Extra;
+    ULONG                               Extra;
 } XENVIF_TRANSMITTER_FRAGMENT, *PXENVIF_TRANSMITTER_FRAGMENT;
 
 #define XENVIF_TRANSMITTER_MAXIMUM_FRAGMENT_ID  0x03FF
@@ -349,6 +350,7 @@ __TransmitterPutPacket(
 
     RtlZeroMemory(Packet->Header, XENVIF_TRANSMITTER_MAXIMUM_HEADER_LENGTH);
     RtlZeroMemory(&Packet->Info, sizeof (XENVIF_PACKET_INFO));
+    RtlZeroMemory(&Packet->Hash, sizeof (XENVIF_PACKET_HASH));
     RtlZeroMemory(&Packet->Payload, sizeof (XENVIF_PACKET_PAYLOAD));
 
     XENBUS_CACHE(Put,
@@ -626,7 +628,7 @@ __TransmitterPutFragment(
     ASSERT3U(Fragment->Type, ==, XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID);
     ASSERT3P(Fragment->Context, ==, NULL);
     ASSERT3P(Fragment->Entry, ==, NULL);
-    ASSERT(!Fragment->Extra);
+    ASSERT3U(Fragment->Extra, ==, 0);
 
     XENBUS_CACHE(Put,
                  &Transmitter->CacheInterface,
@@ -2041,6 +2043,8 @@ __TransmitterRingPostFragments(
     PXENVIF_TRANSMITTER_STATE       State;
     PXENVIF_TRANSMITTER_PACKET      Packet;
     XENVIF_VIF_OFFLOAD_OPTIONS      OffloadOptions;
+    USHORT                          MaximumSegmentSize;
+    XENVIF_PACKET_HASH              Hash;
     RING_IDX                        req_prod;
     RING_IDX                        rsp_cons;
     ULONG                           Extra;
@@ -2056,10 +2060,15 @@ __TransmitterRingPostFragments(
     State = &Ring->State;
     Packet = State->Packet;
 
-    if (Packet != NULL)
+    if (Packet != NULL) {
         OffloadOptions = Packet->OffloadOptions;
-    else
+        MaximumSegmentSize = Packet->MaximumSegmentSize;
+        Hash = Packet->Hash;
+    } else {
         OffloadOptions.Value = 0;
+        MaximumSegmentSize = 0;
+        RtlZeroMemory(&Hash, sizeof (Hash));
+    }
 
     ASSERT(!IsListEmpty(&State->List));
     ASSERT(State->Count != 0);
@@ -2073,11 +2082,20 @@ __TransmitterRingPostFragments(
                                  XENVIF_TRANSMITTER_FRAGMENT,
                                  ListEntry);
 
-    Extra = (OffloadOptions.OffloadIpVersion4LargePacket ||
-             OffloadOptions.OffloadIpVersion6LargePacket ||
-             Fragment->Type == XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL) ?
-            1 :
-            0;
+    Extra = 0;
+
+    if (OffloadOptions.OffloadIpVersion4LargePacket ||
+        OffloadOptions.OffloadIpVersion6LargePacket)
+        Extra++;
+
+    if (Fragment->Type == XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL) {
+        ASSERT(Transmitter->MulticastControl);
+        Extra++;
+    }
+
+    if (Hash.Algorithm == XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ &&
+        Hash.Type != XENVIF_PACKET_HASH_TYPE_NONE)
+        Extra++;
 
     ASSERT3U(State->Count + Extra, <=, RING_SIZE(&Ring->Front));
 
@@ -2115,6 +2133,8 @@ __TransmitterRingPostFragments(
         req->flags = NETTXF_more_data;
 
         if (FirstRequest) {
+            struct netif_extra_info *extra = NULL;
+
             FirstRequest = FALSE;
 
             if (OffloadOptions.OffloadIpVersion4TcpChecksum ||
@@ -2124,49 +2144,109 @@ __TransmitterRingPostFragments(
                 req->flags |= NETTXF_csum_blank | NETTXF_data_validated;
 
             if (OffloadOptions.OffloadIpVersion4LargePacket ||
-                OffloadOptions.OffloadIpVersion6LargePacket ||
-                Fragment->Type == XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL) {
-                struct netif_extra_info *extra;
+                OffloadOptions.OffloadIpVersion6LargePacket) {
+                ASSERT(req->flags & (NETTXF_csum_blank | NETTXF_data_validated));
 
-                ASSERT(Extra != 0);
-                Fragment->Extra = TRUE;
+                Fragment->Extra++;
+
+                ASSERT(!(req->flags & NETTXF_extra_info));
+                req->flags |= NETTXF_extra_info;
 
                 extra = (struct netif_extra_info *)RING_GET_REQUEST(&Ring->Front, req_prod);
                 req_prod++;
                 Ring->RequestsPosted++;
 
-                if (OffloadOptions.OffloadIpVersion4LargePacket ||
-                    OffloadOptions.OffloadIpVersion6LargePacket) {
-                    ASSERT(Packet->MaximumSegmentSize != 0);
+                RtlZeroMemory(extra, sizeof (struct netif_extra_info));
 
-                    extra->type = XEN_NETIF_EXTRA_TYPE_GSO;
-                    extra->flags = 0;
+                extra->type = XEN_NETIF_EXTRA_TYPE_GSO;
 
-                    extra->u.gso.type = (OffloadOptions.OffloadIpVersion4LargePacket) ?
-                                        XEN_NETIF_GSO_TYPE_TCPV4 :
-                                        XEN_NETIF_GSO_TYPE_TCPV6;
-                    extra->u.gso.size = Packet->MaximumSegmentSize;
-                    extra->u.gso.pad = 0;
-                    extra->u.gso.features = 0;
+                extra->u.gso.type = (OffloadOptions.OffloadIpVersion4LargePacket) ?
+                                    XEN_NETIF_GSO_TYPE_TCPV4 :
+                                    XEN_NETIF_GSO_TYPE_TCPV6;
+                extra->u.gso.size = MaximumSegmentSize;
+            }
 
-                    ASSERT(req->flags & (NETTXF_csum_blank | NETTXF_data_validated));
+            if (Fragment->Type == XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL) {
+                PXENVIF_TRANSMITTER_MULTICAST_CONTROL   Control;
+
+                Fragment->Extra++;
+
+                if (req->flags & NETTXF_extra_info) {
+                    ASSERT(extra != NULL);
+                    extra->flags |= XEN_NETIF_EXTRA_FLAG_MORE;
                 } else {
-                    PXENVIF_TRANSMITTER_MULTICAST_CONTROL   Control;
-
-                    ASSERT(Fragment->Type == XENVIF_TRANSMITTER_FRAGMENT_TYPE_MULTICAST_CONTROL);
-                    Control = Fragment->Context;
-
-                    extra->type = (Control->Type == XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_ADD) ?
-                        XEN_NETIF_EXTRA_TYPE_MCAST_ADD :
-                        XEN_NETIF_EXTRA_TYPE_MCAST_DEL;
-                    extra->flags = 0;
-
-                    RtlCopyMemory(&extra->u.mcast.addr,
-                                  &Control->Address.Byte[0],
-                                  ETHERNET_ADDRESS_LENGTH);
+                    req->flags |= NETTXF_extra_info;
                 }
 
-                req->flags |= NETTXF_extra_info;
+                extra = (struct netif_extra_info *)RING_GET_REQUEST(&Ring->Front, req_prod);
+                req_prod++;
+                Ring->RequestsPosted++;
+
+                RtlZeroMemory(extra, sizeof (struct netif_extra_info));
+
+                Control = Fragment->Context;
+                switch (Control->Type) {
+                case XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_ADD:
+                    extra->type = XEN_NETIF_EXTRA_TYPE_MCAST_ADD;
+                    break;
+
+                case XENVIF_TRANSMITTER_MULTICAST_CONTROL_TYPE_REMOVE:
+                    extra->type = XEN_NETIF_EXTRA_TYPE_MCAST_DEL;
+                    break;
+
+                default:
+                    ASSERT(FALSE);
+                    break;
+                }
+
+                RtlCopyMemory(&extra->u.mcast.addr,
+                              &Control->Address.Byte[0],
+                              ETHERNET_ADDRESS_LENGTH);
+            }
+
+            if (Hash.Algorithm == XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ &&
+                Hash.Type != XENVIF_PACKET_HASH_TYPE_NONE) {
+
+                if (req->flags & NETTXF_extra_info) {
+                    ASSERT(extra != NULL);
+                    extra->flags |= XEN_NETIF_EXTRA_FLAG_MORE;
+                } else {
+                    req->flags |= NETTXF_extra_info;
+                }
+
+                Fragment->Extra++;
+
+                extra = (struct netif_extra_info *)RING_GET_REQUEST(&Ring->Front, req_prod);
+                req_prod++;
+                Ring->RequestsPosted++;
+
+                RtlZeroMemory(extra, sizeof (struct netif_extra_info));
+
+                extra->type = XEN_NETIF_EXTRA_TYPE_HASH;
+
+                switch (Hash.Type) {
+                case XENVIF_PACKET_HASH_TYPE_IPV4:
+                    extra->u.hash.type = _XEN_NETIF_CTRL_HASH_TYPE_IPV4;
+                    break;
+
+                case XENVIF_PACKET_HASH_TYPE_IPV4_TCP:
+                    extra->u.hash.type = _XEN_NETIF_CTRL_HASH_TYPE_IPV4_TCP;
+                    break;
+
+                case XENVIF_PACKET_HASH_TYPE_IPV6:
+                    extra->u.hash.type = _XEN_NETIF_CTRL_HASH_TYPE_IPV6;
+                    break;
+
+                case XENVIF_PACKET_HASH_TYPE_IPV6_TCP:
+                    extra->u.hash.type = _XEN_NETIF_CTRL_HASH_TYPE_IPV6_TCP;
+                    break;
+
+                default:
+                    ASSERT(FALSE);
+                    break;
+                }
+
+                *(uint32_t *)extra->u.hash.value = Hash.Value;
             }
         }
 
@@ -2245,6 +2325,7 @@ __TransmitterRingFakeResponses(
     for (id = 0; id <= XENVIF_TRANSMITTER_MAXIMUM_FRAGMENT_ID; id++) {
         PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
         netif_tx_response_t             *rsp;
+        ULONG                           Extra;
 
         Fragment = Ring->Pending[id];
 
@@ -2258,7 +2339,7 @@ __TransmitterRingFakeResponses(
         rsp->id = Fragment->Id;
         rsp->status = NETIF_RSP_DROPPED;
 
-        if (Fragment->Extra) {
+        for (Extra = 0; Extra < Fragment->Extra; Extra++) {
             rsp = RING_GET_RESPONSE(&Ring->Front, rsp_prod);
             rsp_prod++;
             Count++;
@@ -2374,6 +2455,7 @@ TransmitterRingPoll(
     for (;;) {
         RING_IDX    rsp_prod;
         RING_IDX    rsp_cons;
+        ULONG       Extra;
 
         KeMemoryBarrier();
 
@@ -2385,6 +2467,7 @@ TransmitterRingPoll(
         if (rsp_cons == rsp_prod || Retry)
             break;
 
+        Extra = 0;
         while (rsp_cons != rsp_prod && !Retry) {
             netif_tx_response_t             *rsp;
             uint16_t                        id;
@@ -2397,8 +2480,13 @@ TransmitterRingPoll(
 
             Ring->Stopped = FALSE;
 
-            if (rsp->status == NETIF_RSP_NULL)
+            if (rsp->status == NETIF_RSP_NULL) {
+                ASSERT(Extra != 0);
+                --Extra;
                 continue;
+            }
+
+            ASSERT3U(Extra, ==, 0);
 
             id = rsp->id;
 
@@ -2474,7 +2562,8 @@ TransmitterRingPoll(
                 Fragment->Entry = NULL;
             }
 
-            Fragment->Extra = FALSE;
+            Extra = Fragment->Extra;
+            Fragment->Extra = 0;
             __TransmitterPutFragment(Ring, Fragment);
 
             if (Packet == NULL)
@@ -2510,6 +2599,7 @@ TransmitterRingPoll(
             if (rsp_cons - Ring->Front.rsp_cons > XENVIF_TRANSMITTER_BATCH(Ring))
                 Retry = TRUE;
         }
+        ASSERT3U(Extra, ==, 0);
 
         KeMemoryBarrier();
 
@@ -4817,6 +4907,7 @@ TransmitterQueuePacket(
     Packet->OffloadOptions = OffloadOptions;
     Packet->MaximumSegmentSize = MaximumSegmentSize;
     Packet->TagControlInformation = TagControlInformation;
+    Packet->Hash = *Hash;
     Packet->Cookie = Cookie;
 
     StartVa = Packet->Header;
