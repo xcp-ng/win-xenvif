@@ -678,8 +678,6 @@ ReceiverRingPullup(
     return TRUE;
 
 fail1:
-    Error("fail1\n");
-
     return FALSE;
 }
 

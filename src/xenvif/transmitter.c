@@ -834,8 +834,6 @@ TransmitterPullup(
     return TRUE;
 
 fail1:
-    Error("fail1\n");
-
     return FALSE;
 }
 
@@ -1179,13 +1177,17 @@ __TransmitterRingPrepareHeader(
     Payload = &Packet->Payload;
     Info = &Packet->Info;
 
+    status = STATUS_UNSUCCESSFUL;
+    if (Info->Length == 0)
+        goto fail1;
+
     ASSERT3U(Packet->Reference, ==, 0);
 
     Buffer = __TransmitterGetBuffer(Ring);
 
     status = STATUS_NO_MEMORY;
     if (Buffer == NULL)
-        goto fail1;
+        goto fail2;
 
     Buffer->Context = Packet;
     Packet->Reference++;
@@ -1203,7 +1205,7 @@ __TransmitterRingPrepareHeader(
 
     status = STATUS_NO_MEMORY;
     if (Fragment == NULL)
-        goto fail2;
+        goto fail3;
 
     Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_BUFFER;
     Fragment->Context = Buffer;
@@ -1221,7 +1223,7 @@ __TransmitterRingPrepareHeader(
                            TRUE,
                            &Fragment->Entry);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     Fragment->Offset = 0;
     Fragment->Length = Mdl->ByteCount + Payload->Length;
@@ -1356,7 +1358,7 @@ __TransmitterRingPrepareHeader(
         
         if (Fragment->Length > MaximumFrameSize) {
             status = STATUS_INVALID_PARAMETER;
-            goto fail4;
+            goto fail5;
         }
     }
 
@@ -1372,8 +1374,8 @@ __TransmitterRingPrepareHeader(
 
     return STATUS_SUCCESS;
 
-fail4:
-    Error("fail4\n");
+fail5:
+    Error("fail5\n");
 
     ASSERT(State->Count != 0);
     --State->Count;
@@ -1391,8 +1393,8 @@ fail4:
                          Fragment->Entry);
     Fragment->Entry = NULL;
 
-fail3:
-    Error("fail3\n");
+fail4:
+    Error("fail4\n");
 
     Fragment->Context = NULL;
     Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID;
@@ -1402,18 +1404,21 @@ fail3:
 
     __TransmitterPutFragment(Ring, Fragment);
 
-fail2:
-    Error("fail2\n");
+fail3:
+    Error("fail3\n");
 
     --Packet->Reference;
     Buffer->Context = NULL;
 
     __TransmitterPutBuffer(Ring, Buffer);
 
-fail1:
-    Error("fail1 (%08x)\n", status);
+fail2:
+    Error("fail2\n");
 
     ASSERT3U(Packet->Reference, ==, 0);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
 
     return status;
 }
@@ -4568,10 +4573,9 @@ __TransmitterHashPacket(
     StartVa = Packet->Header;
     Info = &Packet->Info;
 
-    if (Info->TcpHeader.Length == 0 && Info->UdpHeader.Length == 0)
+    if (Info->IpHeader.Length == 0)
         goto done;
 
-    ASSERT(Info->IpHeader.Length != 0);
     IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
 
     if (IpHeader->Version == 4) {
@@ -4607,7 +4611,7 @@ __TransmitterHashPacket(
         __TransmitterHashAccumulate(&Value,
                                     (PUCHAR)&TcpHeader->DestinationPort,
                                     sizeof (USHORT));
-    } else {
+    } else if (Info->UdpHeader.Length != 0) {
         PUDP_HEADER UdpHeader;
 
         ASSERT(Info->UdpHeader.Length != 0);
@@ -4673,9 +4677,7 @@ TransmitterQueuePacket(
 
     Info = &Packet->Info;
 
-    status = ParsePacket(StartVa, TransmitterPullup, Transmitter, Payload, Info);
-    if (!NT_SUCCESS(status))
-        goto fail2;
+    (VOID) ParsePacket(StartVa, TransmitterPullup, Transmitter, Payload, Info);
 
     switch (Hash->Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
@@ -4698,11 +4700,6 @@ TransmitterQueuePacket(
     __TransmitterRingQueuePacket(Ring, Packet);
 
     return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
-
-    __TransmitterPutPacket(Transmitter, Packet);
 
 fail1:
     Error("fail1 (%08x)\n", status);
