@@ -58,7 +58,6 @@ struct _XENVIF_MAC {
     ETHERNET_ADDRESS        BroadcastAddress;
     LIST_ENTRY              MulticastList;
     ULONG                   MulticastCount;
-    BOOLEAN                 MulticastControl;
     XENVIF_MAC_FILTER_LEVEL FilterLevel[ETHERNET_ADDRESS_TYPE_COUNT];
     XENBUS_DEBUG_INTERFACE  DebugInterface;
     PXENBUS_DEBUG_CALLBACK  DebugCallback;
@@ -391,22 +390,6 @@ MacConnect(
 
     Mac->MaximumFrameSize = (ULONG)Mtu + sizeof (ETHERNET_TAGGED_HEADER);
 
-    status = XENBUS_STORE(Read,
-                          &Mac->StoreInterface,
-                          NULL,
-                          FrontendGetBackendPath(Frontend),
-                          "feature-multicast-control",
-                          &Buffer);
-    if (!NT_SUCCESS(status)) {
-        Mac->MulticastControl = FALSE;
-    } else {
-        Mac->MulticastControl = (BOOLEAN)strtol(Buffer, NULL, 2);
-
-        XENBUS_STORE(Free,
-                     &Mac->StoreInterface,
-                     Buffer);
-    }
-
     status = XENBUS_DEBUG(Register,
                           &Mac->DebugInterface,
                           __MODULE__ "|MAC",
@@ -547,8 +530,6 @@ MacDisconnect(
                  &Mac->DebugInterface,
                  Mac->DebugCallback);
     Mac->DebugCallback = NULL;
-
-    Mac->MulticastControl = FALSE;
 
     Mac->MaximumFrameSize = 0;
 
@@ -971,9 +952,14 @@ MacApplyFilters(
             break;
 
         case XENVIF_MAC_FILTER_MATCHING: {
-            PLIST_ENTRY ListEntry;
+            PXENVIF_FRONTEND    Frontend;
+            PXENVIF_TRANSMITTER Transmitter;
+            PLIST_ENTRY         ListEntry;
 
-            if (Mac->MulticastControl) {
+            Frontend = Mac->Frontend;
+            Transmitter = FrontendGetTransmitter(Frontend);
+
+            if (TransmitterHasMulticastControl(Transmitter)) {
                 Allow = TRUE;
                 break;
             }

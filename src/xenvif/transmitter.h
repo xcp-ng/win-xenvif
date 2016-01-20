@@ -141,4 +141,9 @@ TransmitterQueryLargePacketSize(
     OUT PULONG                  Size
     );
 
+BOOLEAN
+TransmitterHasMulticastControl(
+    IN  PXENVIF_TRANSMITTER Transmitter
+    );
+
 #endif  // _XENVIF_TRANSMITTER_H
