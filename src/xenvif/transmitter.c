@@ -4019,6 +4019,22 @@ fail1:
     return status;
 }
 
+static FORCEINLINE BOOLEAN
+__TransmitterHasMulticastControl(
+    IN  PXENVIF_TRANSMITTER Transmitter
+    )
+{
+    return Transmitter->MulticastControl;
+}
+
+BOOLEAN
+TransmitterHasMulticastControl(
+    IN  PXENVIF_TRANSMITTER Transmitter
+    )
+{
+    return __TransmitterHasMulticastControl(Transmitter);
+}
+
 static FORCEINLINE NTSTATUS
 __TransmitterRingQueueMulticastControl(
     IN  PXENVIF_TRANSMITTER_RING    Ring,
@@ -4034,7 +4050,7 @@ __TransmitterRingQueueMulticastControl(
     Transmitter = Ring->Transmitter;
 
     status = STATUS_NOT_SUPPORTED;
-    if (!Transmitter->MulticastControl)
+    if (!__TransmitterHasMulticastControl(Transmitter))
         goto fail1;
 
     Frontend = Transmitter->Frontend;
