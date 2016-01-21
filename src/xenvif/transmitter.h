@@ -146,4 +146,10 @@ TransmitterHasMulticastControl(
     IN  PXENVIF_TRANSMITTER Transmitter
     );
 
+NTSTATUS
+TransmitterRequestMulticastControl(
+    IN  PXENVIF_TRANSMITTER Transmitter,
+    IN  BOOLEAN             Enabled
+    );
+
 #endif  // _XENVIF_TRANSMITTER_H

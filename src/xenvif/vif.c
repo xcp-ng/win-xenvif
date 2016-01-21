@@ -819,7 +819,7 @@ VifMacSetFilterLevel(
 
     AcquireMrswLockShared(&Context->Lock);
 
-    status = MacSetFilterLevel(FrontendGetMac(Context->Frontend), Type, Level);
+    status = FrontendSetFilterLevel(Context->Frontend, Type, Level);
 
     ReleaseMrswLockShared(&Context->Lock);
 

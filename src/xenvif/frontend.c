@@ -1119,6 +1119,47 @@ fail1:
     return status;
 }
 
+NTSTATUS
+FrontendSetFilterLevel(
+    IN  PXENVIF_FRONTEND        Frontend,
+    IN  ETHERNET_ADDRESS_TYPE   Type,
+    IN  XENVIF_MAC_FILTER_LEVEL Level
+    )
+{
+    PXENVIF_MAC                 Mac;
+    KIRQL                       Irql;
+    NTSTATUS                    status;
+
+    Mac = FrontendGetMac(Frontend);
+
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+
+    status = MacSetFilterLevel(Mac, Type, Level);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    if (Type == ETHERNET_ADDRESS_MULTICAST) {
+        PXENVIF_TRANSMITTER Transmitter;
+        BOOLEAN             Enabled;
+
+        Transmitter = FrontendGetTransmitter(Frontend);
+        Enabled = (Level != XENVIF_MAC_FILTER_ALL) ? TRUE : FALSE;
+
+        (VOID) TransmitterRequestMulticastControl(Transmitter, Enabled);
+    }
+
+    KeLowerIrql(Irql);
+
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    KeLowerIrql(Irql);
+
+    return status;
+}
+
 VOID
 FrontendAdvertiseIpAddresses(
     IN  PXENVIF_FRONTEND    Frontend
