@@ -186,6 +186,13 @@ FrontendSetMulticastAddresses(
     IN  ULONG               Count
     );
 
+extern NTSTATUS
+FrontendSetFilterLevel(
+    IN  PXENVIF_FRONTEND        Frontend,
+    IN  ETHERNET_ADDRESS_TYPE   Type,
+    IN  XENVIF_MAC_FILTER_LEVEL Level
+    );
+
 extern VOID
 FrontendAdvertiseIpAddresses(
     IN  PXENVIF_FRONTEND        Frontend

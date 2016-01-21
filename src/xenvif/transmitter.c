@@ -4312,7 +4312,7 @@ TransmitterConnect(
                           &Transmitter->StoreInterface,
                           NULL,
                           FrontendGetBackendPath(Frontend),
-                          "feature-multicast-control",
+                          "feature-dynamic-multicast-control",
                           &Buffer);
     if (!NT_SUCCESS(status)) {
         Transmitter->MulticastControl = FALSE;
@@ -4409,6 +4409,60 @@ fail1:
     return status;
 }
 
+static FORCEINLINE NTSTATUS
+__TransmitterRequestMulticastControl(
+    IN  PXENVIF_TRANSMITTER         Transmitter,
+    IN  PXENBUS_STORE_TRANSACTION   Transaction,
+    IN  BOOLEAN                     Enabled
+    )
+{
+    PXENVIF_FRONTEND                Frontend;
+    NTSTATUS                        status;
+
+    Frontend = Transmitter->Frontend;
+
+    status = XENBUS_STORE(Printf,
+                          &Transmitter->StoreInterface,
+                          Transaction,
+                          FrontendGetPath(Frontend),
+                          "request-multicast-control",
+                          "%u",
+                          Enabled);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+NTSTATUS
+TransmitterRequestMulticastControl(
+    IN  PXENVIF_TRANSMITTER Transmitter,
+    IN  BOOLEAN             Enabled
+    )
+{
+    NTSTATUS                status;
+
+    status = STATUS_NOT_SUPPORTED;
+    if (!__TransmitterHasMulticastControl(Transmitter))
+        goto fail1;
+
+    status = __TransmitterRequestMulticastControl(Transmitter, NULL,
+                                                  Enabled);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    return STATUS_SUCCESS;
+
+fail2:
+fail1:
+    return status;
+}
+
 NTSTATUS
 TransmitterStoreWrite(
     IN  PXENVIF_TRANSMITTER         Transmitter,
@@ -4421,15 +4475,13 @@ TransmitterStoreWrite(
 
     Frontend = Transmitter->Frontend;
 
-    status = XENBUS_STORE(Printf,
-                          &Transmitter->StoreInterface,
-                          Transaction,
-                          FrontendGetPath(Frontend),
-                          "request-multicast-control",
-                          "%u",
-                          TRUE);
-    if (!NT_SUCCESS(status))
-        goto fail1;
+    if (__TransmitterHasMulticastControl(Transmitter)) {
+        status = __TransmitterRequestMulticastControl(Transmitter,
+                                                      Transaction,
+                                                      TRUE);
+        if (!NT_SUCCESS(status))
+            goto fail1;
+    }
 
     Index = 0;
     while (Index < (LONG)FrontendGetNumQueues(Frontend)) {
