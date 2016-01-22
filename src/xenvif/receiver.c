@@ -1982,16 +1982,6 @@ ReceiverRingPoll(
 }
 
 static FORCEINLINE VOID
-__ReceiverRingNotify(
-    IN  PXENVIF_RECEIVER_RING   Ring
-    )
-{
-    __ReceiverRingAcquireLock(Ring);
-    ReceiverRingPoll(Ring);
-    __ReceiverRingReleaseLock(Ring);
-}
-
-static FORCEINLINE VOID
 __ReceiverRingUnmask(
     IN  PXENVIF_RECEIVER_RING   Ring
     )
@@ -2023,8 +2013,6 @@ ReceiverRingDpc(
     )
 {
     PXENVIF_RECEIVER_RING   Ring = Context;
-    PXENVIF_RECEIVER        Receiver;
-    PXENVIF_FRONTEND        Frontend;
 
     UNREFERENCED_PARAMETER(Dpc);
     UNREFERENCED_PARAMETER(Argument1);
@@ -2032,16 +2020,14 @@ ReceiverRingDpc(
 
     ASSERT(Ring != NULL);
 
-    Receiver = Ring->Receiver;
-    Frontend = Receiver->Frontend;
+    Ring->Dpcs++;
 
-    if (Ring->Enabled) {
-        __ReceiverRingNotify(Ring);
-        if (!FrontendIsSplit(Frontend))
-            TransmitterNotify(FrontendGetTransmitter(Frontend),
-                              Ring->Index);
-    }
+    __ReceiverRingAcquireLock(Ring);
 
+    if (Ring->Enabled)
+        ReceiverRingPoll(Ring);
+
+    __ReceiverRingReleaseLock(Ring);
     __ReceiverRingUnmask(Ring);
 }
 
@@ -2054,6 +2040,8 @@ ReceiverRingEvtchnCallback(
     )
 {
     PXENVIF_RECEIVER_RING       Ring = Argument;
+    PXENVIF_RECEIVER            Receiver;
+    PXENVIF_FRONTEND            Frontend;
 
     UNREFERENCED_PARAMETER(InterruptObject);
 
@@ -2061,8 +2049,14 @@ ReceiverRingEvtchnCallback(
 
     Ring->Events++;
 
-    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
-        Ring->Dpcs++;
+    (VOID) KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
+
+    Receiver = Ring->Receiver;
+    Frontend = Receiver->Frontend;
+
+    if (!FrontendIsSplit(Frontend))
+        TransmitterNotify(FrontendGetTransmitter(Frontend),
+                          Ring->Index);
 
     return TRUE;
 }
@@ -2529,8 +2523,7 @@ __ReceiverRingEnable(
 
     Ring->Enabled = TRUE;
 
-    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
-        Ring->Dpcs++;
+    (VOID) KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
 
     __ReceiverRingReleaseLock(Ring);
 
@@ -2581,6 +2574,7 @@ __ReceiverRingDisconnect(
     Ring->Channel = NULL;
 
     Ring->Events = 0;
+    Ring->Dpcs = 0;
 
     ASSERT3U(Ring->ResponsesProcessed, ==, Ring->RequestsPushed);
     ASSERT3U(Ring->RequestsPushed, ==, Ring->RequestsPosted);
@@ -2635,7 +2629,6 @@ __ReceiverRingTeardown(
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
-    Ring->Dpcs = 0;
     RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
 
     Ring->BackfillSize = 0;
