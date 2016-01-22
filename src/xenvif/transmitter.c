@@ -2913,16 +2913,6 @@ TransmitterRingReleaseLock(
 }
 
 static FORCEINLINE VOID
-__TransmitterRingNotify(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
-    )
-{
-    __TransmitterRingAcquireLock(Ring);
-    TransmitterRingPoll(Ring);
-    __TransmitterRingReleaseLock(Ring);
-}
-
-static FORCEINLINE VOID
 __TransmitterRingUnmask(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
@@ -2954,7 +2944,6 @@ TransmitterRingDpc(
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Context;
-    PXENVIF_TRANSMITTER         Transmitter;
 
     UNREFERENCED_PARAMETER(Dpc);
     UNREFERENCED_PARAMETER(Argument1);
@@ -2962,11 +2951,14 @@ TransmitterRingDpc(
 
     ASSERT(Ring != NULL);
 
-    Transmitter = Ring->Transmitter;
+    Ring->Dpcs++;
+
+    __TransmitterRingAcquireLock(Ring);
 
     if (Ring->Enabled)
-        __TransmitterRingNotify(Ring);
+        TransmitterRingPoll(Ring);
 
+    __TransmitterRingReleaseLock(Ring);
     __TransmitterRingUnmask(Ring);
 }
 
@@ -2980,17 +2972,20 @@ TransmitterRingEvtchnCallback(
 {
     PXENVIF_TRANSMITTER_RING    Ring = Argument;
     PXENVIF_TRANSMITTER         Transmitter;
+    PXENVIF_FRONTEND            Frontend;
 
     UNREFERENCED_PARAMETER(InterruptObject);
 
     ASSERT(Ring != NULL);
 
     Transmitter = Ring->Transmitter;
+    Frontend = Transmitter->Frontend;
+
+    ASSERT(FrontendIsSplit(Frontend));
 
     Ring->Events++;
 
-    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
-        Ring->Dpcs++;
+    (VOID) KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
 
     return TRUE;
 }
@@ -3565,9 +3560,8 @@ __TransmitterRingEnable(
     ASSERT(!Ring->Enabled);
     Ring->Enabled = TRUE;
 
-    if (FrontendIsSplit(Frontend) &&
-        KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
-        Ring->Dpcs++;
+    if (FrontendIsSplit(Frontend))
+        KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
 
     __TransmitterRingReleaseLock(Ring);
 
@@ -3681,6 +3675,8 @@ __TransmitterRingDisconnect(
         Ring->Events = 0;
     }
 
+    Ring->Dpcs = 0;
+
     ASSERT3U(Ring->ResponsesProcessed, ==, Ring->RequestsPushed);
     ASSERT3U(Ring->RequestsPushed, ==, Ring->RequestsPosted);
 
@@ -3755,7 +3751,6 @@ __TransmitterRingTeardown(
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
-    Ring->Dpcs = 0;
     RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
 
     ASSERT3U(Ring->PacketsCompleted, ==, Ring->PacketsSent);
@@ -4568,15 +4563,17 @@ __TransmitterHashPacket(
     PIP_HEADER                      IpHeader;
     ULONG                           Value;
 
-    Value = 0;
-
     StartVa = Packet->Header;
     Info = &Packet->Info;
 
-    if (Info->IpHeader.Length == 0)
+    if (Info->IpHeader.Length == 0) {
+        Value = KeGetCurrentProcessorNumberEx(NULL);
         goto done;
+    }
 
     IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+
+    Value = 0;
 
     if (IpHeader->Version == 4) {
         PIPV4_HEADER    Version4 = &IpHeader->Version4;
@@ -4781,11 +4778,16 @@ TransmitterNotify(
     IN  ULONG                   Index
     )
 {
+    PXENVIF_FRONTEND            Frontend;
     PXENVIF_TRANSMITTER_RING    Ring;
+
+    Frontend = Transmitter->Frontend;
+
+    ASSERT(!FrontendIsSplit(Frontend));
 
     Ring = Transmitter->Ring[Index];
 
-    __TransmitterRingNotify(Ring);
+    (VOID) KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
 }
 
 VOID
