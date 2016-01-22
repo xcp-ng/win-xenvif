@@ -236,6 +236,9 @@ FrontendSetMaxQueues(
     if (NT_SUCCESS(status) && FrontendMaxQueues < Frontend->MaxQueues)
         Frontend->MaxQueues = FrontendMaxQueues;
 
+    if (Frontend->MaxQueues == 0)
+        Frontend->MaxQueues = 1;
+
     Info("%s: %u\n", __FrontendGetPath(Frontend), Frontend->MaxQueues);
 }
 
