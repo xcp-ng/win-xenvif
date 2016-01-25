@@ -180,6 +180,8 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     PXENBUS_EVTCHN_CHANNEL          Channel;
     KDPC                            Dpc;
     ULONG                           Dpcs;
+    KTIMER                          Timer;
+    KDPC                            TimerDpc;
     ULONG                           Events;
     BOOLEAN                         Connected;
     BOOLEAN                         Enabled;
@@ -2351,7 +2353,7 @@ __TransmitterRingCompletePacket(
     Ring->PacketsCompleted++;
 }
 
-static DECLSPEC_NOINLINE VOID
+static DECLSPEC_NOINLINE BOOLEAN
 TransmitterRingPoll(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
@@ -2360,14 +2362,18 @@ TransmitterRingPoll(
 
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
+    BOOLEAN                         Retry;
 
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
+    Retry = FALSE;
+
+    if (!Ring->Enabled)
+        goto done;
 
     for (;;) {
         RING_IDX    rsp_prod;
         RING_IDX    rsp_cons;
-        ULONG       Delta;
 
         KeMemoryBarrier();
 
@@ -2376,10 +2382,10 @@ TransmitterRingPoll(
 
         KeMemoryBarrier();
 
-        if (rsp_cons == rsp_prod)
+        if (rsp_cons == rsp_prod || Retry)
             break;
 
-        while (rsp_cons != rsp_prod) {
+        while (rsp_cons != rsp_prod && !Retry) {
             netif_tx_response_t             *rsp;
             uint16_t                        id;
             PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
@@ -2471,10 +2477,8 @@ TransmitterRingPoll(
             Fragment->Extra = FALSE;
             __TransmitterPutFragment(Ring, Fragment);
 
-            if (Packet == NULL) {
-                RtlZeroMemory(rsp, sizeof (netif_tx_response_t));
+            if (Packet == NULL)
                 continue;
-            }
 
             --Packet->Reference;
 
@@ -2495,8 +2499,6 @@ TransmitterRingPoll(
                 }
             }
 
-            RtlZeroMemory(rsp, sizeof (netif_tx_response_t));
-
             if (Packet->Reference != 0)
                 continue;
 
@@ -2504,18 +2506,19 @@ TransmitterRingPoll(
                 Packet->Completion.Status = XENVIF_TRANSMITTER_PACKET_OK;
 
             __TransmitterRingCompletePacket(Ring, Packet);
+
+            if (rsp_cons - Ring->Front.rsp_cons > XENVIF_TRANSMITTER_BATCH(Ring))
+                Retry = TRUE;
         }
 
         KeMemoryBarrier();
 
         Ring->Front.rsp_cons = rsp_cons;
-
-        Delta = Ring->Front.req_prod_pvt - rsp_cons;
-        Delta = __min(Delta, XENVIF_TRANSMITTER_BATCH(Ring));
-        Delta = __max(Delta, 1);
-
-        Ring->Shared->rsp_event = rsp_cons + Delta;
+        Ring->Shared->rsp_event = rsp_cons + 1;
     }
+
+done:
+    return Retry;
 
 #undef XENVIF_TRANSMITTER_BATCH
 }
@@ -2930,6 +2933,37 @@ __TransmitterRingUnmask(
                   FALSE);
 }
 
+static FORCEINLINE BOOLEAN
+__TransmitterRingDpcTimeout(
+    IN  PXENVIF_TRANSMITTER_RING    Ring
+    )
+{
+    KDPC_WATCHDOG_INFORMATION       Watchdog;
+    NTSTATUS                        status;
+
+    UNREFERENCED_PARAMETER(Ring);
+
+    RtlZeroMemory(&Watchdog, sizeof (Watchdog));
+
+    status = KeQueryDpcWatchdogInformation(&Watchdog);
+    ASSERT(NT_SUCCESS(status));
+
+    if (Watchdog.DpcTimeLimit == 0 ||
+        Watchdog.DpcWatchdogLimit == 0)
+        return FALSE;
+
+    if (Watchdog.DpcTimeCount > (Watchdog.DpcTimeLimit / 2) &&
+        Watchdog.DpcWatchdogCount > (Watchdog.DpcWatchdogLimit / 2))
+        return FALSE;
+
+    return TRUE;
+}
+
+#define TIME_US(_us)        ((_us) * 10)
+#define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
+#define TIME_S(_s)          (TIME_MS((_s) * 1000))
+#define TIME_RELATIVE(_t)   (-(_t))
+
 __drv_functionClass(KDEFERRED_ROUTINE)
 __drv_maxIRQL(DISPATCH_LEVEL)
 __drv_minIRQL(DISPATCH_LEVEL)
@@ -2951,15 +2985,27 @@ TransmitterRingDpc(
 
     ASSERT(Ring != NULL);
 
-    Ring->Dpcs++;
+    for (;;) {
+        BOOLEAN Retry;
 
-    __TransmitterRingAcquireLock(Ring);
+        __TransmitterRingAcquireLock(Ring);
+        Retry = TransmitterRingPoll(Ring);
+        __TransmitterRingReleaseLock(Ring);
 
-    if (Ring->Enabled)
-        TransmitterRingPoll(Ring);
+        if (!Retry) {
+            __TransmitterRingUnmask(Ring);
+           break;
+        }
 
-    __TransmitterRingReleaseLock(Ring);
-    __TransmitterRingUnmask(Ring);
+        if (__TransmitterRingDpcTimeout(Ring)) {
+            LARGE_INTEGER   Delay;
+
+            Delay.QuadPart = TIME_RELATIVE(TIME_US(100));
+
+            KeSetTimer(&Ring->Timer, Delay, &Ring->TimerDpc);
+            break;
+        }
+    }
 }
 
 KSERVICE_ROUTINE    TransmitterRingEvtchnCallback;
@@ -2985,15 +3031,11 @@ TransmitterRingEvtchnCallback(
 
     Ring->Events++;
 
-    (VOID) KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
+    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
+        Ring->Dpcs++;
 
     return TRUE;
 }
-
-#define TIME_US(_us)        ((_us) * 10)
-#define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
-#define TIME_S(_s)          (TIME_MS((_s) * 1000))
-#define TIME_RELATIVE(_t)   (-(_t))
 
 #define XENVIF_TRANSMITTER_WATCHDOG_PERIOD  30
 
@@ -3044,7 +3086,7 @@ TransmitterRingWatchdog(
 
                 // Try to move things along
                 __TransmitterRingSend(Ring);
-                TransmitterRingPoll(Ring);
+                (VOID) TransmitterRingPoll(Ring);
             }
 
             PacketsQueued = Ring->PacketsQueued;
@@ -3089,6 +3131,8 @@ __TransmitterRingInitialize(
     InitializeListHead(&(*Ring)->PacketComplete);
 
     KeInitializeDpc(&(*Ring)->Dpc, TransmitterRingDpc, *Ring);
+    KeInitializeTimer(&(*Ring)->Timer);
+    KeInitializeDpc(&(*Ring)->TimerDpc, TransmitterRingDpc, *Ring);
 
     status = ThreadCreate(TransmitterRingWatchdog,
                           *Ring,
@@ -3101,6 +3145,8 @@ __TransmitterRingInitialize(
 fail3:
     Error("fail3\n");
 
+    RtlZeroMemory(&(*Ring)->TimerDpc, sizeof (KDPC));
+    RtlZeroMemory(&(*Ring)->Timer, sizeof (KTIMER));
     RtlZeroMemory(&(*Ring)->Dpc, sizeof (KDPC));
 
     RtlZeroMemory(&(*Ring)->PacketComplete, sizeof (LIST_ENTRY));
@@ -3344,6 +3390,7 @@ __TransmitterRingConnect(
         ASSERT(NT_SUCCESS(status));
 
         KeSetTargetProcessorDpcEx(&Ring->Dpc, &ProcNumber);
+        KeSetTargetProcessorDpcEx(&Ring->TimerDpc, &ProcNumber);
 
         (VOID) XENBUS_EVTCHN(Bind,
                              &Transmitter->EvtchnInterface,
@@ -3587,7 +3634,6 @@ __TransmitterRingDisable(
     __TransmitterRingAcquireLock(Ring);
 
     ASSERT(Ring->Enabled);
-    Ring->Enabled = FALSE;
 
     // Release any fragments associated with a pending packet
     Packet = __TransmitterRingUnprepareFragments(Ring);
@@ -3636,7 +3682,7 @@ __TransmitterRingDisable(
 
         // Try to move things along
         __TransmitterRingSend(Ring);
-        TransmitterRingPoll(Ring);
+        (VOID) TransmitterRingPoll(Ring);
 
         if (State != XenbusStateConnected)
             __TransmitterRingFakeResponses(Ring);
@@ -3648,6 +3694,8 @@ __TransmitterRingDisable(
 
         KeStallExecutionProcessor(1000);    // 1ms
     }
+
+    Ring->Enabled = FALSE;
 
     __TransmitterRingReleaseLock(Ring);
 }
@@ -3751,6 +3799,10 @@ __TransmitterRingTeardown(
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
+    Ring->Dpcs = 0;
+
+    RtlZeroMemory(&Ring->TimerDpc, sizeof (KDPC));
+    RtlZeroMemory(&Ring->Timer, sizeof (KTIMER));
     RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
 
     ASSERT3U(Ring->PacketsCompleted, ==, Ring->PacketsSent);
@@ -4787,7 +4839,8 @@ TransmitterNotify(
 
     Ring = Transmitter->Ring[Index];
 
-    (VOID) KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
+    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
+        Ring->Dpcs++;
 }
 
 VOID

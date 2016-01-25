@@ -86,6 +86,8 @@ typedef struct _XENVIF_RECEIVER_RING {
     PXENBUS_EVTCHN_CHANNEL      Channel;
     KDPC                        Dpc;
     ULONG                       Dpcs;
+    KTIMER                      Timer;
+    KDPC                        TimerDpc;
     ULONG                       Events;
     PXENVIF_RECEIVER_FRAGMENT   Pending[XENVIF_RECEIVER_MAXIMUM_FRAGMENT_ID + 1];
     ULONG                       RequestsPosted;
@@ -1783,7 +1785,7 @@ ReceiverRingDebugCallback(
                  Ring->Dpcs);
 }
 
-static DECLSPEC_NOINLINE VOID
+static DECLSPEC_NOINLINE BOOLEAN
 ReceiverRingPoll(
     IN  PXENVIF_RECEIVER_RING   Ring
     )
@@ -1792,12 +1794,14 @@ ReceiverRingPoll(
 
     PXENVIF_RECEIVER            Receiver;
     PXENVIF_FRONTEND            Frontend;
-
-    if (!(Ring->Enabled))
-        return;
+    BOOLEAN                     Retry;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
+    Retry = FALSE;
+
+    if (!Ring->Enabled)
+        goto done;
 
     for (;;) {
         BOOLEAN                 Error;
@@ -1827,15 +1831,14 @@ ReceiverRingPoll(
 
         KeMemoryBarrier();
 
-        if (rsp_cons == rsp_prod)
+        if (rsp_cons == rsp_prod || Retry)
             break;
 
-        while (rsp_cons != rsp_prod) {
+        while (rsp_cons != rsp_prod && !Retry) {
             netif_rx_response_t         *rsp;
             uint16_t                    id;
             PXENVIF_RECEIVER_FRAGMENT   Fragment;
             PMDL                        Mdl;
-            RING_IDX                    req_prod;
 
             rsp = RING_GET_RESPONSE(&Ring->Front, rsp_cons);
 
@@ -1942,22 +1945,15 @@ ReceiverRingPoll(
                     InsertTailList(&Ring->PacketList, &Packet->ListEntry);
                 }
 
+                if (rsp_cons - Ring->Front.rsp_cons > XENVIF_RECEIVER_BATCH(Ring))
+                    Retry = TRUE;
+
                 Error = FALSE;
                 Info = 0;
                 MaximumSegmentSize = 0;
                 Packet = NULL;
                 flags = 0;
                 TailMdl = NULL;
-            }
-
-            KeMemoryBarrier();
-
-            req_prod = Ring->Front.req_prod_pvt;
-
-            if (req_prod - rsp_cons < XENVIF_RECEIVER_BATCH(Ring) &&
-                !__ReceiverRingIsStopped(Ring)) {
-                Ring->Front.rsp_cons = rsp_cons;
-                ReceiverRingFill(Ring);
             }
         }
         ASSERT(!Error);
@@ -1977,6 +1973,9 @@ ReceiverRingPoll(
 
     if (!__ReceiverRingIsStopped(Ring))
         ReceiverRingFill(Ring);
+
+done:
+    return Retry;
 
 #undef  XENVIF_RECEIVER_BATCH
 }
@@ -1999,6 +1998,37 @@ __ReceiverRingUnmask(
                   FALSE);
 }
 
+static FORCEINLINE BOOLEAN
+__ReceiverRingDpcTimeout(
+    IN  PXENVIF_RECEIVER_RING   Ring
+    )
+{
+    KDPC_WATCHDOG_INFORMATION   Watchdog;
+    NTSTATUS                    status;
+
+    UNREFERENCED_PARAMETER(Ring);
+
+    RtlZeroMemory(&Watchdog, sizeof (Watchdog));
+
+    status = KeQueryDpcWatchdogInformation(&Watchdog);
+    ASSERT(NT_SUCCESS(status));
+
+    if (Watchdog.DpcTimeLimit == 0 ||
+        Watchdog.DpcWatchdogLimit == 0)
+        return FALSE;
+
+    if (Watchdog.DpcTimeCount > (Watchdog.DpcTimeLimit / 2) &&
+        Watchdog.DpcWatchdogCount > (Watchdog.DpcWatchdogLimit / 2))
+        return FALSE;
+
+    return TRUE;
+}
+
+#define TIME_US(_us)        ((_us) * 10)
+#define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
+#define TIME_S(_s)          (TIME_MS((_s) * 1000))
+#define TIME_RELATIVE(_t)   (-(_t))
+
 __drv_functionClass(KDEFERRED_ROUTINE)
 __drv_maxIRQL(DISPATCH_LEVEL)
 __drv_minIRQL(DISPATCH_LEVEL)
@@ -2020,15 +2050,27 @@ ReceiverRingDpc(
 
     ASSERT(Ring != NULL);
 
-    Ring->Dpcs++;
+    for (;;) {
+        BOOLEAN Retry;
 
-    __ReceiverRingAcquireLock(Ring);
+        __ReceiverRingAcquireLock(Ring);
+        Retry = ReceiverRingPoll(Ring);
+        __ReceiverRingReleaseLock(Ring);
 
-    if (Ring->Enabled)
-        ReceiverRingPoll(Ring);
+        if (!Retry) {
+            __ReceiverRingUnmask(Ring);
+            break;
+        }
 
-    __ReceiverRingReleaseLock(Ring);
-    __ReceiverRingUnmask(Ring);
+        if (__ReceiverRingDpcTimeout(Ring)) {
+            LARGE_INTEGER   Delay;
+
+            Delay.QuadPart = TIME_RELATIVE(TIME_US(100));
+
+            KeSetTimer(&Ring->Timer, Delay, &Ring->TimerDpc);
+            break;
+        }
+    }
 }
 
 KSERVICE_ROUTINE    ReceiverRingEvtchnCallback;
@@ -2049,7 +2091,8 @@ ReceiverRingEvtchnCallback(
 
     Ring->Events++;
 
-    (VOID) KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
+    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
+        Ring->Dpcs++;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -2060,11 +2103,6 @@ ReceiverRingEvtchnCallback(
 
     return TRUE;
 }
-
-#define TIME_US(_us)        ((_us) * 10)
-#define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
-#define TIME_S(_s)          (TIME_MS((_s) * 1000))
-#define TIME_RELATIVE(_t)   (-(_t))
 
 #define XENVIF_RECEIVER_WATCHDOG_PERIOD 30
 
@@ -2168,6 +2206,8 @@ __ReceiverRingInitialize(
     InitializeListHead(&(*Ring)->PacketList);
 
     KeInitializeDpc(&(*Ring)->Dpc, ReceiverRingDpc, *Ring);
+    KeInitializeTimer(&(*Ring)->Timer);
+    KeInitializeDpc(&(*Ring)->TimerDpc, ReceiverRingDpc, *Ring);
 
     status = ThreadCreate(ReceiverRingWatchdog,
                           *Ring,
@@ -2180,6 +2220,8 @@ __ReceiverRingInitialize(
 fail3:
     Error("fail3\n");
 
+    RtlZeroMemory(&(*Ring)->TimerDpc, sizeof (KDPC));
+    RtlZeroMemory(&(*Ring)->Timer, sizeof (KTIMER));
     RtlZeroMemory(&(*Ring)->Dpc, sizeof (KDPC));
 
     RtlZeroMemory(&(*Ring)->PacketList, sizeof (LIST_ENTRY));
@@ -2344,6 +2386,7 @@ __ReceiverRingConnect(
     ASSERT(NT_SUCCESS(status));
 
     KeSetTargetProcessorDpcEx(&Ring->Dpc, &ProcNumber);
+    KeSetTargetProcessorDpcEx(&Ring->TimerDpc, &ProcNumber);
 
     (VOID) XENBUS_EVTCHN(Bind,
                          &Receiver->EvtchnInterface,
@@ -2629,6 +2672,8 @@ __ReceiverRingTeardown(
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
+    RtlZeroMemory(&Ring->TimerDpc, sizeof (KDPC));
+    RtlZeroMemory(&Ring->Timer, sizeof (KTIMER));
     RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
 
     Ring->BackfillSize = 0;
