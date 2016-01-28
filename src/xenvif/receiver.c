@@ -1297,9 +1297,10 @@ ReceiverRingProcessPacket(
 
 fail3:
     Packet->Mdl.Next = NULL;
-    __ReceiverRingPutPacket(Ring, Packet, TRUE);
 
 fail2:
+    __ReceiverRingPutPacket(Ring, Packet, TRUE);
+
 fail1:
     if (Payload.Length != 0) {
         PMDL    Mdl = Payload.Mdl;
