@@ -3698,6 +3698,12 @@ __TransmitterRingDisable(
     Ring->Enabled = FALSE;
 
     __TransmitterRingReleaseLock(Ring);
+
+    //
+    // No new timers can be scheduled once Enabled goes to FALSE.
+    // Cancel any existing ones.
+    //
+    (VOID) KeCancelTimer(&Ring->Timer);
 }
 
 static FORCEINLINE VOID
