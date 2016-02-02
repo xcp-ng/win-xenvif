@@ -111,7 +111,7 @@ struct __name##_sring {                                                 \
             uint8_t msg;                                                \
         } tapif_user;                                                   \
         uint8_t pvt_pad[4];                                             \
-    } private;                                                          \
+    } pvt;                                                              \
     uint8_t __pad[44];                                                  \
     union __name##_sring_entry ring[1]; /* variable-length */           \
 };                                                                      \
@@ -156,7 +156,7 @@ typedef struct __name##_back_ring __name##_back_ring_t
 #define SHARED_RING_INIT(_s) do {                                       \
     (_s)->req_prod  = (_s)->rsp_prod  = 0;                              \
     (_s)->req_event = (_s)->rsp_event = 1;                              \
-    (void)memset((_s)->private.pvt_pad, 0, sizeof((_s)->private.pvt_pad)); \
+    (void)memset((_s)->pvt.pvt_pad, 0, sizeof((_s)->pvt.pvt_pad));      \
     (void)memset((_s)->__pad, 0, sizeof((_s)->__pad));                  \
 } while(0)
 
@@ -211,6 +211,20 @@ typedef struct __name##_back_ring __name##_back_ring_t
 /* Direct access to individual ring elements, by index. */
 #define RING_GET_REQUEST(_r, _idx)                                      \
     (&((_r)->sring->ring[((_idx) & (RING_SIZE(_r) - 1))].req))
+
+/*
+ * Get a local copy of a request.
+ *
+ * Use this in preference to RING_GET_REQUEST() so all processing is
+ * done on a local copy that cannot be modified by the other end.
+ *
+ * Note that https://gcc.gnu.org/bugzilla/show_bug.cgi?id=58145 may cause this
+ * to be ineffective where _req is a struct which consists of only bitfields.
+ */
+#define RING_COPY_REQUEST(_r, _idx, _req) do {				\
+	/* Use volatile to force the copy into _req. */			\
+	*(_req) = *(volatile typeof(_req))RING_GET_REQUEST(_r, _idx);	\
+} while (0)
 
 #define RING_GET_RESPONSE(_r, _idx)                                     \
     (&((_r)->sring->ring[((_idx) & (RING_SIZE(_r) - 1))].rsp))
