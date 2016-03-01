@@ -1199,17 +1199,20 @@ PdoStartDevice(
 
     PdoUnplugRequest(Pdo, TRUE);
 
+    if (DriverSafeMode())
+        goto fail2;
+
     status = RegistryOpenSoftwareKey(__PdoGetDeviceObject(Pdo),
                                      KEY_ALL_ACCESS,
                                      &SoftwareKey);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail3;
 
     status = RegistryOpenHardwareKey(__PdoGetDeviceObject(Pdo),
                                      KEY_ALL_ACCESS,
                                      &HardwareKey);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     (VOID) PdoSetFriendlyName(Pdo,
                               SoftwareKey,
@@ -1217,23 +1220,23 @@ PdoStartDevice(
 
     status = __PdoSetCurrentAddress(Pdo, SoftwareKey);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "GetIfTable2",
                                    (PVOID *)&__GetIfTable2);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "FreeMibTable",
                                    (PVOID *)&__FreeMibTable);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail7;
 
     status = __GetIfTable2(&Table);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail8;
 
     //
     // Look for a network interface with the same permanent address
@@ -1259,7 +1262,7 @@ PdoStartDevice(
             continue;
 
         status = STATUS_UNSUCCESSFUL;
-        goto fail8;
+        goto fail9;
     }
 
     //
@@ -1287,7 +1290,7 @@ PdoStartDevice(
 
     status = PdoD3ToD0(Pdo);
     if (!NT_SUCCESS(status))
-        goto fail9;
+        goto fail10;
 
     __PdoSetDevicePnpState(Pdo, Started);
 
@@ -1300,15 +1303,15 @@ PdoStartDevice(
 
     return STATUS_SUCCESS;
 
-fail9:
-    Error("fail9\n");
+fail10:
+    Error("fail10\n");
 
     __FreeMibTable(Table);
 
     goto fail6;
 
-fail8:
-    Error("fail8\n");
+fail9:
+    Error("fail9\n");
 
     (VOID) SettingsSave(SoftwareKey,
                         Row->Alias,
@@ -1319,26 +1322,29 @@ fail8:
     DriverRequestReboot();
     __FreeMibTable(Table);
 
+fail8:
+    Error("fail8\n");
+
 fail7:
     Error("fail7\n");
 
 fail6:
     Error("fail6\n");
 
+    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
+
 fail5:
     Error("fail5\n");
 
-    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
+    RegistryCloseKey(HardwareKey);
 
 fail4:
     Error("fail4\n");
 
-    RegistryCloseKey(HardwareKey);
+    RegistryCloseKey(SoftwareKey);
 
 fail3:
     Error("fail3\n");
-
-    RegistryCloseKey(SoftwareKey);
 
 fail2:
     Error("fail2\n");

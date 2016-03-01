@@ -32,6 +32,11 @@
 #ifndef _XENVIF_DRIVER_H
 #define _XENVIF_DRIVER_H
 
+extern BOOLEAN
+DriverSafeMode(
+    VOID
+    );
+
 extern PDRIVER_OBJECT
 DriverGetDriverObject(
     VOID

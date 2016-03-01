@@ -42,8 +42,6 @@
 #include "assert.h"
 #include "util.h"
 
-extern PULONG       InitSafeBootMode;
-
 typedef struct _XENVIF_DRIVER {
     PDRIVER_OBJECT      DriverObject;
     HANDLE              ParametersKey;
@@ -52,6 +50,24 @@ typedef struct _XENVIF_DRIVER {
 } XENVIF_DRIVER, *PXENVIF_DRIVER;
 
 static XENVIF_DRIVER    Driver;
+
+extern PULONG   InitSafeBootMode;
+
+static FORCEINLINE BOOLEAN
+__DriverSafeMode(
+    VOID
+    )
+{
+    return (*InitSafeBootMode > 0) ? TRUE : FALSE;
+}
+
+BOOLEAN
+DriverSafeMode(
+    VOID
+    )
+{
+    return __DriverSafeMode();
+}
 
 static FORCEINLINE VOID
 __DriverSetDriverObject(
@@ -154,9 +170,6 @@ DriverUnload(
 
     Trace("====>\n");
 
-    if (*InitSafeBootMode > 0)
-        goto done;
-
     Driver.NeedReboot = FALSE;
 
     StatusKey = __DriverGetStatusKey();
@@ -180,7 +193,6 @@ DriverUnload(
          MONTH,
          YEAR);
 
-done:
     __DriverSetDriverObject(NULL);
 
     ASSERT(IsZeroMemory(&Driver, sizeof (XENVIF_DRIVER)));
@@ -284,9 +296,6 @@ DriverEntry(
 
     __DriverSetDriverObject(DriverObject);
 
-    if (*InitSafeBootMode > 0)
-        goto done;
-
     Driver.DriverObject->DriverUnload = DriverUnload;
 
     Info("XENVIF %d.%d.%d (%d) (%02d.%02d.%04d)\n",
@@ -334,7 +343,6 @@ DriverEntry(
         DriverObject->MajorFunction[Index] = Dispatch;
     }
 
-done:
     Trace("<====\n");
 
     return STATUS_SUCCESS;
