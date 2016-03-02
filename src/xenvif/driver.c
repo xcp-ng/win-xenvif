@@ -142,18 +142,13 @@ DriverRequestReboot(
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
+    if (Driver.NeedReboot)
+        return;
+
     (VOID) RegistryUpdateDwordValue(__DriverGetStatusKey(),
                                     "NeedReboot",
                                     1);
     Driver.NeedReboot = TRUE;
-}
-
-BOOLEAN
-DriverIsRebootRequested(
-    VOID
-    )
-{
-    return Driver.NeedReboot;
 }
 
 DRIVER_UNLOAD       DriverUnload;

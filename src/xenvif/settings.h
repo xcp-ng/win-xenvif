@@ -33,21 +33,11 @@
 #define _XENVIF_SETTINGS_H
 
 extern NTSTATUS
-SettingsSave(
+SettingsStealIdentity(
      IN HANDLE      SoftwareKey,
      IN PWCHAR      Alias,
      IN PWCHAR      Description,
-     IN LPGUID      InterfaceGuid,
-     IN PNET_LUID   InterfaceLuid
-     );
-
-extern NTSTATUS
-SettingsRestore(
-     IN HANDLE      SoftwareKey,
-     IN PWCHAR      Alias,
-     IN PWCHAR      Description,
-     IN LPGUID      InterfaceGuid,
-     IN PNET_LUID   InterfaceLuid
+     IN LPGUID      InterfaceGuid
      );
 
 #endif  // _XENVIF_SETTINGS_H

@@ -346,49 +346,6 @@ fail1:
 }
 
 NTSTATUS
-RegistryDeleteSubKey(
-    IN  PHANDLE         Key,
-    IN  PCHAR           Name
-    )
-{
-    ANSI_STRING         Ansi;
-    UNICODE_STRING      Unicode;
-    HANDLE              SubKey;
-    NTSTATUS            status;
-
-    RtlInitAnsiString(&Ansi, Name);
-
-    status = RtlAnsiStringToUnicodeString(&Unicode, &Ansi, TRUE);
-    if (!NT_SUCCESS(status))
-        goto fail1;
-
-    status = RegistryOpenKey(Key, &Unicode, KEY_ALL_ACCESS, &SubKey);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
-    status = ZwDeleteKey(SubKey);
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
-    ZwClose(SubKey);
-
-    (VOID) ZwFlushKey(Key);
-
-    RtlFreeUnicodeString(&Unicode);
-
-    return STATUS_SUCCESS;
-
-fail3:
-    ZwClose(SubKey);
-
-fail2:
-    RtlFreeUnicodeString(&Unicode);
-
-fail1:
-    return status;
-}
-
-NTSTATUS
 RegistryEnumerateSubKeys(
     IN  HANDLE              Key,
     IN  NTSTATUS            (*Callback)(PVOID, HANDLE, PANSI_STRING),
@@ -489,6 +446,64 @@ fail3:
     
 fail2:
 fail1:
+    return status;
+}
+
+static NTSTATUS
+RegistryDeleteSubKeyTree(
+    IN  PVOID           Context,
+    IN  PHANDLE         Key,
+    IN  PANSI_STRING    Name
+    )
+{
+    HANDLE              SubKey;
+    NTSTATUS            status;
+
+    UNREFERENCED_PARAMETER(Context);
+
+    status = RegistryOpenSubKey(Key,
+                                Name->Buffer,
+                                KEY_ALL_ACCESS,
+                                &SubKey);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    (VOID) RegistryEnumerateSubKeys(SubKey,
+                                    RegistryDeleteSubKeyTree,
+                                    NULL);
+
+    status = ZwDeleteKey(SubKey);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    ZwClose(SubKey);
+
+    return STATUS_SUCCESS;
+
+fail2:
+    ZwClose(SubKey);
+
+fail1:
+    return status;
+}
+
+NTSTATUS
+RegistryDeleteSubKey(
+    IN  PHANDLE Key,
+    IN  PCHAR   Name
+    )
+{
+    ANSI_STRING Ansi;
+    NTSTATUS    status;
+
+    RtlInitAnsiString(&Ansi, Name);
+
+    status = RegistryDeleteSubKeyTree(NULL,
+                                      Key,
+                                      &Ansi);
+
+    (VOID) ZwFlushKey(Key);
+
     return status;
 }
 

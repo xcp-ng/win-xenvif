@@ -29,8 +29,11 @@
  * SUCH DAMAGE.
  */
 
+#define INITGUID 1
+
 #include <ntddk.h>
 #include <ntstrsafe.h>
+#include <devguid.h>
 
 #include "registry.h"
 #include "driver.h"
@@ -56,35 +59,31 @@ __SettingsFree(
     __FreePoolWithTag(Buffer, SETTINGS_TAG);
 }
 
-typedef struct _SETTINGS_INTERFACE_COPY_PARAMETERS {
-    PCHAR   SaveKeyName;
-    HANDLE  DestinationKey;
-} SETTINGS_INTERFACE_COPY_PARAMETERS, *PSETTINGS_INTERFACE_COPY_PARAMETERS;
-
 static NTSTATUS
-SettingsCopyInterfaceValue(
-    IN  PVOID                           Context,
-    IN  HANDLE                          SourceKey,
-    IN  PANSI_STRING                    ValueName,
-    IN  ULONG                           Type
+SettingsCopyValue(
+    IN  HANDLE  DestinationKey,
+    IN  HANDLE  SourceKey,
+    IN  PCHAR   ValueName,
+    IN  ULONG   Type
     )
 {
-    PSETTINGS_INTERFACE_COPY_PARAMETERS Parameters = Context;
-    NTSTATUS                            status;
+    NTSTATUS    status;
 
-    Trace("%s:%Z\n", Parameters->SaveKeyName, ValueName);
+    Trace("%s\n", ValueName);
 
     switch (Type) {
     case REG_DWORD: {
         ULONG   Value;
 
         status = RegistryQueryDwordValue(SourceKey,
-                                         ValueName->Buffer,
+                                         ValueName,
                                          &Value);
-        if (NT_SUCCESS(status))
-            (VOID) RegistryUpdateDwordValue(Parameters->DestinationKey,
-                                            ValueName->Buffer,
-                                            Value);
+        if (!NT_SUCCESS(status))
+            goto fail1;
+
+        (VOID) RegistryUpdateDwordValue(DestinationKey,
+                                        ValueName,
+                                        Value);
 
         break;
     }
@@ -93,16 +92,18 @@ SettingsCopyInterfaceValue(
         PANSI_STRING    Value;
 
         status = RegistryQuerySzValue(SourceKey,
-                                      ValueName->Buffer,
+                                      ValueName,
                                       NULL,
                                       &Value);
-        if (NT_SUCCESS(status)) {
-            (VOID) RegistryUpdateSzValue(Parameters->DestinationKey,
-                                         ValueName->Buffer,
-                                         Type,
-                                         Value);
-            RegistryFreeSzValue(Value);
-        }
+        if (!NT_SUCCESS(status))
+            goto fail1;
+
+        (VOID) RegistryUpdateSzValue(DestinationKey,
+                                     ValueName,
+                                     Type,
+                                     Value);
+
+        RegistryFreeSzValue(Value);
 
         break;
     }
@@ -111,17 +112,18 @@ SettingsCopyInterfaceValue(
         ULONG   Length;
 
         status = RegistryQueryBinaryValue(SourceKey,
-                                          ValueName->Buffer,
+                                          ValueName,
                                           &Value,
                                           &Length);
-        if (NT_SUCCESS(status)) {
-            (VOID) RegistryUpdateBinaryValue(Parameters->DestinationKey,
-                                             ValueName->Buffer,
-                                             Value,
-                                             Length);
-            if (Length != 0)
-                RegistryFreeBinaryValue(Value);
-        }
+        if (!NT_SUCCESS(status))
+            goto fail1;
+
+        (VOID) RegistryUpdateBinaryValue(DestinationKey,
+                                         ValueName,
+                                         Value,
+                                         Length);
+        if (Length != 0)
+            RegistryFreeBinaryValue(Value);
 
         break;
     }
@@ -130,167 +132,84 @@ SettingsCopyInterfaceValue(
     }
 
     return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+typedef struct _SETTINGS_COPY_SUBKEY_VALUE_PARAMETERS {
+    HANDLE  DestinationKey;
+} SETTINGS_COPY_SUBKEY_VALUE_PARAMETERS, *PSETTINGS_COPY_SUBKEY_VALUE_PARAMETERS;
+
+static NTSTATUS
+SettingsCopySubKeyValue(
+    IN  PVOID                               Context,
+    IN  HANDLE                              Key,
+    IN  PANSI_STRING                        ValueName,
+    IN  ULONG                               Type
+    )
+{
+    PSETTINGS_COPY_SUBKEY_VALUE_PARAMETERS Parameters = Context;
+
+    return SettingsCopyValue(Parameters->DestinationKey,
+                             Key,
+                             ValueName->Buffer,
+                             Type);
 }
 
 static NTSTATUS
-SettingsCopyInterface(
-    IN  HANDLE      SettingsKey,
-    IN  PCHAR       SaveKeyName,
-    IN  PCHAR       InterfacesPath,
-    IN  PCHAR       InterfacePrefix,
-    IN  LPGUID      Guid,
-    IN  BOOLEAN     Save
+SettingsCopySubKey(
+    IN  HANDLE                              DestinationKey,
+    IN  HANDLE                              SourceKey,
+    IN  PCHAR                               SubKeyName
     )
 {
-    UNICODE_STRING  Unicode;
-    ULONG           Length;
-    PCHAR           InterfaceName;
-    HANDLE          InterfacesKey;
-    PCHAR           KeyName;
-    HANDLE          Key;
-    HANDLE          SaveKey;
-    NTSTATUS        status;
+    SETTINGS_COPY_SUBKEY_VALUE_PARAMETERS   Parameters;
+    HANDLE                                  DestinationSubKey;
+    HANDLE                                  SourceSubKey;
+    NTSTATUS                                status;
 
-    Trace("====>\n");
-
-    status = RtlStringFromGUID(Guid, &Unicode);
+    status = RegistryCreateSubKey(DestinationKey,
+                                  SubKeyName,
+                                  REG_OPTION_NON_VOLATILE,
+                                  &DestinationSubKey);
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    Length = (ULONG)(((Unicode.Length / sizeof (WCHAR)) +
-                      1) * sizeof (CHAR));
-
-    InterfaceName = __SettingsAllocate(Length);
-
-    status = STATUS_NO_MEMORY;
-    if (InterfaceName == NULL)
+    status = RegistryOpenSubKey(SourceKey,
+                                SubKeyName,
+                                KEY_READ,
+                                &SourceSubKey);
+    if (!NT_SUCCESS(status))
         goto fail2;
 
-    status = RtlStringCbPrintfA(InterfaceName,
-                                Length,
-                                "%wZ",
-                                &Unicode);
-    ASSERT(NT_SUCCESS(status));
+    RtlZeroMemory(&Parameters, sizeof (Parameters));
 
-    status = RegistryOpenSubKey(NULL,
-                                InterfacesPath,
-                                KEY_ALL_ACCESS,
-                                &InterfacesKey);
+    Parameters.DestinationKey = DestinationSubKey;
+
+    status = RegistryEnumerateValues(SourceSubKey,
+                                     SettingsCopySubKeyValue,
+                                     &Parameters);
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    Length = (ULONG)((strlen(InterfacePrefix) +
-                      strlen(InterfaceName) +
-                      1) * sizeof (CHAR));
+    RegistryCloseKey(SourceSubKey);
 
-    KeyName = __SettingsAllocate(Length);
-
-    status = STATUS_NO_MEMORY;
-    if (KeyName == NULL)
-        goto fail4;
-
-    status = RtlStringCbPrintfA(KeyName,
-                                Length,
-                                "%s%s",
-                                InterfacePrefix,
-                                InterfaceName);
-    ASSERT(NT_SUCCESS(status));
-
-    status = (!Save) ?
-        RegistryCreateSubKey(InterfacesKey,
-                             KeyName,
-                             REG_OPTION_NON_VOLATILE,
-                             &Key) :
-        RegistryOpenSubKey(InterfacesKey,
-                           KeyName,
-                           KEY_READ,
-                           &Key);
-    if (!NT_SUCCESS(status))
-        goto fail5;
-
-    status = (Save) ?
-        RegistryCreateSubKey(SettingsKey,
-                             SaveKeyName,
-                             REG_OPTION_NON_VOLATILE,
-                             &SaveKey) :
-        RegistryOpenSubKey(SettingsKey,
-                           SaveKeyName,
-                           KEY_READ,
-                           &SaveKey);
-    if (!NT_SUCCESS(status))
-        goto fail6;
-
-    if (Save) {
-        SETTINGS_INTERFACE_COPY_PARAMETERS  Parameters;
-
-        Parameters.SaveKeyName = SaveKeyName;
-        Parameters.DestinationKey = SaveKey;
-
-        status = RegistryEnumerateValues(Key,
-                                         SettingsCopyInterfaceValue,
-                                         &Parameters);
-    } else { // Restore
-        SETTINGS_INTERFACE_COPY_PARAMETERS  Parameters;
-
-        Parameters.SaveKeyName = SaveKeyName;
-        Parameters.DestinationKey = Key;
-
-        status = RegistryEnumerateValues(SaveKey,
-                                         SettingsCopyInterfaceValue,
-                                         &Parameters);
-    }
-
-    if (!NT_SUCCESS(status))
-        goto fail7;
-
-    RegistryCloseKey(SaveKey);
-
-    if (!Save)
-        (VOID) RegistryDeleteSubKey(SettingsKey, SaveKeyName);
-
-    RegistryCloseKey(Key);
-
-    __SettingsFree(KeyName);
-
-    RegistryCloseKey(InterfacesKey);
-
-    __SettingsFree(InterfaceName);
-
-    RtlFreeUnicodeString(&Unicode);
-
-    Trace("<====\n");
+    RegistryCloseKey(DestinationSubKey);
 
     return STATUS_SUCCESS;
-
-fail7:
-    Error("fail7\n");
-
-    RegistryCloseKey(SaveKey);
-
-fail6:
-    Error("fail6\n");
-
-    RegistryCloseKey(Key);
-
-fail5:
-    Error("fail5\n");
-
-    __SettingsFree(KeyName);
-
-fail4:
-    Error("fail4\n");
-
-    RegistryCloseKey(InterfacesKey);
 
 fail3:
     Error("fail3\n");
 
-    __SettingsFree(InterfaceName);
+    RegistryCloseKey(SourceSubKey);
 
 fail2:
     Error("fail2\n");
 
-    RtlFreeUnicodeString(&Unicode);
+    RegistryCloseKey(DestinationSubKey);
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -298,315 +217,349 @@ fail1:
     return status;
 }
 
-typedef struct _SETTINGS_IP_ADDRESSES_COPY_PARAMETERS {
-    UCHAR   Version;
-    PCHAR   SourceValuePrefix;
-    HANDLE  DestinationKey;
-    PCHAR   DestinationValuePrefix;
-} SETTINGS_IP_ADDRESSES_COPY_PARAMETERS, *PSETTINGS_IP_ADDRESSES_COPY_PARAMETERS;
+#define CLASS_PATH "\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Control\\Class"
 
 static NTSTATUS
-SettingsCopyIpAddressesValue(
-    IN  PVOID                               Context,
-    IN  HANDLE                              SourceKey,
-    IN  PANSI_STRING                        SourceValueName,
-    IN  ULONG                               Type
+SettingsOpenNetKey(
+    IN  ACCESS_MASK DesiredAccess,
+    OUT PHANDLE     NetKey
     )
 {
-    PSETTINGS_IP_ADDRESSES_COPY_PARAMETERS  Parameters = Context;
-    ULONG                                   SourceValuePrefixLength;
-    ULONG                                   DestinationValuePrefixLength;
-    ULONG                                   DestinationValueNameLength;
-    PCHAR                                   DestinationValueName;
-    PVOID                                   Value;
-    ULONG                                   ValueLength;
-    NTSTATUS                                status;
-
-    if (Type != REG_BINARY)
-        goto done;
-
-    SourceValuePrefixLength = (ULONG)strlen(Parameters->SourceValuePrefix);
-    DestinationValuePrefixLength = (ULONG)strlen(Parameters->DestinationValuePrefix);
-
-    if (_strnicmp(SourceValueName->Buffer,
-                  Parameters->SourceValuePrefix,
-                  SourceValuePrefixLength) != 0)
-        goto done;
-
-    DestinationValueNameLength = SourceValueName->Length -
-                                 (SourceValuePrefixLength * sizeof (CHAR)) +
-                                 ((DestinationValuePrefixLength + 1) * sizeof (CHAR));
-
-    DestinationValueName = __SettingsAllocate(DestinationValueNameLength);
-
-    status = STATUS_NO_MEMORY;
-    if (DestinationValueName == NULL)
-        goto fail1;
-
-    status = RtlStringCbPrintfA(DestinationValueName,
-                                DestinationValueNameLength,
-                                "%s%s",
-                                Parameters->DestinationValuePrefix,
-                                SourceValueName->Buffer + SourceValuePrefixLength);
-    ASSERT(NT_SUCCESS(status));
-
-    Trace("Version%u: %Z -> %s\n",
-          Parameters->Version,
-          SourceValueName,
-          DestinationValueName);
-
-    status = RegistryQueryBinaryValue(SourceKey,
-                                      SourceValueName->Buffer,
-                                      &Value,
-                                      &ValueLength);
-    if (NT_SUCCESS(status)) {
-        (VOID) RegistryUpdateBinaryValue(Parameters->DestinationKey,
-                                         DestinationValueName,
-                                         Value,
-                                         ValueLength);
-        RegistryFreeBinaryValue(Value);
-    }
-
-    __SettingsFree(DestinationValueName);
-
-done:
-    return STATUS_SUCCESS;
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-
-    return status;
-}
-
-#define IPV6_PATH "\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Control\\Nsi\\{eb004a01-9b1a-11d4-9123-0050047759bc}\\10"
-
-#define IPV4_PATH "\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Control\\Nsi\\{eb004a00-9b1a-11d4-9123-0050047759bc}\\10"
-
-static NTSTATUS
-SettingsCopyIpAddresses(
-    IN  HANDLE      SettingsKey,
-    IN  UCHAR       Version,
-    IN  PNET_LUID   Luid,
-    IN  BOOLEAN     Save
-    )
-{
-    const CHAR      *Path;
-    HANDLE          Key;
-    ULONG           ValuePrefixLength;
-    PCHAR           ValuePrefix;
-    const CHAR      *SaveKeyName;
-    HANDLE          SaveKey;
+    HANDLE          ClassKey;
+    UNICODE_STRING  Unicode;
+    ANSI_STRING     Ansi;
     NTSTATUS        status;
 
-    Trace("====>\n");
-
-    ASSERT(Version == 4 || Version == 6);
-    Path = (Version == 4) ? IPV4_PATH : IPV6_PATH;
-
     status = RegistryOpenSubKey(NULL,
-                                (PCHAR)Path,
-                                (Save) ? KEY_READ : KEY_ALL_ACCESS,
-                                &Key);
-    if (!NT_SUCCESS(status)) {
-        Info("Version%u: ADDRESSES NOT FOUND\n", Version);
-        goto done;
-    }
-
-    ValuePrefixLength = (ULONG)(((sizeof (NET_LUID) * 2) +
-                                 1) * sizeof (CHAR));
-
-    ValuePrefix = __SettingsAllocate(ValuePrefixLength);
-
-    status = STATUS_NO_MEMORY;
-    if (ValuePrefix == NULL)
+                                CLASS_PATH,
+                                KEY_ALL_ACCESS,
+                                &ClassKey);
+    if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = RtlStringCbPrintfA(ValuePrefix,
-                                ValuePrefixLength,
-                                "%016llX",
-                                Luid->Value);
-    ASSERT(NT_SUCCESS(status));
-
-    SaveKeyName = (Version == 4) ? "IpVersion4Addresses" : "IpVersion6Addresses";
-
-    status = (Save) ?
-        RegistryCreateSubKey(SettingsKey,
-                             (PCHAR)SaveKeyName,
-                             REG_OPTION_NON_VOLATILE,
-                             &SaveKey) :
-        RegistryOpenSubKey(SettingsKey,
-                           (PCHAR)SaveKeyName,
-                           KEY_READ,
-                           &SaveKey);
+    status = RtlStringFromGUID(&GUID_DEVCLASS_NET, &Unicode);
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    if (Save) {
-        SETTINGS_IP_ADDRESSES_COPY_PARAMETERS   Parameters;
+    status = RtlUnicodeStringToAnsiString(&Ansi, &Unicode, TRUE);
+    if (!NT_SUCCESS(status))
+        goto fail3;
 
-        Parameters.Version = Version;
-        Parameters.SourceValuePrefix = ValuePrefix;
-        Parameters.DestinationKey = SaveKey;
-        Parameters.DestinationValuePrefix = "LUID";
+    status = RegistryOpenSubKey(ClassKey,
+                                Ansi.Buffer,
+                                DesiredAccess,
+                                NetKey);
+    if (!NT_SUCCESS(status))
+        goto fail4;
 
-        status = RegistryEnumerateValues(Key,
-                                         SettingsCopyIpAddressesValue,
-                                         &Parameters);
-    } else { // Restore
-        SETTINGS_IP_ADDRESSES_COPY_PARAMETERS   Parameters;
+    RtlFreeAnsiString(&Ansi);
 
-        Parameters.Version = Version;
-        Parameters.SourceValuePrefix = "LUID";
-        Parameters.DestinationKey = Key;
-        Parameters.DestinationValuePrefix = ValuePrefix;
+    RtlFreeUnicodeString(&Unicode);
 
-        status = RegistryEnumerateValues(SaveKey,
-                                         SettingsCopyIpAddressesValue,
-                                         &Parameters);
-    }
-
-    RegistryCloseKey(SaveKey);
-
-    if (!Save)
-        (VOID) RegistryDeleteSubKey(SettingsKey, (PCHAR)SaveKeyName);
-
-    __SettingsFree(ValuePrefix);
-
-    RegistryCloseKey(Key);
-
-done:
-    Trace("<====\n");
+    RegistryCloseKey(ClassKey);
 
     return STATUS_SUCCESS;
+
+fail4:
+    Error("fail4\n");
+
+    RtlFreeAnsiString(&Ansi);
+
+fail3:
+    Error("fail3\n");
+
+    RtlFreeUnicodeString(&Unicode);
 
 fail2:
     Error("fail2\n");
 
-    __SettingsFree(ValuePrefix);
+    RegistryCloseKey(ClassKey);
 
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    RegistryCloseKey(Key);
-
     return status;
 }
 
-#define INTERFACES_PATH(_Name) "\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services\\" ## #_Name ## "\\Parameters\\Interfaces\\"
+typedef struct _SETTINGS_MATCH_NET_CFG_INSTANCE_ID_PARAMETERS {
+    ANSI_STRING NetCfgInstanceID;
+    ANSI_STRING SubKeyName;
+} SETTINGS_MATCH_NET_CFG_INSTANCE_ID_PARAMETERS, *PSETTINGS_MATCH_NET_CFG_INSTANCE_ID_PARAMETERS;
 
-static VOID
-SettingsCopy(
-     IN HANDLE      SettingsKey,
-     IN LPGUID      InterfaceGuid,
-     IN PNET_LUID   InterfaceLuid,
-     IN BOOLEAN     Save
-     )
+static NTSTATUS
+SettingsMatchNetCfgInstanceID(
+    IN  PVOID                                       Context,
+    IN  HANDLE                                      Key,
+    IN  PANSI_STRING                                SubKeyName
+    )
 {
-    Trace("====>\n");
+    PSETTINGS_MATCH_NET_CFG_INSTANCE_ID_PARAMETERS  Parameters = Context;
+    HANDLE                                          SubKey;
+    ANSI_STRING                                     Ansi;
+    ULONG                                           Type;
+    PANSI_STRING                                    Value;
+    NTSTATUS                                        status;
 
-    (VOID) SettingsCopyInterface(SettingsKey,
-                                 "NetBT",
-                                 INTERFACES_PATH(NetBT),
-                                 "Tcpip_",
-                                 InterfaceGuid,
-                                 Save);
+    Trace("====> (%Z)\n", SubKeyName);
 
-    (VOID) SettingsCopyInterface(SettingsKey,
-                                 "Tcpip",
-                                 INTERFACES_PATH(Tcpip),
-                                 "",
-                                 InterfaceGuid,
-                                 Save);
+    if (Parameters->SubKeyName.Length != 0)
+        goto done;
 
-    (VOID) SettingsCopyInterface(SettingsKey,
-                                 "Tcpip6",
-                                 INTERFACES_PATH(Tcpip6),
-                                 "",
-                                 InterfaceGuid,
-                                 Save);
+    RtlInitAnsiString(&Ansi, "Properties");
 
-    (VOID) SettingsCopyIpAddresses(SettingsKey,
-                                   4,
-                                   InterfaceLuid,
-                                   Save);
+    if (RtlCompareString(&Ansi, SubKeyName, TRUE) == 0)
+        goto done;
 
-    (VOID) SettingsCopyIpAddresses(SettingsKey,
-                                   6,
-                                   InterfaceLuid,
-                                   Save);
-
-    Trace("<====\n");
-}
-
-NTSTATUS
-SettingsSave(
-     IN HANDLE      SoftwareKey,
-     IN PWCHAR      Alias,
-     IN PWCHAR      Description,
-     IN LPGUID      InterfaceGuid,
-     IN PNET_LUID   InterfaceLuid
-     )
-{
-    HANDLE          SettingsKey;
-    NTSTATUS        status;
-
-    Info("FROM %ws (%ws)\n", Alias, Description);
-
-    status = RegistryCreateSubKey(SoftwareKey,
-                                  "Settings",
-                                  REG_OPTION_NON_VOLATILE,
-                                  &SettingsKey);
+    status = RegistryOpenSubKey(Key,
+                                SubKeyName->Buffer,
+                                KEY_READ,
+                                &SubKey);
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    SettingsCopy(SettingsKey, InterfaceGuid, InterfaceLuid, TRUE);
+    status = RegistryQuerySzValue(SubKey,
+                                  "NetCfgInstanceID",
+                                  &Type,
+                                  &Value);
+    if (!NT_SUCCESS(status))
+        goto fail2;
 
-    RegistryCloseKey(SettingsKey);
+    status = STATUS_INVALID_PARAMETER;
+    if (Type != REG_SZ)
+        goto fail3;
+
+    if (RtlCompareString(&Parameters->NetCfgInstanceID,
+                         &Value[0],
+                         TRUE) == 0) {
+        Parameters->SubKeyName.MaximumLength = SubKeyName->MaximumLength;
+        Parameters->SubKeyName.Buffer = __SettingsAllocate(Parameters->SubKeyName.MaximumLength);
+
+        status = STATUS_NO_MEMORY;
+        if (Parameters->SubKeyName.Buffer == NULL)
+            goto fail4;
+
+        RtlCopyMemory(Parameters->SubKeyName.Buffer,
+                      SubKeyName->Buffer,
+                      SubKeyName->Length);
+
+        Parameters->SubKeyName.Length = SubKeyName->Length;
+    }
+
+    RegistryFreeSzValue(Value);
+
+    RegistryCloseKey(SubKey);
+
+done:
+    Trace("<====\n");
 
     return STATUS_SUCCESS;
 
+fail4:
+    Error("fail4\n");
+
+fail3:
+    Error("fail3\n");
+
+    RegistryFreeSzValue(Value);
+
+fail2:
+    Error("fail2\n");
+
+    RegistryCloseKey(SubKey);
+
 fail1:
-    Error("fail1\n", status);
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+static NTSTATUS
+SettingsGetAliasNetInstance(
+    IN  LPGUID                                      NetCfgInstanceID,
+    OUT PANSI_STRING                                SubKeyName
+    )
+{
+    HANDLE                                          NetKey;
+    UNICODE_STRING                                  Unicode;
+    ANSI_STRING                                     Ansi;
+    SETTINGS_MATCH_NET_CFG_INSTANCE_ID_PARAMETERS   Parameters;
+    NTSTATUS                                        status;
+
+    status = SettingsOpenNetKey(KEY_READ, &NetKey);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = RtlStringFromGUID(NetCfgInstanceID, &Unicode);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = RtlUnicodeStringToAnsiString(&Ansi, &Unicode, TRUE);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    RtlZeroMemory(&Parameters, sizeof (Parameters));
+
+    Parameters.NetCfgInstanceID = Ansi;
+
+    status = RegistryEnumerateSubKeys(NetKey,
+                                      SettingsMatchNetCfgInstanceID,
+                                      &Parameters);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
+    status = STATUS_UNSUCCESSFUL;
+    if (Parameters.SubKeyName.Length == 0)
+        goto fail5;
+
+    Info("%Z\n", &Parameters.SubKeyName);
+
+    *SubKeyName = Parameters.SubKeyName;
+
+    RegistryCloseKey(NetKey);
+
+    return STATUS_SUCCESS;
+
+fail5:
+    Error("fail5\n");
+
+fail4:
+    Error("fail4\n");
+
+    RtlFreeAnsiString(&Ansi);
+
+fail3:
+    Error("fail3\n");
+
+    RtlFreeUnicodeString(&Unicode);
+
+fail2:
+    Error("fail2\n");
+
+    RegistryCloseKey(NetKey);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+static NTSTATUS
+SettingsCopyLinkage(
+    IN HANDLE       DestinationKey,
+    IN HANDLE       SourceKey
+    )
+{
+    NTSTATUS        status;
+
+    Trace("====>\n");
+
+    status = SettingsCopyValue(DestinationKey,
+                               SourceKey,
+                               "NetCfgInstanceID",
+                               REG_SZ);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = SettingsCopyValue(DestinationKey,
+                               SourceKey,
+                               "NetLuidIndex",
+                               REG_DWORD);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = SettingsCopySubKey(DestinationKey,
+                                SourceKey,
+                                "Linkage");
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    Trace("<====\n");
+
+    return STATUS_SUCCESS;
+
+fail3:
+    Error("fail3\n");
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
 
     return status;
 }
 
 NTSTATUS
-SettingsRestore(
-     IN HANDLE      SoftwareKey,
-     IN PWCHAR      Alias,
-     IN PWCHAR      Description,
-     IN LPGUID      InterfaceGuid,
-     IN PNET_LUID   InterfaceLuid
-     )
+SettingsStealIdentity(
+    IN HANDLE   SoftwareKey,
+    IN PWCHAR   Alias,
+    IN PWCHAR   Description,
+    IN LPGUID   NetCfgInstanceID
+    )
 {
-    HANDLE          SettingsKey;
-    NTSTATUS        status;
+    ANSI_STRING SubKeyName;
+    HANDLE      NetKey;
+    HANDLE      SubKey;
+    NTSTATUS    status;
 
-    status = RegistryOpenSubKey(SoftwareKey,
-                                "Settings",
-                                KEY_ALL_ACCESS,
-                                &SettingsKey);
-    if (!NT_SUCCESS(status)) {
-        if (status == STATUS_OBJECT_NAME_NOT_FOUND)
-            goto done;
+    Info("%ws (%ws)\n", Alias, Description);
 
+    status = SettingsGetAliasNetInstance(NetCfgInstanceID,
+                                         &SubKeyName);
+    if (!NT_SUCCESS(status))
         goto fail1;
-    }
 
-    Info("TO %ws (%ws)\n", Alias, Description);
+    status = RegistryUpdateSzValue(SoftwareKey,
+                                   "AliasNetInstance",
+                                   REG_SZ,
+                                   &SubKeyName);
+    if (!NT_SUCCESS(status))
+        goto fail2;
 
-    SettingsCopy(SettingsKey, InterfaceGuid, InterfaceLuid, FALSE);
+    status = SettingsOpenNetKey(KEY_READ, &NetKey);
+    if (!NT_SUCCESS(status))
+        goto fail3;
 
-    RegistryCloseKey(SettingsKey);
+    status = RegistryOpenSubKey(NetKey,
+                                SubKeyName.Buffer,
+                                KEY_READ,
+                                &SubKey);
+    if (!NT_SUCCESS(status))
+        goto fail4;
 
-    (VOID) RegistryDeleteSubKey(SoftwareKey, "Settings");
+    status = SettingsCopyLinkage(SoftwareKey,
+                                 SubKey);
+    if (!NT_SUCCESS(status))
+        goto fail5;
 
-done:
+    RegistryCloseKey(SubKey);
+
+    RegistryCloseKey(NetKey);
+
+    __SettingsFree(SubKeyName.Buffer);
+
     return STATUS_SUCCESS;
 
+fail5:
+    Error("fail5\n");
+
+    RegistryCloseKey(SubKey);
+
+fail4:
+    Error("fail4\n");
+
+    RegistryCloseKey(NetKey);
+
+fail3:
+    Error("fail3\n");
+
+fail2:
+    Error("fail2\n");
+
+    __SettingsFree(SubKeyName.Buffer);
+
 fail1:
-    Error("fail1\n", status);
+    Error("fail1 (%08x)\n", status);
 
     return status;
 }
