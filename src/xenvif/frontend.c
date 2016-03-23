@@ -1527,6 +1527,7 @@ FrontendPrepare(
                                    XenbusStateClosed);
             break;
 
+        case XenbusStateInitialising:
         case XenbusStateInitWait:
             break;
 
