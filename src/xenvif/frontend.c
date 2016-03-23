@@ -81,6 +81,7 @@ struct _XENVIF_FRONTEND {
     XENBUS_SUSPEND_INTERFACE    SuspendInterface;
     XENBUS_STORE_INTERFACE      StoreInterface;
 
+    PXENBUS_SUSPEND_CALLBACK    SuspendCallbackEarly;
     PXENBUS_SUSPEND_CALLBACK    SuspendCallbackLate;
     PXENBUS_DEBUG_CALLBACK      DebugCallback;
     PXENBUS_STORE_WATCH         Watch;
@@ -2235,6 +2236,16 @@ __FrontendSuspend(
 }
 
 static DECLSPEC_NOINLINE VOID
+FrontendSuspendCallbackEarly(
+    IN  PVOID           Argument
+    )
+{
+    PXENVIF_FRONTEND    Frontend = Argument;
+
+    Frontend->Online = FALSE;
+}
+
+static DECLSPEC_NOINLINE VOID
 FrontendSuspendCallbackLate(
     IN  PVOID           Argument
     )
@@ -2265,12 +2276,21 @@ FrontendResume(
 
     status = XENBUS_SUSPEND(Register,
                             &Frontend->SuspendInterface,
+                            SUSPEND_CALLBACK_EARLY,
+                            FrontendSuspendCallbackEarly,
+                            Frontend,
+                            &Frontend->SuspendCallbackEarly);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = XENBUS_SUSPEND(Register,
+                            &Frontend->SuspendInterface,
                             SUSPEND_CALLBACK_LATE,
                             FrontendSuspendCallbackLate,
                             Frontend,
                             &Frontend->SuspendCallbackLate);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail3;
 
     KeLowerIrql(Irql);
 
@@ -2289,6 +2309,14 @@ FrontendResume(
 
     return STATUS_SUCCESS;
     
+fail3:
+    Error("fail3\n");
+
+    XENBUS_SUSPEND(Deregister,
+                   &Frontend->SuspendInterface,
+                   Frontend->SuspendCallbackEarly);
+    Frontend->SuspendCallbackEarly = NULL;
+
 fail2:
     Error("fail2\n");
 
@@ -2319,6 +2347,11 @@ FrontendSuspend(
                    &Frontend->SuspendInterface,
                    Frontend->SuspendCallbackLate);
     Frontend->SuspendCallbackLate = NULL;
+
+    XENBUS_SUSPEND(Deregister,
+                   &Frontend->SuspendInterface,
+                   Frontend->SuspendCallbackEarly);
+    Frontend->SuspendCallbackEarly = NULL;
 
     __FrontendSuspend(Frontend);
 
