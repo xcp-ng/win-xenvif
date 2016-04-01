@@ -415,6 +415,10 @@ SettingsGetAliasNetInstance(
 
     *SubKeyName = Parameters.SubKeyName;
 
+    RtlFreeAnsiString(&Ansi);
+
+    RtlFreeUnicodeString(&Unicode);
+
     RegistryCloseKey(NetKey);
 
     return STATUS_SUCCESS;
