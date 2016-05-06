@@ -2921,11 +2921,13 @@ __TransmitterRingUnmask(
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
-
-    if (!Ring->Connected)
-        return;
+    PXENVIF_FRONTEND                Frontend;
 
     Transmitter = Ring->Transmitter;
+    Frontend = Transmitter->Frontend;
+
+    if (!Ring->Connected || !FrontendIsSplit(Frontend))
+        return;
 
     XENBUS_EVTCHN(Unmask,
                   &Transmitter->EvtchnInterface,
@@ -3607,8 +3609,7 @@ __TransmitterRingEnable(
     ASSERT(!Ring->Enabled);
     Ring->Enabled = TRUE;
 
-    if (FrontendIsSplit(Frontend))
-        KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
+    KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
 
     __TransmitterRingReleaseLock(Ring);
 
