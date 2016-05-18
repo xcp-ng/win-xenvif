@@ -4007,7 +4007,9 @@ __TransmitterRingQueuePacket(
     // grab it then that's ok because whichever thread is holding it will have to call
     // __TransmitterRingReleaseLock() and will therefore drain the atomic packet list.
 
-    if (__TransmitterRingTryAcquireLock(Ring))
+    if (Ring->Index != KeGetCurrentProcessorNumberEx(NULL))
+        KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
+    else if (__TransmitterRingTryAcquireLock(Ring))
         __TransmitterRingReleaseLock(Ring);
 }
 
