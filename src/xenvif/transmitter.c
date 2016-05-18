@@ -3164,10 +3164,24 @@ TransmitterRingWatchdog(
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Context;
+    PROCESSOR_NUMBER            ProcNumber;
+    GROUP_AFFINITY              Affinity;
     LARGE_INTEGER               Timeout;
     ULONG                       PacketsQueued;
+    NTSTATUS                    status;
 
     Trace("====>\n");
+
+    //
+    // Affinitize this thread to the same CPU as the event channel
+    // and DPC.
+    //
+    status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
+    ASSERT(NT_SUCCESS(status));
+
+    Affinity.Group = ProcNumber.Group;
+    Affinity.Mask = (KAFFINITY)1 << ProcNumber.Number;
+    KeSetSystemGroupAffinityThread(&Affinity, NULL);
 
     Timeout.QuadPart = TIME_RELATIVE(TIME_S(XENVIF_TRANSMITTER_WATCHDOG_PERIOD));
     PacketsQueued = 0;
