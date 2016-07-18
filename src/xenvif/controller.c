@@ -398,7 +398,7 @@ ControllerDpc(
     __ControllerReleaseLock(Controller);
 }
 
-KSERVICE_ROUTINE    ControllerRingEvtchnCallback;
+KSERVICE_ROUTINE    ControllerEvtchnCallback;
 
 BOOLEAN
 ControllerEvtchnCallback(
