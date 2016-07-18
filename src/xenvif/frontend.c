@@ -1535,6 +1535,11 @@ FrontendPrepare(
                                    XenbusStateInitialising);
             break;
 
+        case XenbusStateConnected:
+            FrontendSetXenbusState(Frontend,
+                                   XenbusStateClosing);
+            break;
+
         case XenbusStateClosing:
             FrontendSetXenbusState(Frontend,
                                    XenbusStateClosed);
