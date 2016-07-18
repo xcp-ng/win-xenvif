@@ -369,6 +369,7 @@ ControllerWatchdog(
     return STATUS_SUCCESS;
 }
 
+__drv_functionClass(KDEFERRED_ROUTINE)
 __drv_maxIRQL(DISPATCH_LEVEL)
 __drv_minIRQL(DISPATCH_LEVEL)
 __drv_requiresIRQL(DISPATCH_LEVEL)
@@ -397,7 +398,7 @@ ControllerDpc(
     __ControllerReleaseLock(Controller);
 }
 
-KSERVICE_ROUTINE    TransmitterRingEvtchnCallback;
+KSERVICE_ROUTINE    ControllerRingEvtchnCallback;
 
 BOOLEAN
 ControllerEvtchnCallback(
