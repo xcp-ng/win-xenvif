@@ -45,7 +45,6 @@
 typedef struct _XENVIF_DRIVER {
     PDRIVER_OBJECT      DriverObject;
     HANDLE              ParametersKey;
-    HANDLE              StatusKey;
     BOOLEAN             NeedReboot;
 } XENVIF_DRIVER, *PXENVIF_DRIVER;
 
@@ -117,20 +116,58 @@ DriverGetParametersKey(
     return __DriverGetParametersKey();
 }
 
-static FORCEINLINE VOID
-__DriverSetStatusKey(
-    IN  HANDLE  Key
-    )
-{
-    Driver.StatusKey = Key;
-}
+#define SERVICES_PATH "\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services"
 
-static FORCEINLINE HANDLE
-__DriverGetStatusKey(
+#define SERVICE_KEY(_Name) \
+        SERVICES_PATH ## "\\" ## #_Name
+
+#define REQUEST_KEY \
+        SERVICE_KEY(XENBUS_MONITOR) ## "\\Request"
+
+static FORCEINLINE VOID
+__DriverRequestReboot(
     VOID
     )
 {
-    return Driver.StatusKey;
+    HANDLE      RequestKey;
+    ANSI_STRING Ansi[2];
+    NTSTATUS    status;
+
+    Info("====>\n");
+
+    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
+
+    status = RegistryOpenSubKey(NULL,
+                                REQUEST_KEY,
+                                KEY_ALL_ACCESS,
+                                &RequestKey);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    RtlZeroMemory(Ansi, sizeof (Ansi));
+
+    RtlInitAnsiString(&Ansi[0], "XENVIF");
+
+    status = RegistryUpdateSzValue(RequestKey,
+                                   "Reboot",
+                                   REG_SZ,
+                                   Ansi);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    RegistryCloseKey(RequestKey);
+
+    Info("<====\n");
+
+    return;
+
+fail2:
+    Error("fail2\n");
+
+    RegistryCloseKey(RequestKey);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
 }
 
 VOID
@@ -138,16 +175,11 @@ DriverRequestReboot(
     VOID
     )
 {
-    Info("<===>\n");
-
-    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
-
     if (Driver.NeedReboot)
         return;
 
-    (VOID) RegistryUpdateDwordValue(__DriverGetStatusKey(),
-                                    "NeedReboot",
-                                    1);
+    __DriverRequestReboot();
+
     Driver.NeedReboot = TRUE;
 }
 
@@ -159,18 +191,12 @@ DriverUnload(
     )
 {
     HANDLE              ParametersKey;
-    HANDLE              StatusKey;
 
     ASSERT3P(DriverObject, ==, __DriverGetDriverObject());
 
     Trace("====>\n");
 
     Driver.NeedReboot = FALSE;
-
-    StatusKey = __DriverGetStatusKey();
-    __DriverSetStatusKey(NULL);
-
-    RegistryCloseKey(StatusKey);
 
     ParametersKey = __DriverGetParametersKey();
     __DriverSetParametersKey(NULL);
@@ -278,7 +304,6 @@ DriverEntry(
 {
     HANDLE              ServiceKey;
     HANDLE              ParametersKey;
-    HANDLE              StatusKey;
     ULONG               Index;
     NTSTATUS            status;
 
@@ -319,15 +344,6 @@ DriverEntry(
 
     __DriverSetParametersKey(ParametersKey);
 
-    status = RegistryCreateSubKey(ServiceKey,
-                                  "Status",
-                                  REG_OPTION_VOLATILE,
-                                  &StatusKey);
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
-    __DriverSetStatusKey(StatusKey);
-
     RegistryCloseKey(ServiceKey);
 
     DriverObject->DriverExtension->AddDevice = AddDevice;
@@ -341,13 +357,6 @@ DriverEntry(
     Trace("<====\n");
 
     return STATUS_SUCCESS;
-
-fail4:
-    Error("fail4\n");
-
-    __DriverSetParametersKey(NULL);
-
-    RegistryCloseKey(ParametersKey);
 
 fail3:
     Error("fail3\n");
