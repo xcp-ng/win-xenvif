@@ -36,6 +36,7 @@ ClassGUID={4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider=%Vendor%
 CatalogFile=xenvif.cat
 DriverVer=01/01/1900,0.0.0.0
+DriverPackageDisplayName=%DiskDesc%
 
 [DestinationDirs] 
 DefaultDestDir=12 
@@ -71,7 +72,8 @@ xenvif.sys
 [XenVif_Inst.Services] 
 AddService=xenvif,0x02,XenVif_Service,
 
-[XenVif_Service] 
+[XenVif_Service]
+DisplayName=%XenVifDesc%
 ServiceType=%SERVICE_KERNEL_DRIVER% 
 StartType=%SERVICE_DEMAND_START% 
 ErrorControl=%SERVICE_ERROR_NORMAL% 
