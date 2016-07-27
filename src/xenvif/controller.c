@@ -797,8 +797,10 @@ ControllerDisconnect(
 
     __ControllerAcquireLock(Controller);
 
-    if (!Controller->Connected)
+    if (!Controller->Connected) {
+        __ControllerReleaseLock(Controller);
         goto done;
+    }
 
     Controller->Connected = FALSE;
 
@@ -837,6 +839,7 @@ ControllerDisconnect(
                   Controller->GnttabCache);
     Controller->GnttabCache = NULL;
 
+done:
     XENBUS_GNTTAB(Release, &Controller->GnttabInterface);
 
     XENBUS_EVTCHN(Release, &Controller->EvtchnInterface);
@@ -845,7 +848,6 @@ ControllerDisconnect(
 
     XENBUS_DEBUG(Release, &Controller->DebugInterface);
 
-done:
     Trace("<====\n");
 }
 
