@@ -1808,16 +1808,16 @@ FrontendIsSplit(
 
 static FORCEINLINE NTSTATUS
 __FrontendUpdateHash(
-    IN  PXENVIF_FRONTEND                Frontend
+    PXENVIF_FRONTEND        Frontend,
+    PXENVIF_FRONTEND_HASH   Hash
     )
 {
-    PXENVIF_FRONTEND_HASH               Hash = &Frontend->Hash;
-    PXENVIF_CONTROLLER                  Controller;
-    ULONG                               Zero = 0;
-    ULONG                               Size;
-    PULONG                              Mapping;
-    ULONG                               Flags;
-    NTSTATUS                            status;
+    PXENVIF_CONTROLLER      Controller;
+    ULONG                   Zero = 0;
+    ULONG                   Size;
+    PULONG                  Mapping;
+    ULONG                   Flags;
+    NTSTATUS                status;
 
     Controller = __FrontendGetController(Frontend);
 
@@ -1884,34 +1884,16 @@ fail1:
 }
 
 NTSTATUS
-FrontendUpdateHash(
-    IN  PXENVIF_FRONTEND                Frontend
-    )
-{
-    KIRQL                               Irql;
-    NTSTATUS                            status;
-
-    KeAcquireSpinLock(&Frontend->Lock, &Irql);
-    status = __FrontendUpdateHash(Frontend);
-    KeReleaseSpinLock(&Frontend->Lock, Irql);
-
-    return status;
-}
-
-NTSTATUS
 FrontendSetHashAlgorithm(
     IN  PXENVIF_FRONTEND                Frontend,
     IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
     )
 {
-    PXENVIF_FRONTEND_HASH               Hash = &Frontend->Hash;
+    XENVIF_FRONTEND_HASH                Hash;
     KIRQL                               Irql;
     NTSTATUS                            status;
 
     KeAcquireSpinLock(&Frontend->Lock, &Irql);
-
-    if (Algorithm == Hash->Algorithm)
-        goto done;
 
     switch (Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
@@ -1934,12 +1916,22 @@ FrontendSetHashAlgorithm(
          (Algorithm == XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ) ? "TOEPLITZ" :
          "");
 
-    Hash->Algorithm = Algorithm;
+    Hash = Frontend->Hash;
 
-done:
+    Hash.Algorithm = Algorithm;
+
+    status = __FrontendUpdateHash(Frontend, &Hash);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    Frontend->Hash = Hash;
+
     KeReleaseSpinLock(&Frontend->Lock, Irql);
 
     return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n");
@@ -1995,7 +1987,7 @@ FrontendSetHashMapping(
     IN  ULONG               Size
     )
 {
-    PXENVIF_FRONTEND_HASH   Hash = &Frontend->Hash;
+    XENVIF_FRONTEND_HASH    Hash;
     KIRQL                   Irql;
     NTSTATUS                status;
 
@@ -2005,12 +1997,23 @@ FrontendSetHashMapping(
     if (Size > XENVIF_FRONTEND_MAXIMUM_HASH_MAPPING_SIZE)
         goto fail1;
 
-    RtlCopyMemory(Hash->Mapping, Mapping, sizeof (ULONG) * Size);
-    Hash->Size = Size;
+    Hash = Frontend->Hash;
+
+    RtlCopyMemory(Hash.Mapping, Mapping, sizeof (ULONG) * Size);
+    Hash.Size = Size;
+
+    status = __FrontendUpdateHash(Frontend, &Hash);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    Frontend->Hash = Hash;
 
     KeReleaseSpinLock(&Frontend->Lock, Irql);
 
     return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -2026,16 +2029,32 @@ FrontendSetHashKey(
     IN  PUCHAR              Key
     )
 {
-    PXENVIF_FRONTEND_HASH   Hash = &Frontend->Hash;
+    XENVIF_FRONTEND_HASH    Hash;
     KIRQL                   Irql;
+    NTSTATUS                status;
 
     KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
-    RtlCopyMemory(Hash->Key, Key, XENVIF_VIF_HASH_KEY_SIZE);
+    Hash = Frontend->Hash;
+
+    RtlCopyMemory(Hash.Key, Key, XENVIF_VIF_HASH_KEY_SIZE);
+
+    status = __FrontendUpdateHash(Frontend, &Hash);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    Frontend->Hash = Hash;
 
     KeReleaseSpinLock(&Frontend->Lock, Irql);
 
     return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    return status;
 }
 
 NTSTATUS
@@ -2044,11 +2063,14 @@ FrontendSetHashTypes(
     IN  ULONG               Types
     )
 {
-    PXENVIF_FRONTEND_HASH   Hash = &Frontend->Hash;
+    XENVIF_FRONTEND_HASH    Hash;
     KIRQL                   Irql;
     ULONG                   Flags;
+    NTSTATUS                status;
 
     KeAcquireSpinLock(&Frontend->Lock, &Irql);
+
+    Hash = Frontend->Hash;
 
     Flags = 0;
     if (Types & (1 << XENVIF_PACKET_HASH_TYPE_IPV4))
@@ -2060,11 +2082,24 @@ FrontendSetHashTypes(
     if (Types & (1 << XENVIF_PACKET_HASH_TYPE_IPV6_TCP))
         Flags |= XEN_NETIF_CTRL_HASH_TYPE_IPV6_TCP;
 
-    Hash->Flags = Flags;
+    Hash.Flags = Flags;
+
+    status = __FrontendUpdateHash(Frontend, &Hash);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    Frontend->Hash = Hash;
 
     KeReleaseSpinLock(&Frontend->Lock, Irql);
 
     return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    return status;
 }
 
 ULONG
@@ -2073,17 +2108,16 @@ FrontendGetQueue(
     IN  ULONG               Value
     )
 {
-    PXENVIF_FRONTEND_HASH   Hash = &Frontend->Hash;
     ULONG                   Queue;
 
-    switch (Hash->Algorithm) {
+    switch (Frontend->Hash.Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
     case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
         Queue = Value % __FrontendGetNumQueues(Frontend);
         break;
 
     case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
-        Queue = Hash->Mapping[Value % Hash->Size];
+        Queue = Frontend->Hash.Mapping[Value % Frontend->Hash.Size];
         break;
 
     default:
@@ -2226,6 +2260,7 @@ abort:
             break;
 
         case XenbusStateConnected:
+        case XenbusStateClosed:
             break;
 
         default:
@@ -2350,7 +2385,7 @@ FrontendEnable(
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    status = __FrontendUpdateHash(Frontend);
+    status = __FrontendUpdateHash(Frontend, &Frontend->Hash);
     if (!NT_SUCCESS(status))
         goto fail4;
 

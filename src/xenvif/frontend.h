@@ -206,11 +206,6 @@ FrontendAdvertiseIpAddresses(
     );
 
 extern NTSTATUS
-FrontendUpdateHash(
-    IN  PXENVIF_FRONTEND    Frontend
-    );
-
-extern NTSTATUS
 FrontendSetHashAlgorithm(
     IN  PXENVIF_FRONTEND                Frontend,
     IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm

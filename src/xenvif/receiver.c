@@ -3621,14 +3621,7 @@ ReceiverSetHashAlgorithm(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = FrontendUpdateHash(Frontend);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
     return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -3697,10 +3690,6 @@ ReceiverUpdateHashParameters(
 
     status = FrontendSetHashKey(Frontend, Key);
     if (!NT_SUCCESS(status))
-        goto fail1;
-
-    status = FrontendUpdateHash(Frontend);
-    if (!NT_SUCCESS(status))
         goto fail2;
 
     return STATUS_SUCCESS;
@@ -3749,16 +3738,9 @@ ReceiverUpdateHashMapping(
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    status = FrontendUpdateHash(Frontend);
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
     __ReceiverFree(QueueMapping);
 
     return STATUS_SUCCESS;
-
-fail4:
-    Error("fail4\n");
 
 fail3:
     Error("fail3\n");

@@ -73,7 +73,6 @@ struct _XENVIF_CONTROLLER {
     ULONG                               Dpcs;
     ULONG                               Events;
     BOOLEAN                             Connected;
-    BOOLEAN                             Enabled;
     USHORT                              RequestId;
     struct xen_netif_ctrl_request       Request;
     struct xen_netif_ctrl_response      Response;
@@ -193,9 +192,13 @@ ControllerPutRequest(
     BOOLEAN                         Notify;
     NTSTATUS                        status;
 
+    status = STATUS_NOT_SUPPORTED;
+    if (!Controller->Connected)
+        goto fail1;
+
     status = STATUS_INSUFFICIENT_RESOURCES;
     if (RING_FULL(&Controller->Front))
-        goto fail1;
+        goto fail2;
 
     Controller->Request.type = Type;
     Controller->Request.id = Controller->RequestId++;
@@ -226,6 +229,9 @@ ControllerPutRequest(
         __ControllerSend(Controller);
 
     return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -340,11 +346,11 @@ ControllerWatchdog(
         KeRaiseIrql(DISPATCH_LEVEL, &Irql);
         __ControllerAcquireLock(Controller);
 
-        if (Controller->Enabled) {
+        if (Controller->Connected) {
             KeMemoryBarrier();
 
             if (Controller->Shared->rsp_prod != rsp_prod &&
-                 Controller->Front.rsp_cons == rsp_cons) {
+                Controller->Front.rsp_cons == rsp_cons) {
                 XENBUS_DEBUG(Trigger,
                              &Controller->DebugInterface,
                              Controller->DebugCallback);
@@ -392,7 +398,7 @@ ControllerDpc(
 
     __ControllerAcquireLock(Controller);
 
-    if (Controller->Enabled)
+    if (Controller->Connected)
         ControllerPoll(Controller);
 
     __ControllerReleaseLock(Controller);
@@ -767,15 +773,9 @@ ControllerEnable(
     IN  PXENVIF_CONTROLLER      Controller
     )
 {
-    Trace("====>\n");
+    UNREFERENCED_PARAMETER(Controller);
 
-    __ControllerAcquireLock(Controller);
-
-    Controller->Enabled = TRUE;
-
-    __ControllerReleaseLock(Controller);
-
-    Trace("<====\n");
+    Trace("<===>\n");
 }
 
 VOID
@@ -783,15 +783,9 @@ ControllerDisable(
     IN  PXENVIF_CONTROLLER      Controller
     )
 {
-    Trace("====>\n");
+    UNREFERENCED_PARAMETER(Controller);
 
-    __ControllerAcquireLock(Controller);
-
-    Controller->Enabled = FALSE;
-
-    __ControllerReleaseLock(Controller);
-
-    Trace("<====\n");
+    Trace("<===>\n");
 }
 
 VOID
@@ -906,28 +900,21 @@ ControllerSetHashAlgorithm(
 
     __ControllerAcquireLock(Controller);
 
-    status = STATUS_NOT_SUPPORTED;
-    if (!Controller->Connected)
-        goto fail1;
-
     status = ControllerPutRequest(Controller,
                                   XEN_NETIF_CTRL_TYPE_SET_HASH_ALGORITHM,
                                   Algorithm,
                                   0,
                                   0);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail1;
 
     status = ControllerGetResponse(Controller, NULL);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail2;
 
     __ControllerReleaseLock(Controller);
 
     return STATUS_SUCCESS;
-
-fail3:
-    Error("fail3\n");
 
 fail2:
     Error("fail2\n");
@@ -953,28 +940,21 @@ ControllerGetHashFlags(
 
     __ControllerAcquireLock(Controller);
 
-    status = STATUS_NOT_SUPPORTED;
-    if (!Controller->Enabled)
-        goto fail1;
-
     status = ControllerPutRequest(Controller,
                                   XEN_NETIF_CTRL_TYPE_GET_HASH_FLAGS,
                                   0,
                                   0,
                                   0);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail1;
 
     status = ControllerGetResponse(Controller, Flags);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail2;
 
     __ControllerReleaseLock(Controller);
 
     return STATUS_SUCCESS;
-
-fail3:
-    Error("fail3\n");
 
 fail2:
     Error("fail2\n");
@@ -1000,28 +980,21 @@ ControllerSetHashFlags(
 
     __ControllerAcquireLock(Controller);
 
-    status = STATUS_NOT_SUPPORTED;
-    if (!Controller->Connected)
-        goto fail1;
-
     status = ControllerPutRequest(Controller,
                                   XEN_NETIF_CTRL_TYPE_SET_HASH_FLAGS,
                                   Flags,
                                   0,
                                   0);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail1;
 
     status = ControllerGetResponse(Controller, NULL);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail2;
 
     __ControllerReleaseLock(Controller);
 
     return STATUS_SUCCESS;
-
-fail3:
-    Error("fail3\n");
 
 fail2:
     Error("fail2\n");
@@ -1052,15 +1025,11 @@ ControllerSetHashKey(
 
     __ControllerAcquireLock(Controller);
 
-    status = STATUS_NOT_SUPPORTED;
-    if (!Controller->Enabled)
-        goto fail1;
-
     Mdl = __AllocatePage();
 
     status = STATUS_NO_MEMORY;
     if (Controller->Mdl == NULL)
-        goto fail2;
+        goto fail1;
 
     Buffer = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
     ASSERT(Buffer != NULL);
@@ -1078,7 +1047,7 @@ ControllerSetHashKey(
                            FALSE,
                            &Entry);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail2;
 
     status = ControllerPutRequest(Controller,
                                   XEN_NETIF_CTRL_TYPE_SET_HASH_KEY,
@@ -1088,11 +1057,11 @@ ControllerSetHashKey(
                                   Size,
                                   0);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail3;
 
     status = ControllerGetResponse(Controller, NULL);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail4;
 
     (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
                          &Controller->GnttabInterface,
@@ -1106,11 +1075,11 @@ ControllerSetHashKey(
 
     return STATUS_SUCCESS;
 
-fail5:
-    Error("fail5\n");
-
 fail4:
     Error("fail4\n");
+
+fail3:
+    Error("fail3\n");
 
     (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
                          &Controller->GnttabInterface,
@@ -1118,13 +1087,10 @@ fail4:
                          TRUE,
                          Entry);
 
-fail3:
-    Error("fail3\n");
-
-    __FreePage(Mdl);
-
 fail2:
     Error("fail2\n");
+
+    __FreePage(Mdl);
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -1147,28 +1113,21 @@ ControllerGetHashMappingSize(
 
     __ControllerAcquireLock(Controller);
 
-    status = STATUS_NOT_SUPPORTED;
-    if (!Controller->Enabled)
-        goto fail1;
-
     status = ControllerPutRequest(Controller,
                                   XEN_NETIF_CTRL_TYPE_GET_HASH_MAPPING_SIZE,
                                   0,
                                   0,
                                   0);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail1;
 
     status = ControllerGetResponse(Controller, Size);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail2;
 
     __ControllerReleaseLock(Controller);
 
     return STATUS_SUCCESS;
-
-fail3:
-    Error("fail3\n");
 
 fail2:
     Error("fail2\n");
@@ -1194,28 +1153,21 @@ ControllerSetHashMappingSize(
 
     __ControllerAcquireLock(Controller);
 
-    status = STATUS_NOT_SUPPORTED;
-    if (!Controller->Enabled)
-        goto fail1;
-
     status = ControllerPutRequest(Controller,
                                   XEN_NETIF_CTRL_TYPE_SET_HASH_MAPPING_SIZE,
                                   Size,
                                   0,
                                   0);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail1;
 
     status = ControllerGetResponse(Controller, NULL);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail2;
 
     __ControllerReleaseLock(Controller);
 
     return STATUS_SUCCESS;
-
-fail3:
-    Error("fail3\n");
 
 fail2:
     Error("fail2\n");
@@ -1247,19 +1199,15 @@ ControllerSetHashMapping(
 
     __ControllerAcquireLock(Controller);
 
-    status = STATUS_NOT_SUPPORTED;
-    if (!Controller->Enabled)
-        goto fail1;
-
     status = STATUS_INVALID_PARAMETER;
     if (Size * sizeof (ULONG) > PAGE_SIZE)
-        goto fail2;
+        goto fail1;
 
     Mdl = __AllocatePage();
 
     status = STATUS_NO_MEMORY;
     if (Controller->Mdl == NULL)
-        goto fail3;
+        goto fail2;
 
     Buffer = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
     ASSERT(Buffer != NULL);
@@ -1277,7 +1225,7 @@ ControllerSetHashMapping(
                            FALSE,
                            &Entry);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail3;
 
     status = ControllerPutRequest(Controller,
                                   XEN_NETIF_CTRL_TYPE_SET_HASH_MAPPING,
@@ -1287,11 +1235,11 @@ ControllerSetHashMapping(
                                   Size,
                                   Offset);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail4;
 
     status = ControllerGetResponse(Controller, NULL);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail5;
 
     (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
                          &Controller->GnttabInterface,
@@ -1305,11 +1253,11 @@ ControllerSetHashMapping(
 
     return STATUS_SUCCESS;
 
-fail6:
-    Error("fail6\n");
-
 fail5:
     Error("fail5\n");
+
+fail4:
+    Error("fail4\n");
 
     (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
                          &Controller->GnttabInterface,
@@ -1317,13 +1265,10 @@ fail5:
                          TRUE,
                          Entry);
 
-fail4:
-    Error("fail4\n");
-
-    __FreePage(Mdl);
-
 fail3:
     Error("fail3\n");
+
+    __FreePage(Mdl);
 
 fail2:
     Error("fail2\n");
