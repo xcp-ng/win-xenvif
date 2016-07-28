@@ -91,6 +91,7 @@ struct _XENVIF_PDO {
     PXENBUS_SUSPEND_CALLBACK    SuspendCallbackLate;
 
     XENBUS_UNPLUG_INTERFACE     UnplugInterface;
+    BOOLEAN                     UnplugRequested;
 
     PXENVIF_FRONTEND            Frontend;
 
@@ -1174,6 +1175,9 @@ PdoUnplugRequest(
 {
     NTSTATUS        status;
 
+    ASSERT3U(Pdo->UnplugRequested, !=, Make);
+    Pdo->UnplugRequested = Make;
+
     status = XENBUS_UNPLUG(Acquire, &Pdo->UnplugInterface);
     if (!NT_SUCCESS(status))
         return;
@@ -1203,8 +1207,6 @@ PdoStartDevice(
     status = STATUS_UNSUCCESSFUL;
     if (Pdo->HasAlias)
         goto fail1;
-
-    PdoUnplugRequest(Pdo, TRUE);
 
     if (DriverSafeMode())
         goto fail2;
@@ -1268,6 +1270,8 @@ PdoStartDevice(
 
         Pdo->HasAlias = TRUE;
 
+        PdoUnplugRequest(Pdo, TRUE);
+
         status = STATUS_UNSUCCESSFUL;
         goto fail9;
     }
@@ -1277,6 +1281,8 @@ PdoStartDevice(
     status = PdoD3ToD0(Pdo);
     if (!NT_SUCCESS(status))
         goto fail10;
+
+    PdoUnplugRequest(Pdo, TRUE);
 
     __PdoSetDevicePnpState(Pdo, Started);
 
@@ -1479,9 +1485,9 @@ PdoRemoveDevice(
     if (__PdoGetDevicePowerState(Pdo) != PowerDeviceD0)
         goto done;
 
-    PdoD0ToD3(Pdo);
-
     PdoUnplugRequest(Pdo, FALSE);
+
+    PdoD0ToD3(Pdo);
 
 done:
     RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
@@ -2777,6 +2783,7 @@ PdoDestroy(
     PDEVICE_OBJECT  PhysicalDeviceObject = Dx->DeviceObject;
     PXENVIF_FDO     Fdo = __PdoGetFdo(Pdo);
 
+    ASSERT(!Pdo->UnplugRequested);
     ASSERT3U(__PdoGetDevicePnpState(Pdo), ==, Deleted);
 
     Pdo->HasAlias = FALSE;
