@@ -1256,8 +1256,7 @@ FrontendSetXenbusState(
 
     ASSERT(FrontendIsOnline(Frontend));
 
-    Online = !PdoIsEjectRequested(__FrontendGetPdo(Frontend)) &&
-             FrontendIsBackendOnline(Frontend);
+    Online = FrontendIsBackendOnline(Frontend);
 
     (VOID) XENBUS_STORE(Printf,
                         &Frontend->StoreInterface,
