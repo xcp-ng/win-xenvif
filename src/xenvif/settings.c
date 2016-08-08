@@ -374,7 +374,7 @@ fail1:
 }
 
 static NTSTATUS
-SettingsGetAliasNetInstance(
+SettingsGetNetInstance(
     IN  LPGUID                                      NetCfgInstanceID,
     OUT PANSI_STRING                                SubKeyName
     )
@@ -411,7 +411,7 @@ SettingsGetAliasNetInstance(
     if (Parameters.SubKeyName.Length == 0)
         goto fail5;
 
-    Info("%Z\n", &Parameters.SubKeyName);
+    Trace("%Z\n", &Parameters.SubKeyName);
 
     *SubKeyName = Parameters.SubKeyName;
 
@@ -440,6 +440,199 @@ fail2:
     Error("fail2\n");
 
     RegistryCloseKey(NetKey);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+typedef struct _SETTINGS_MATCH_NUMBER_PARAMETERS {
+    ULONG       Number;
+    ANSI_STRING SubKeyName;
+} SETTINGS_MATCH_NUMBER_PARAMETERS, *PSETTINGS_MATCH_NUMBER_PARAMETERS;
+
+static NTSTATUS
+SettingsMatchNumber(
+    IN  PVOID                           Context,
+    IN  HANDLE                          Key,
+    IN  PANSI_STRING                    SubKeyName
+    )
+{
+    PSETTINGS_MATCH_NUMBER_PARAMETERS   Parameters = Context;
+    HANDLE                              SubKey;
+    ANSI_STRING                         Ansi;
+    ULONG                               Value;
+    NTSTATUS                            status;
+
+    Trace("====> (%Z)\n", SubKeyName);
+
+    if (Parameters->SubKeyName.Length != 0)
+        goto done;
+
+    RtlInitAnsiString(&Ansi, "Properties");
+
+    if (RtlCompareString(&Ansi, SubKeyName, TRUE) == 0)
+        goto done;
+
+    status = RegistryOpenSubKey(Key,
+                                SubKeyName->Buffer,
+                                KEY_READ,
+                                &SubKey);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = RegistryQueryDwordValue(SubKey,
+                                     "VIF",
+                                     &Value);
+    if (NT_SUCCESS(status) &&
+        Parameters->Number == Value) {
+        Parameters->SubKeyName.MaximumLength = SubKeyName->MaximumLength;
+        Parameters->SubKeyName.Buffer = __SettingsAllocate(Parameters->SubKeyName.MaximumLength);
+
+        status = STATUS_NO_MEMORY;
+        if (Parameters->SubKeyName.Buffer == NULL)
+            goto fail2;
+
+        RtlCopyMemory(Parameters->SubKeyName.Buffer,
+                      SubKeyName->Buffer,
+                      SubKeyName->Length);
+
+        Parameters->SubKeyName.Length = SubKeyName->Length;
+    }
+
+    RegistryCloseKey(SubKey);
+
+done:
+    Trace("<====\n");
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+    RegistryCloseKey(SubKey);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+static NTSTATUS
+SettingsGetAliasNetInstance(
+    IN  ULONG                          Number,
+    OUT PANSI_STRING                   SubKeyName
+    )
+{
+    HANDLE                             NetKey;
+    SETTINGS_MATCH_NUMBER_PARAMETERS   Parameters;
+    NTSTATUS                           status;
+
+    status = SettingsOpenNetKey(KEY_READ, &NetKey);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    RtlZeroMemory(&Parameters, sizeof (Parameters));
+
+    Parameters.Number = Number;
+
+    status = RegistryEnumerateSubKeys(NetKey,
+                                      SettingsMatchNumber,
+                                      &Parameters);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = STATUS_UNSUCCESSFUL;
+    if (Parameters.SubKeyName.Length == 0)
+        goto fail3;
+
+    Trace("%Z\n", &Parameters.SubKeyName);
+
+    *SubKeyName = Parameters.SubKeyName;
+
+    RegistryCloseKey(NetKey);
+
+    return STATUS_SUCCESS;
+
+fail3:
+    Error("fail3\n");
+
+fail2:
+    Error("fail2\n");
+
+    RegistryCloseKey(NetKey);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+NTSTATUS
+SettingsSetAlias(
+    IN  PWCHAR      Alias,
+    IN  PWCHAR      Description,
+    IN  LPGUID      NetCfgInstanceID,
+    IN  ULONG       Number
+    )
+{
+    ANSI_STRING     SubKeyName;
+    HANDLE          NetKey;
+    HANDLE          SubKey;
+    NTSTATUS        status;
+
+    Trace("====>\n");
+
+    Info("%ws (%ws)\n", Alias, Description);
+
+    status = SettingsGetNetInstance(NetCfgInstanceID,
+                                    &SubKeyName);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = SettingsOpenNetKey(KEY_READ,
+                                &NetKey);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = RegistryOpenSubKey(NetKey,
+                                SubKeyName.Buffer,
+                                KEY_READ,
+                                &SubKey);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    status = RegistryUpdateDwordValue(SubKey,
+                                      "VIF",
+                                      Number);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
+    RegistryCloseKey(SubKey);
+
+    RegistryCloseKey(NetKey);
+
+    __SettingsFree(SubKeyName.Buffer);
+
+    Trace("<====\n");
+
+    return STATUS_SUCCESS;
+
+fail4:
+    Error("fail4\n");
+
+    RegistryCloseKey(SubKey);
+
+fail3:
+    Error("fail3\n");
+
+    RegistryCloseKey(NetKey);
+
+fail2:
+    Error("fail2\n");
+
+    __SettingsFree(SubKeyName.Buffer);
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -494,73 +687,132 @@ fail1:
 }
 
 NTSTATUS
-SettingsStealIdentity(
-    IN HANDLE   SoftwareKey,
-    IN PWCHAR   Alias,
-    IN PWCHAR   Description,
-    IN LPGUID   NetCfgInstanceID
+SettingsStealAliasLinkage(
+    IN  HANDLE      SoftwareKey,
+    IN  ULONG       Number
     )
 {
-    ANSI_STRING SubKeyName;
-    HANDLE      NetKey;
-    HANDLE      SubKey;
-    NTSTATUS    status;
+    ANSI_STRING     SubKeyName;
+    HANDLE          BackupKey;
+    HANDLE          NetKey;
+    HANDLE          SubKey;
+    NTSTATUS        status;
 
-    Info("%ws (%ws)\n", Alias, Description);
+    Trace("====>\n");
 
-    status = SettingsGetAliasNetInstance(NetCfgInstanceID,
+    status = SettingsGetAliasNetInstance(Number,
                                          &SubKeyName);
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = RegistryUpdateSzValue(SoftwareKey,
-                                   "AliasNetInstance",
-                                   REG_SZ,
-                                   &SubKeyName);
+    Info("FROM %s\n", SubKeyName);
+
+    status = RegistryCreateSubKey(SoftwareKey,
+                                  "Backup",
+                                  REG_OPTION_NON_VOLATILE,
+                                  &BackupKey);
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    status = SettingsOpenNetKey(KEY_READ, &NetKey);
+    status = SettingsCopyLinkage(BackupKey,
+                                 SoftwareKey);
     if (!NT_SUCCESS(status))
         goto fail3;
+
+    status = SettingsOpenNetKey(KEY_READ,
+                                &NetKey);
+    if (!NT_SUCCESS(status))
+        goto fail4;
 
     status = RegistryOpenSubKey(NetKey,
                                 SubKeyName.Buffer,
                                 KEY_READ,
                                 &SubKey);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     status = SettingsCopyLinkage(SoftwareKey,
                                  SubKey);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     RegistryCloseKey(SubKey);
 
     RegistryCloseKey(NetKey);
 
+    RegistryCloseKey(BackupKey);
+
     __SettingsFree(SubKeyName.Buffer);
 
+    Trace("<====\n");
+
     return STATUS_SUCCESS;
+
+fail6:
+    Error("fail6\n");
+
+    RegistryCloseKey(SubKey);
 
 fail5:
     Error("fail5\n");
 
-    RegistryCloseKey(SubKey);
+    RegistryCloseKey(NetKey);
 
 fail4:
     Error("fail4\n");
 
-    RegistryCloseKey(NetKey);
-
 fail3:
     Error("fail3\n");
+
+    RegistryCloseKey(BackupKey);
+
+    (VOID) RegistryDeleteSubKey(SoftwareKey, "Backup");
 
 fail2:
     Error("fail2\n");
 
     __SettingsFree(SubKeyName.Buffer);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+NTSTATUS
+SettingsRestoreLinkage(
+    IN  HANDLE  SoftwareKey
+    )
+{
+    HANDLE      BackupKey;
+    NTSTATUS    status;
+
+    Trace("====>\n");
+
+    status = RegistryOpenSubKey(SoftwareKey,
+                                "Backup",
+                                KEY_READ,
+                                &BackupKey);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = SettingsCopyLinkage(SoftwareKey,
+                                 BackupKey);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    RegistryCloseKey(BackupKey);
+
+    (VOID) RegistryDeleteSubKey(SoftwareKey, "Backup");
+
+    Trace("<====\n");
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+    RegistryCloseKey(BackupKey);
 
 fail1:
     Error("fail1 (%08x)\n", status);

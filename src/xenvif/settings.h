@@ -33,11 +33,22 @@
 #define _XENVIF_SETTINGS_H
 
 extern NTSTATUS
-SettingsStealIdentity(
-     IN HANDLE      SoftwareKey,
-     IN PWCHAR      Alias,
-     IN PWCHAR      Description,
-     IN LPGUID      InterfaceGuid
+SettingsSetAlias(
+     IN PWCHAR  Alias,
+     IN PWCHAR  Description,
+     IN LPGUID  InterfaceGuid,
+     IN ULONG   Number
+     );
+
+extern NTSTATUS
+SettingsStealAliasLinkage(
+     IN HANDLE  SoftwareKey,
+     IN ULONG   Number
+     );
+
+extern NTSTATUS
+SettingsRestoreLinkage(
+     IN HANDLE  SoftwareKey
      );
 
 #endif  // _XENVIF_SETTINGS_H

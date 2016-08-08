@@ -498,15 +498,15 @@ FrontendProcessInterfaceTable(
         if (!Row->InterfaceAndOperStatusFlags.ConnectorPresent)
             continue;
 
-        if (Row->OperStatus != IfOperStatusUp)
-            continue;
-
         if (Row->PhysicalAddressLength != sizeof (ETHERNET_ADDRESS))
             continue;
 
         if (memcmp(Row->PermanentPhysicalAddress,
                    &PermanentPhysicalAddress,
                    sizeof (ETHERNET_ADDRESS)) != 0)
+            continue;
+
+        if (Row->OperStatus != IfOperStatusUp)
             continue;
 
         goto found;
