@@ -705,7 +705,7 @@ SettingsStealAliasLinkage(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    Info("FROM %s\n", SubKeyName);
+    Info("FROM %Z\n", &SubKeyName);
 
     status = RegistryCreateSubKey(SoftwareKey,
                                   "Backup",
