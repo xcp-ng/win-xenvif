@@ -31,6 +31,7 @@
 
 #include <ntddk.h>
 #include <procgrp.h>
+#include <ntstrsafe.h>
 #include <version.h>
 
 #include "registry.h"
@@ -116,55 +117,78 @@ DriverGetParametersKey(
     return __DriverGetParametersKey();
 }
 
-#define SERVICES_PATH "\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services"
-
-#define SERVICE_KEY(_Name) \
-        SERVICES_PATH ## "\\" ## #_Name
-
-#define REQUEST_KEY \
-        SERVICE_KEY(XENBUS_MONITOR) ## "\\Request"
+#define MAXNAMELEN  128
 
 static FORCEINLINE VOID
 __DriverRequestReboot(
     VOID
     )
 {
-    HANDLE      RequestKey;
-    ANSI_STRING Ansi[2];
-    NTSTATUS    status;
+    PANSI_STRING    Ansi;
+    CHAR            RequestKeyName[MAXNAMELEN];
+    HANDLE          RequestKey;
+    HANDLE          SubKey;
+    NTSTATUS        status;
 
     Info("====>\n");
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
-    status = RegistryOpenSubKey(NULL,
-                                REQUEST_KEY,
-                                KEY_ALL_ACCESS,
-                                &RequestKey);
+    status = RegistryQuerySzValue(__DriverGetParametersKey(),
+                                  "RequestKey",
+                                  NULL,
+                                  &Ansi);
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    RtlZeroMemory(Ansi, sizeof (Ansi));
+    status = RtlStringCbPrintfA(RequestKeyName,
+                                MAXNAMELEN,
+                                "\\Registry\\Machine\\%Z",
+                                &Ansi[0]);
+    ASSERT(NT_SUCCESS(status));
 
-    RtlInitAnsiString(&Ansi[0], "XENVIF");
-
-    status = RegistryUpdateSzValue(RequestKey,
-                                   "Reboot",
-                                   REG_SZ,
-                                   Ansi);
+    status = RegistryOpenSubKey(NULL,
+                                RequestKeyName,
+                                KEY_ALL_ACCESS,
+                                &RequestKey);
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    RegistryCloseKey(RequestKey);
+    status = RegistryCreateSubKey(RequestKey,
+                                  __MODULE__,
+                                  REG_OPTION_NON_VOLATILE,
+                                  &SubKey);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    status = RegistryUpdateDwordValue(SubKey,
+                                      "Reboot",
+                                      1);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
+    RegistryCloseKey(SubKey);
+
+    RegistryFreeSzValue(Ansi);
 
     Info("<====\n");
 
     return;
 
+fail4:
+    Error("fail4\n");
+
+    RegistryCloseKey(SubKey);
+
+fail3:
+    Error("fail3\n");
+
+    RegistryCloseKey(RequestKey);
+
 fail2:
     Error("fail2\n");
 
-    RegistryCloseKey(RequestKey);
+    RegistryFreeSzValue(Ansi);
 
 fail1:
     Error("fail1 (%08x)\n", status);

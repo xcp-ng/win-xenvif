@@ -73,22 +73,20 @@ xenvif.sys
 AddService=xenvif,0x02,XenVif_Service,
 
 [XenVif_Service]
-DisplayName=%XenVifDesc%
+DisplayName=%XenVifName%
 ServiceType=%SERVICE_KERNEL_DRIVER% 
 StartType=%SERVICE_DEMAND_START% 
 ErrorControl=%SERVICE_ERROR_NORMAL% 
 ServiceBinary=%12%\xenvif.sys 
 LoadOrderGroup="NDIS"
-AddReg = XenVif_BootFlags, XenVif_Parameters, XenVif_Interfaces
+AddReg = XenVif_BootFlags, XenVif_Parameters
 
 [XenVif_BootFlags]
 HKR,,"BootFlags",0x00010003,0x81
 
 [XenVif_Parameters]
 HKR,"Parameters",,0x00000010
-
-[XenVif_Interfaces]
-HKR,"Interfaces",,0x00000010
+HKR,"Parameters","RequestKey",0x00000000,%RequestKey%
 
 [XenVif_Inst.CoInstallers]
 CopyFiles=CoInst_CopyFiles
@@ -101,7 +99,8 @@ HKR,,CoInstallers32,0x00010000,"xenvif_coinst_@MAJOR_VERSION@_@MINOR_VERSION@_@M
 
 Vendor="@VENDOR_NAME@"
 DiskDesc="@PRODUCT_NAME@ PV Network Class Package"
-XenVifDesc="@PRODUCT_NAME@ PV Network Class"
+XenVifName="@PRODUCT_NAME@ PV Network Class"
+RequestKey="SOFTWARE\@VENDOR_NAME@\@PRODUCT_NAME@\PV Driver Monitor\Request"
 
 SERVICE_BOOT_START=0x0 
 SERVICE_SYSTEM_START=0x1 
