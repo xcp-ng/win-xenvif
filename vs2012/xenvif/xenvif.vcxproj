@@ -77,7 +77,6 @@
     <ClCompile Include="../../src/xenvif/pdo.c" />
     <ClCompile Include="../../src/xenvif/receiver.c" />
     <ClCompile Include="../../src/xenvif/registry.c" />
-    <ClCompile Include="../../src/xenvif/settings.c" />
     <ClCompile Include="../../src/xenvif/thread.c" />
     <ClCompile Include="../../src/xenvif/transmitter.c" />
     <ClCompile Include="../../src/xenvif/controller.c" />

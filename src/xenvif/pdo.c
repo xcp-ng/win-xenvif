@@ -53,7 +53,6 @@
 #include "registry.h"
 #include "thread.h"
 #include "link.h"
-#include "settings.h"
 #include "dbg_print.h"
 #include "assert.h"
 #include "util.h"
@@ -98,9 +97,7 @@ struct _XENVIF_PDO {
     PXENVIF_VIF_CONTEXT         VifContext;
     XENVIF_VIF_INTERFACE        VifInterface;
 
-    ULONG                       Number;
     BOOLEAN                     HasAlias;
-    BOOLEAN                     HasStolenLinkage;
 };
 
 static FORCEINLINE PVOID
@@ -298,23 +295,6 @@ PdoGetName(
     )
 {
     return __PdoGetName(Pdo);
-}
-
-static FORCEINLINE VOID
-__PdoSetNumber(
-    IN  PXENVIF_PDO Pdo,
-    IN  ULONG       Number
-    )
-{
-    Pdo->Number = Number;
-}
-
-static FORCEINLINE ULONG
-__PdoGetNumber(
-    IN  PXENVIF_PDO Pdo
-    )
-{
-    return Pdo->Number;
 }
 
 static FORCEINLINE BOOLEAN
@@ -1287,11 +1267,6 @@ PdoStartDevice(
         if (Row->OperStatus != IfOperStatusUp)
             continue;
 
-        (VOID) SettingsSetAlias(Row->Alias,
-                                Row->Description,
-                                &Row->InterfaceGuid,
-                                __PdoGetNumber(Pdo));
-
         Pdo->HasAlias = TRUE;
     }
 
@@ -1301,10 +1276,6 @@ PdoStartDevice(
         status = STATUS_UNSUCCESSFUL;
         goto fail9;
     }
-
-    status = SettingsStealAliasLinkage(__PdoGetSoftwareKey(Pdo),
-                                       __PdoGetNumber(Pdo));
-    Pdo->HasStolenLinkage = (NT_SUCCESS(status)) ? TRUE : FALSE;
 
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
 
@@ -1325,11 +1296,6 @@ PdoStartDevice(
 
 fail10:
     Error("fail10\n");
-
-    if (Pdo->HasStolenLinkage) {
-        (VOID) SettingsRestoreLinkage(__PdoGetSoftwareKey(Pdo));
-        Pdo->HasStolenLinkage = FALSE;
-    }
 
     __FreeMibTable(Table);
 
@@ -1428,11 +1394,6 @@ PdoStopDevice(
 
     PdoD0ToD3(Pdo);
 
-    if (Pdo->HasStolenLinkage) {
-        (VOID) SettingsRestoreLinkage(__PdoGetSoftwareKey(Pdo));
-        Pdo->HasStolenLinkage = FALSE;
-    }
-
 done:
     RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
 
@@ -1523,11 +1484,6 @@ PdoRemoveDevice(
     PdoUnplugRequest(Pdo, FALSE);
 
     PdoD0ToD3(Pdo);
-
-    if (Pdo->HasStolenLinkage) {
-        (VOID) SettingsRestoreLinkage(__PdoGetSoftwareKey(Pdo));
-        Pdo->HasStolenLinkage = FALSE;
-    }
 
 done:
     RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
@@ -2694,7 +2650,6 @@ PdoCreate(
         goto fail4;
 
     __PdoSetName(Pdo, Number);
-    __PdoSetNumber(Pdo, Number);
 
     status = __PdoSetPermanentAddress(Pdo, Address);
     if (!NT_SUCCESS(status))
@@ -2798,8 +2753,6 @@ fail4:
 fail3:
     Error("fail3\n");
 
-    Pdo->Number = 0;
-
     Pdo->Fdo = NULL;
     Pdo->Dx = NULL;
 
@@ -2873,8 +2826,6 @@ PdoDestroy(
     ThreadAlert(Pdo->SystemPowerThread);
     ThreadJoin(Pdo->SystemPowerThread);
     Pdo->SystemPowerThread = NULL;
-
-    Pdo->Number = 0;
 
     Pdo->Fdo = NULL;
     Pdo->Dx = NULL;
