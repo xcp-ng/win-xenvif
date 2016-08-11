@@ -47,6 +47,11 @@ DriverGetParametersKey(
     VOID
     );
 
+extern HANDLE
+DriverGetAddressesKey(
+    VOID
+    );
+
 extern VOID
 DriverRequestReboot(
     VOID

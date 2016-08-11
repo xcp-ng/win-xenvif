@@ -730,15 +730,29 @@ __PdoSetPermanentAddress(
     IN  PCHAR       Buffer
     )
 {
+    ANSI_STRING     Ansi[2];
     NTSTATUS        status;
 
     status = __PdoParseAddress(Buffer, &Pdo->PermanentAddress);
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    Info("%s: %s\n", __PdoGetName(Pdo), Buffer);
+    RtlZeroMemory(Ansi, sizeof (ANSI_STRING) * 2);
+    RtlInitAnsiString(&Ansi[0], Buffer);
+
+    status = RegistryUpdateSzValue(DriverGetAddressesKey(),
+                                   __PdoGetName(Pdo),
+                                   REG_SZ,
+                                   Ansi);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    Info("%s: %Z\n", __PdoGetName(Pdo), &Ansi[0]);
 
     return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -760,6 +774,17 @@ PdoGetPermanentAddress(
     )
 {
     return __PdoGetPermanentAddress(Pdo);
+}
+
+static FORCEINLINE VOID
+__PdoClearPermanentAddress(
+    IN  PXENVIF_PDO Pdo
+    )
+{
+    (VOID) RegistryDeleteValue(DriverGetAddressesKey(),
+                               __PdoGetName(Pdo));
+
+    RtlZeroMemory(&Pdo->PermanentAddress, sizeof (ETHERNET_ADDRESS));
 }
 
 static FORCEINLINE NTSTATUS
@@ -827,7 +852,7 @@ PdoSetFriendlyName(
 {
     PANSI_STRING    DriverDesc;
     CHAR            Buffer[MAXNAMELEN];
-    ANSI_STRING     FriendlyName[2];
+    ANSI_STRING     Ansi[2];
     NTSTATUS        status;
 
     status = RegistryQuerySzValue(__PdoGetSoftwareKey(Pdo),
@@ -846,17 +871,17 @@ PdoSetFriendlyName(
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    RtlZeroMemory(FriendlyName, sizeof (ANSI_STRING) * 2);
-    RtlInitAnsiString(&FriendlyName[0], Buffer);
+    RtlZeroMemory(Ansi, sizeof (ANSI_STRING) * 2);
+    RtlInitAnsiString(&Ansi[0], Buffer);
 
     status = RegistryUpdateSzValue(__PdoGetHardwareKey(Pdo),
                                    "FriendlyName",
                                    REG_SZ,
-                                   FriendlyName);
+                                   Ansi);
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    Info("%Z\n", &FriendlyName[0]);
+    Info("%s: %Z\n", __PdoGetName(Pdo), &Ansi[0]);
 
     RegistryFreeSzValue(DriverDesc);
 
@@ -2734,7 +2759,7 @@ fail7:
 fail6:
     Error("fail6\n");
 
-    RtlZeroMemory(&Pdo->PermanentAddress, sizeof (ETHERNET_ADDRESS));
+    __PdoClearPermanentAddress(Pdo);
 
 fail5:
     Error("fail5\n");
@@ -2817,7 +2842,7 @@ PdoDestroy(
     RtlFreeUnicodeString(&Pdo->ContainerID);
     RtlZeroMemory(&Pdo->ContainerID, sizeof (UNICODE_STRING));
 
-    RtlZeroMemory(&Pdo->PermanentAddress, sizeof (ETHERNET_ADDRESS));
+    __PdoClearPermanentAddress(Pdo);
 
     ThreadAlert(Pdo->DevicePowerThread);
     ThreadJoin(Pdo->DevicePowerThread);
