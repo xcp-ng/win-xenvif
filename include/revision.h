@@ -45,7 +45,8 @@
     DEFINE_REVISION(0x08000004,  1,  3,  2,  1),    \
     DEFINE_REVISION(0x08000006,  1,  4,  2,  1),    \
     DEFINE_REVISION(0x08000009,  1,  5,  2,  1),    \
-    DEFINE_REVISION(0x0800000B,  1,  6,  2,  1)
+    DEFINE_REVISION(0x0800000B,  1,  6,  2,  1),    \
+    DEFINE_REVISION(0x0800000C,  1,  7,  2,  1)
 
 // Revision 0x08000005, 0x08000007, 0x08000008 and 0x0800000A are already
 // in use in the staging-8.1 branch.

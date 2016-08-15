@@ -79,6 +79,7 @@ VifReceiverQueuePacket(
     IN  USHORT                          TagControlInformation,
     IN  PXENVIF_PACKET_INFO             Info,
     IN  PXENVIF_PACKET_HASH             Hash,
+    IN  BOOLEAN                         More,
     IN  PVOID                           Cookie
     );
 

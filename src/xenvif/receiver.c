@@ -1444,6 +1444,7 @@ __ReceiverRingReleaseLock(
                                Packet->TagControlInformation,
                                &Packet->Info,
                                &Packet->Hash,
+                               !IsListEmpty(&List),
                                Packet);
     }
 

@@ -3983,7 +3983,8 @@ __TransmitterRingTeardown(
 static FORCEINLINE VOID
 __TransmitterRingQueuePacket(
     IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PXENVIF_TRANSMITTER_PACKET  Packet
+    IN  PXENVIF_TRANSMITTER_PACKET  Packet,
+    IN  BOOLEAN                     More
     )
 {
     PLIST_ENTRY                     ListEntry;
@@ -4007,6 +4008,9 @@ __TransmitterRingQueuePacket(
     // after adding to the list we need to attempt to grab and release the lock. If we can't
     // grab it then that's ok because whichever thread is holding it will have to call
     // __TransmitterRingReleaseLock() and will therefore drain the atomic packet list.
+
+    if (More)
+        return;
 
     if (__TransmitterRingTryAcquireLock(Ring))
         __TransmitterRingReleaseLock(Ring);
@@ -4895,6 +4899,7 @@ TransmitterQueuePacket(
     IN  USHORT                      MaximumSegmentSize,
     IN  USHORT                      TagControlInformation,
     IN  PXENVIF_PACKET_HASH         Hash,
+    IN  BOOLEAN                     More,
     IN  PVOID                       Cookie
     )
 {
@@ -4939,9 +4944,14 @@ TransmitterQueuePacket(
     switch (Hash->Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
         Value = __TransmitterHashPacket(Packet);
+        More = FALSE;
         break;
 
     case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
+        Value = Hash->Value;
+        More = FALSE;
+        break;
+
     case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
         Value = Hash->Value;
         break;
@@ -4955,7 +4965,7 @@ TransmitterQueuePacket(
     Index = FrontendGetQueue(Frontend, Value);
     Ring = Transmitter->Ring[Index];
 
-    __TransmitterRingQueuePacket(Ring, Packet);
+    __TransmitterRingQueuePacket(Ring, Packet, More);
 
     return STATUS_SUCCESS;
 
