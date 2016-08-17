@@ -142,7 +142,7 @@ DriverGetAddressesKey(
     return __DriverGetAddressesKey();
 }
 
-#define MAXNAMELEN  1024
+#define MAXNAMELEN  256
 
 static FORCEINLINE VOID
 __DriverRequestReboot(
