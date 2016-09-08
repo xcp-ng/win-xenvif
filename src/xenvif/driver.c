@@ -47,6 +47,7 @@ typedef struct _XENVIF_DRIVER {
     PDRIVER_OBJECT      DriverObject;
     HANDLE              ParametersKey;
     HANDLE              AddressesKey;
+    HANDLE              SettingsKey;
     BOOLEAN             NeedReboot;
 } XENVIF_DRIVER, *PXENVIF_DRIVER;
 
@@ -140,6 +141,30 @@ DriverGetAddressesKey(
     )
 {
     return __DriverGetAddressesKey();
+}
+
+static FORCEINLINE VOID
+__DriverSetSettingsKey(
+    IN  HANDLE  Key
+    )
+{
+    Driver.SettingsKey = Key;
+}
+
+static FORCEINLINE HANDLE
+__DriverGetSettingsKey(
+    VOID
+    )
+{
+    return Driver.SettingsKey;
+}
+
+HANDLE
+DriverGetSettingsKey(
+    VOID
+    )
+{
+    return __DriverGetSettingsKey();
 }
 
 #define MAXNAMELEN  256
@@ -239,6 +264,7 @@ DriverUnload(
     IN  PDRIVER_OBJECT  DriverObject
     )
 {
+    HANDLE              SettingsKey;
     HANDLE              AddressesKey;
     HANDLE              ParametersKey;
 
@@ -247,6 +273,11 @@ DriverUnload(
     Trace("====>\n");
 
     Driver.NeedReboot = FALSE;
+
+    SettingsKey = __DriverGetSettingsKey();
+    __DriverSetSettingsKey(NULL);
+
+    RegistryCloseKey(SettingsKey);
 
     AddressesKey = __DriverGetAddressesKey();
     __DriverSetAddressesKey(NULL);
@@ -360,6 +391,7 @@ DriverEntry(
     HANDLE              ServiceKey;
     HANDLE              ParametersKey;
     HANDLE              AddressesKey;
+    HANDLE              SettingsKey;
     ULONG               Index;
     NTSTATUS            status;
 
@@ -409,6 +441,15 @@ DriverEntry(
 
     __DriverSetAddressesKey(AddressesKey);
 
+    status = RegistryCreateSubKey(ServiceKey,
+                                  "Settings",
+                                  REG_OPTION_NON_VOLATILE,
+                                  &SettingsKey);
+    if (!NT_SUCCESS(status))
+        goto fail5;
+
+    __DriverSetSettingsKey(SettingsKey);
+
     RegistryCloseKey(ServiceKey);
 
     DriverObject->DriverExtension->AddDevice = AddDevice;
@@ -422,6 +463,13 @@ DriverEntry(
     Trace("<====\n");
 
     return STATUS_SUCCESS;
+
+fail5:
+    Error("fail5\n");
+
+    __DriverSetAddressesKey(NULL);
+
+    RegistryCloseKey(AddressesKey);
 
 fail4:
     Error("fail4\n");

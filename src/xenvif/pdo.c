@@ -1220,6 +1220,7 @@ PdoStartDevice(
     PIO_STACK_LOCATION  StackLocation;
     HANDLE              SoftwareKey;
     HANDLE              HardwareKey;
+    ULONG               HasSettings;
     GUID                Guid;
     NTSTATUS            status;
 
@@ -1274,11 +1275,12 @@ PdoStartDevice(
     for (Index = 0; Index < Table->NumEntries; Index++) {
         PMIB_IF_ROW2    Row = &Table->Table[Index];
 
-        if (!(Row->InterfaceAndOperStatusFlags.HardwareInterface) ||
-            !(Row->InterfaceAndOperStatusFlags.ConnectorPresent))
-            continue;
+        Trace("%s: CHECKING %ws (%ws)\n",
+              __PdoGetName(Pdo),
+              Row->Alias,
+              Row->Description);
 
-        if (Row->OperStatus != IfOperStatusUp)
+        if (!Row->InterfaceAndOperStatusFlags.ConnectorPresent)
             continue;
 
         if (Row->PhysicalAddressLength != sizeof (ETHERNET_ADDRESS))
@@ -1289,7 +1291,10 @@ PdoStartDevice(
                    sizeof (ETHERNET_ADDRESS)) != 0)
             continue;
 
-        (VOID) SettingsSave(SoftwareKey,
+        if (Row->OperStatus != IfOperStatusUp)
+            continue;
+
+        (VOID) SettingsSave(__PdoGetName(Pdo),
                             Row->Alias,
                             Row->Description,
                             &Row->InterfaceGuid,
@@ -1306,24 +1311,38 @@ PdoStartDevice(
         goto fail9;
     }
 
-    //
-    // If there is a stack bound then restore any settings that
-    // may have been saved from an aliasing emulated device.
-    //
-    status = PdoGetInterfaceGuid(Pdo, SoftwareKey, &Guid);
-    if (NT_SUCCESS(status)) {
-        for (Index = 0; Index < Table->NumEntries; Index++) {
-            PMIB_IF_ROW2    Row = &Table->Table[Index];
+    status = RegistryQueryDwordValue(SoftwareKey,
+                                     "HasSettings",
+                                     &HasSettings);
+    if (!NT_SUCCESS(status))
+        HasSettings = 0;
 
-            if (!IsEqualGUID(&Row->InterfaceGuid, &Guid))
-                continue;
+    if (HasSettings == 0) {
+        //
+        // If there is a stack bound then restore any settings that
+        // may have been saved from an aliasing emulated device.
+        //
+        status = PdoGetInterfaceGuid(Pdo, SoftwareKey, &Guid);
+        if (NT_SUCCESS(status)) {
+            for (Index = 0; Index < Table->NumEntries; Index++) {
+                PMIB_IF_ROW2    Row = &Table->Table[Index];
 
-            (VOID) SettingsRestore(SoftwareKey,
-                                   Row->Alias,
-                                   Row->Description,
-                                   &Row->InterfaceGuid,
-                                   &Row->InterfaceLuid);
-            break;
+                if (!IsEqualGUID(&Row->InterfaceGuid, &Guid))
+                    continue;
+
+                (VOID) SettingsRestore(__PdoGetName(Pdo),
+                                       Row->Alias,
+                                       Row->Description,
+                                       &Row->InterfaceGuid,
+                                       &Row->InterfaceLuid);
+                break;
+            }
+
+            HasSettings = 1;
+
+            (VOID) RegistryUpdateDwordValue(SoftwareKey,
+                                            "HasSettings",
+                                             HasSettings);
         }
     }
 

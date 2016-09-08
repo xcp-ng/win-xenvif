@@ -245,9 +245,6 @@ SettingsCopyInterface(
 
     RegistryCloseKey(SaveKey);
 
-    if (!Save)
-        (VOID) RegistryDeleteSubKey(SettingsKey, SaveKeyName);
-
     RegistryCloseKey(Key);
 
     __SettingsFree(KeyName);
@@ -467,9 +464,6 @@ SettingsCopyIpAddresses(
 
     RegistryCloseKey(SaveKey);
 
-    if (!Save)
-        (VOID) RegistryDeleteSubKey(SettingsKey, (PCHAR)SaveKeyName);
-
     __SettingsFree(ValuePrefix);
 
     RegistryCloseKey(Key);
@@ -540,28 +534,31 @@ SettingsCopy(
 
 NTSTATUS
 SettingsSave(
-     IN HANDLE      SoftwareKey,
-     IN PWCHAR      Alias,
-     IN PWCHAR      Description,
-     IN LPGUID      InterfaceGuid,
-     IN PNET_LUID   InterfaceLuid
-     )
+    IN  PCHAR       SubKeyName,
+    IN  PWCHAR      Alias,
+    IN  PWCHAR      Description,
+    IN  LPGUID      InterfaceGuid,
+    IN  PNET_LUID   InterfaceLuid
+    )
 {
     HANDLE          SettingsKey;
+    HANDLE          SubKey;
     NTSTATUS        status;
 
     Info("FROM %ws (%ws)\n", Alias, Description);
 
-    status = RegistryCreateSubKey(SoftwareKey,
-                                  "Settings",
+    SettingsKey = DriverGetSettingsKey();
+
+    status = RegistryCreateSubKey(SettingsKey,
+                                  SubKeyName,
                                   REG_OPTION_NON_VOLATILE,
-                                  &SettingsKey);
+                                  &SubKey);
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    SettingsCopy(SettingsKey, InterfaceGuid, InterfaceLuid, TRUE);
+    SettingsCopy(SubKey, InterfaceGuid, InterfaceLuid, TRUE);
 
-    RegistryCloseKey(SettingsKey);
+    RegistryCloseKey(SubKey);
 
     return STATUS_SUCCESS;
 
@@ -573,20 +570,23 @@ fail1:
 
 NTSTATUS
 SettingsRestore(
-     IN HANDLE      SoftwareKey,
-     IN PWCHAR      Alias,
-     IN PWCHAR      Description,
-     IN LPGUID      InterfaceGuid,
-     IN PNET_LUID   InterfaceLuid
-     )
+    IN  PCHAR       SubKeyName,
+    IN  PWCHAR      Alias,
+    IN  PWCHAR      Description,
+    IN  LPGUID      InterfaceGuid,
+    IN  PNET_LUID   InterfaceLuid
+    )
 {
     HANDLE          SettingsKey;
+    HANDLE          SubKey;
     NTSTATUS        status;
 
-    status = RegistryOpenSubKey(SoftwareKey,
-                                "Settings",
-                                KEY_ALL_ACCESS,
-                                &SettingsKey);
+    SettingsKey = DriverGetSettingsKey();
+
+    status = RegistryOpenSubKey(SettingsKey,
+                                SubKeyName,
+                                KEY_READ,
+                                &SubKey);
     if (!NT_SUCCESS(status)) {
         if (status == STATUS_OBJECT_NAME_NOT_FOUND)
             goto done;
@@ -596,11 +596,9 @@ SettingsRestore(
 
     Info("TO %ws (%ws)\n", Alias, Description);
 
-    SettingsCopy(SettingsKey, InterfaceGuid, InterfaceLuid, FALSE);
+    SettingsCopy(SubKey, InterfaceGuid, InterfaceLuid, FALSE);
 
-    RegistryCloseKey(SettingsKey);
-
-    (VOID) RegistryDeleteSubKey(SoftwareKey, "Settings");
+    RegistryCloseKey(SubKey);
 
 done:
     return STATUS_SUCCESS;
