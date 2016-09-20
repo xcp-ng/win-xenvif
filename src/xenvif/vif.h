@@ -71,6 +71,7 @@ VifReceiverQueuePacketsVersion1(
 extern VOID
 VifReceiverQueuePacket(
     IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  ULONG                           Index,
     IN  PMDL                            Mdl,
     IN  ULONG                           Offset,
     IN  ULONG                           Length,

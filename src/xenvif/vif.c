@@ -1224,6 +1224,36 @@ static struct _XENVIF_VIF_INTERFACE_V7 VifInterfaceVersion7 = {
     VifMacQueryFilterLevel
 };
 
+static struct _XENVIF_VIF_INTERFACE_V8 VifInterfaceVersion8 = {
+    { sizeof (struct _XENVIF_VIF_INTERFACE_V8), 8, NULL, NULL, NULL },
+    VifAcquire,
+    VifRelease,
+    VifEnable,
+    VifDisable,
+    VifQueryStatistic,
+    VifQueryRingCount,
+    VifUpdateHashMapping,
+    VifReceiverReturnPacket,
+    VifReceiverSetOffloadOptions,
+    VifReceiverSetBackfillSize,
+    VifReceiverQueryRingSize,
+    VifReceiverSetHashAlgorithm,
+    VifReceiverQueryHashCapabilities,
+    VifReceiverUpdateHashParameters,
+    VifTransmitterQueuePacket,
+    VifTransmitterQueryOffloadOptions,
+    VifTransmitterQueryLargePacketSize,
+    VifTransmitterQueryRingSize,
+    VifMacQueryState,
+    VifMacQueryMaximumFrameSize,
+    VifMacQueryPermanentAddress,
+    VifMacQueryCurrentAddress,
+    VifMacQueryMulticastAddresses,
+    VifMacSetMulticastAddresses,
+    VifMacSetFilterLevel,
+    VifMacQueryFilterLevel
+};
+
 NTSTATUS
 VifInitialize(
     IN  PXENVIF_PDO         Pdo,
@@ -1390,6 +1420,23 @@ VifGetInterface(
         status = STATUS_SUCCESS;
         break;
     }
+    case 8: {
+        struct _XENVIF_VIF_INTERFACE_V8 *VifInterface;
+
+        VifInterface = (struct _XENVIF_VIF_INTERFACE_V8 *)Interface;
+
+        status = STATUS_BUFFER_OVERFLOW;
+        if (Size < sizeof (struct _XENVIF_VIF_INTERFACE_V8))
+            break;
+
+        *VifInterface = VifInterfaceVersion8;
+
+        ASSERT3U(Interface->Version, ==, Version);
+        Interface->Context = Context;
+
+        status = STATUS_SUCCESS;
+        break;
+    }
     default:
         status = STATUS_NOT_SUPPORTED;
         break;
@@ -1428,6 +1475,7 @@ VifTeardown(
 static FORCEINLINE VOID
 __VifReceiverQueuePacketVersion1(
     IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  ULONG                           Index,
     IN  PMDL                            Mdl,
     IN  ULONG                           Offset,
     IN  ULONG                           Length,
@@ -1445,6 +1493,7 @@ __VifReceiverQueuePacketVersion1(
     LIST_ENTRY                          List;
     NTSTATUS                            status;
 
+    UNREFERENCED_PARAMETER(Index);
     UNREFERENCED_PARAMETER(Hash);
     UNREFERENCED_PARAMETER(More);
 
@@ -1504,6 +1553,7 @@ fail1:
 static FORCEINLINE VOID
 __VifReceiverQueuePacketVersion4(
     IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  ULONG                           Index,
     IN  PMDL                            Mdl,
     IN  ULONG                           Offset,
     IN  ULONG                           Length,
@@ -1516,6 +1566,7 @@ __VifReceiverQueuePacketVersion4(
     IN  PVOID                           Cookie
     )
 {
+    UNREFERENCED_PARAMETER(Index);
     UNREFERENCED_PARAMETER(Hash);
     UNREFERENCED_PARAMETER(More);
 
@@ -1534,6 +1585,7 @@ __VifReceiverQueuePacketVersion4(
 static FORCEINLINE VOID
 __VifReceiverQueuePacketVersion6(
     IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  ULONG                           Index,
     IN  PMDL                            Mdl,
     IN  ULONG                           Offset,
     IN  ULONG                           Length,
@@ -1546,6 +1598,7 @@ __VifReceiverQueuePacketVersion6(
     IN  PVOID                           Cookie
     )
 {
+    UNREFERENCED_PARAMETER(Index);
     UNREFERENCED_PARAMETER(More);
 
     Context->Callback(Context->Argument,
@@ -1562,8 +1615,41 @@ __VifReceiverQueuePacketVersion6(
 }
 
 static FORCEINLINE VOID
+__VifReceiverQueuePacketVersion7(
+    IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  ULONG                           Index,
+    IN  PMDL                            Mdl,
+    IN  ULONG                           Offset,
+    IN  ULONG                           Length,
+    IN  XENVIF_PACKET_CHECKSUM_FLAGS    Flags,
+    IN  USHORT                          MaximumSegmentSize,
+    IN  USHORT                          TagControlInformation,
+    IN  PXENVIF_PACKET_INFO             Info,
+    IN  PXENVIF_PACKET_HASH             Hash,
+    IN  BOOLEAN                         More,
+    IN  PVOID                           Cookie
+    )
+{
+    UNREFERENCED_PARAMETER(Index);
+
+    Context->Callback(Context->Argument,
+                      XENVIF_RECEIVER_QUEUE_PACKET,
+                      Mdl,
+                      Offset,
+                      Length,
+                      Flags,
+                      MaximumSegmentSize,
+                      TagControlInformation,
+                      Info,
+                      Hash,
+                      More,
+                      Cookie);
+}
+
+static FORCEINLINE VOID
 __VifReceiverQueuePacket(
     IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  ULONG                           Index,
     IN  PMDL                            Mdl,
     IN  ULONG                           Offset,
     IN  ULONG                           Length,
@@ -1578,6 +1664,7 @@ __VifReceiverQueuePacket(
 {
     Context->Callback(Context->Argument,
                       XENVIF_RECEIVER_QUEUE_PACKET,
+                      Index,
                       Mdl,
                       Offset,
                       Length,
@@ -1593,6 +1680,7 @@ __VifReceiverQueuePacket(
 VOID
 VifReceiverQueuePacket(
     IN  PXENVIF_VIF_CONTEXT             Context,
+    IN  ULONG                           Index,
     IN  PMDL                            Mdl,
     IN  ULONG                           Offset,
     IN  ULONG                           Length,
@@ -1609,6 +1697,7 @@ VifReceiverQueuePacket(
     case 2:
     case 3:
         __VifReceiverQueuePacketVersion1(Context,
+                                         Index,
                                          Mdl,
                                          Offset,
                                          Length,
@@ -1624,6 +1713,7 @@ VifReceiverQueuePacket(
     case 4:
     case 5:
         __VifReceiverQueuePacketVersion4(Context,
+                                         Index,
                                          Mdl,
                                          Offset,
                                          Length,
@@ -1638,6 +1728,7 @@ VifReceiverQueuePacket(
 
     case 6:
         __VifReceiverQueuePacketVersion6(Context,
+                                         Index,
                                          Mdl,
                                          Offset,
                                          Length,
@@ -1651,7 +1742,23 @@ VifReceiverQueuePacket(
         break;
 
     case 7:
+        __VifReceiverQueuePacketVersion7(Context,
+                                         Index,
+                                         Mdl,
+                                         Offset,
+                                         Length,
+                                         Flags,
+                                         MaximumSegmentSize,
+                                         TagControlInformation,
+                                         Info,
+                                         Hash,
+                                         More,
+                                         Cookie);
+        break;
+
+    case 8:
         __VifReceiverQueuePacket(Context,
+                                 Index,
                                  Mdl,
                                  Offset,
                                  Length,
@@ -1712,6 +1819,7 @@ VifTransmitterReturnPacket(
     case 5:
     case 6:
     case 7:
+    case 8:
         Context->Callback(Context->Argument,
                           XENVIF_TRANSMITTER_RETURN_PACKET,
                           Cookie,

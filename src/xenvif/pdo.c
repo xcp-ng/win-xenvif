@@ -2836,7 +2836,7 @@ PdoDestroy(
     PDEVICE_OBJECT  PhysicalDeviceObject = Dx->DeviceObject;
     PXENVIF_FDO     Fdo = __PdoGetFdo(Pdo);
 
-    ASSERT(!Pdo->UnplugRequested);
+    PdoUnplugRequest(Pdo, FALSE);
 
     Pdo->HasAlias = FALSE;
 

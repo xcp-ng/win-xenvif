@@ -1400,6 +1400,7 @@ __ReceiverRingReleaseLock(
     PXENVIF_VIF_CONTEXT         Context;
     LIST_ENTRY                  List;
     ULONG                       Count;
+    BOOLEAN                     More;
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
 
@@ -1422,7 +1423,9 @@ __ReceiverRingReleaseLock(
 #pragma prefast(disable:26110)
     KeReleaseSpinLockFromDpcLevel(&Ring->Lock);
 
-    while (!IsListEmpty(&List)) {
+    More = !IsListEmpty(&List) ? TRUE : FALSE;
+
+    while (More) {
         PLIST_ENTRY             ListEntry;
         PXENVIF_RECEIVER_PACKET Packet;
 
@@ -1431,11 +1434,15 @@ __ReceiverRingReleaseLock(
 
         RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
 
+        ASSERT(More);
+        More = !IsListEmpty(&List) ? TRUE : FALSE;
+
         Packet = CONTAINING_RECORD(ListEntry,
                                    XENVIF_RECEIVER_PACKET,
                                    ListEntry);
 
         VifReceiverQueuePacket(Context,
+                               Ring->Index,
                                &Packet->Mdl,
                                Packet->Offset,
                                Packet->Length,
@@ -1444,11 +1451,11 @@ __ReceiverRingReleaseLock(
                                Packet->TagControlInformation,
                                &Packet->Info,
                                &Packet->Hash,
-                               !IsListEmpty(&List),
+                               More,
                                Packet);
     }
 
-    ASSERT(IsListEmpty(&List));
+    ASSERT(!More);
 }
 
 static DECLSPEC_NOINLINE VOID
