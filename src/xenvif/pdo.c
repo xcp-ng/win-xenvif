@@ -2045,13 +2045,15 @@ PdoQueryId(
     }
     case BusQueryHardwareIDs:
     case BusQueryCompatibleIDs: {
-        ULONG   Index;
+        LONG    Index;
         ULONG   Length;
 
         Type = REG_MULTI_SZ;
+        Index = ARRAYSIZE(PdoRevision) - 1;
+
         Length = Id.MaximumLength;
 
-        for (Index = 0; Index < ARRAYSIZE(PdoRevision); Index++) {
+        while (Index >= 0) {
             PXENVIF_PDO_REVISION    Revision = &PdoRevision[Index];
 
             status = RtlStringCbPrintfW(Buffer,
@@ -2066,6 +2068,8 @@ PdoQueryId(
 
             Buffer++;
             Length -= sizeof (WCHAR);
+
+            --Index;
         }
 
         status = RtlStringCbPrintfW(Buffer,
