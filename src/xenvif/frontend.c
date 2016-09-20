@@ -1672,6 +1672,41 @@ __FrontendStatisticName(
     _FRONTEND_STATISTIC_NAME(RECEIVER_MULTICAST_OCTETS);
     _FRONTEND_STATISTIC_NAME(RECEIVER_BROADCAST_PACKETS);
     _FRONTEND_STATISTIC_NAME(RECEIVER_BROADCAST_OCTETS);
+
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_TAGGED_PACKETS);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_LLC_SNAP_PACKETS);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_IPV4_PACKETS);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_IPV6_PACKETS);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_TCP_PACKETS);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_UDP_PACKETS);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_GSO_PACKETS);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_IPV4_CHECKSUM_SUCCEEDED);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_IPV4_CHECKSUM_FAILED);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_IPV4_CHECKSUM_NOT_VALIDATED);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_TCP_CHECKSUM_SUCCEEDED);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_TCP_CHECKSUM_FAILED);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_TCP_CHECKSUM_NOT_VALIDATED);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_UDP_CHECKSUM_SUCCEEDED);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_UDP_CHECKSUM_FAILED);
+    _FRONTEND_STATISTIC_NAME(TRANSMITTER_UDP_CHECKSUM_NOT_VALIDATED);
+
+    _FRONTEND_STATISTIC_NAME(RECEIVER_TAGGED_PACKETS);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_LLC_SNAP_PACKETS);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_IPV4_PACKETS);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_IPV6_PACKETS);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_TCP_PACKETS);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_UDP_PACKETS);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_GSO_PACKETS);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_IPV4_CHECKSUM_SUCCEEDED);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_IPV4_CHECKSUM_FAILED);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_IPV4_CHECKSUM_NOT_VALIDATED);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_TCP_CHECKSUM_SUCCEEDED);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_TCP_CHECKSUM_FAILED);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_TCP_CHECKSUM_NOT_VALIDATED);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_UDP_CHECKSUM_SUCCEEDED);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_UDP_CHECKSUM_FAILED);
+    _FRONTEND_STATISTIC_NAME(RECEIVER_UDP_CHECKSUM_NOT_VALIDATED);
+
     default:
         break;
     }
@@ -1708,7 +1743,7 @@ FrontendDebugCallback(
 
         XENBUS_DEBUG(Printf,
                      &Frontend->DebugInterface,
-                     " - %40s %lu\n",
+                     " - %40s %llu\n",
                      __FrontendStatisticName(Name),
                      Value);
     }
@@ -2139,16 +2174,9 @@ FrontendConnect(
 
     Trace("====>\n");
 
-    Frontend->StatisticsCount = KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
-    Frontend->Statistics = __FrontendAllocate(sizeof (XENVIF_FRONTEND_STATISTICS) * Frontend->StatisticsCount);
-
-    status = STATUS_NO_MEMORY;
-    if (Frontend->Statistics == NULL)
-        goto fail1;
-
     status = XENBUS_DEBUG(Acquire, &Frontend->DebugInterface);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail1;
 
     status = XENBUS_DEBUG(Register,
                           &Frontend->DebugInterface,
@@ -2157,26 +2185,26 @@ FrontendConnect(
                           Frontend,
                           &Frontend->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail2;
 
     status = MacConnect(__FrontendGetMac(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail3;
 
     FrontendSetNumQueues(Frontend);
     FrontendSetSplit(Frontend);
 
     status = ReceiverConnect(__FrontendGetReceiver(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail4;
 
     status = TransmitterConnect(__FrontendGetTransmitter(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail5;
 
     status = ControllerConnect(__FrontendGetController(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail6;
 
     Attempt = 0;
     do {
@@ -2231,7 +2259,7 @@ abort:
     } while (status == STATUS_RETRY);
 
     if (!NT_SUCCESS(status))
-        goto fail8;
+        goto fail7;
 
     State = XenbusStateUnknown;
     while (State != XenbusStateConnected) {
@@ -2270,7 +2298,7 @@ abort:
 
     status = STATUS_UNSUCCESSFUL;
     if (State != XenbusStateConnected)
-        goto fail9;
+        goto fail8;
 
     ControllerEnable(__FrontendGetController(Frontend));
 
@@ -2279,51 +2307,44 @@ abort:
     Trace("<====\n");
     return STATUS_SUCCESS;
 
-fail9:
-    Error("fail9\n");
-
 fail8:
     Error("fail8\n");
-
-    ControllerDisconnect(__FrontendGetController(Frontend));
 
 fail7:
     Error("fail7\n");
 
-    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
+    ControllerDisconnect(__FrontendGetController(Frontend));
 
 fail6:
     Error("fail6\n");
 
-    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
+    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
 
 fail5:
     Error("fail5\n");
+
+    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
+
+fail4:
+    Error("fail4\n");
 
     MacDisconnect(__FrontendGetMac(Frontend));
 
     Frontend->Split = FALSE;
     Frontend->NumQueues = 0;
 
-fail4:
-    Error("fail4\n");
+fail3:
+    Error("fail3\n");
 
     XENBUS_DEBUG(Deregister,
                  &Frontend->DebugInterface,
                  Frontend->DebugCallback);
     Frontend->DebugCallback = NULL;
 
-fail3:
-    Error("fail3\n");
-
-    XENBUS_DEBUG(Release, &Frontend->DebugInterface);
-
 fail2:
     Error("fail2\n");
 
-    __FrontendFree(Frontend->Statistics);
-    Frontend->Statistics = NULL;
-    Frontend->StatisticsCount = 0;
+    XENBUS_DEBUG(Release, &Frontend->DebugInterface);
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -2355,10 +2376,6 @@ FrontendDisconnect(
     Frontend->DebugCallback = NULL;
 
     XENBUS_DEBUG(Release, &Frontend->DebugInterface);
-
-    __FrontendFree(Frontend->Statistics);
-    Frontend->Statistics = NULL;
-    Frontend->StatisticsCount = 0;
 
     Trace("<====\n");
 }
@@ -2837,9 +2854,24 @@ FrontendInitialize(
     if (!NT_SUCCESS(status))
         goto fail11;
 
+    (*Frontend)->StatisticsCount = KeQueryMaximumProcessorCountEx(ALL_PROCESSOR_GROUPS);
+    (*Frontend)->Statistics = __FrontendAllocate(sizeof (XENVIF_FRONTEND_STATISTICS) *
+                                                 (*Frontend)->StatisticsCount);
+
+    status = STATUS_NO_MEMORY;
+    if ((*Frontend)->Statistics == NULL)
+        goto fail12;
+
     Trace("<====\n");
 
     return STATUS_SUCCESS;
+
+fail12:
+    Error("fail12\n");
+
+    ThreadAlert((*Frontend)->MibThread);
+    ThreadJoin((*Frontend)->MibThread);
+    (*Frontend)->MibThread = NULL;
 
 fail11:
     Error("fail11\n");
@@ -2933,6 +2965,10 @@ FrontendTeardown(
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
     ASSERT(Frontend->State == FRONTEND_UNKNOWN);
+
+    __FrontendFree(Frontend->Statistics);
+    Frontend->Statistics = NULL;
+    Frontend->StatisticsCount = 0;
 
     ThreadAlert(Frontend->MibThread);
     ThreadJoin(Frontend->MibThread);

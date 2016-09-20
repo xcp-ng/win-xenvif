@@ -457,6 +457,7 @@ ReceiverRingProcessChecksum(
     )
 {
     PXENVIF_RECEIVER            Receiver;
+    PXENVIF_FRONTEND            Frontend;
     PXENVIF_PACKET_INFO         Info;
     XENVIF_PACKET_PAYLOAD       Payload;
     uint16_t                    flags;
@@ -464,6 +465,7 @@ ReceiverRingProcessChecksum(
     PIP_HEADER                  IpHeader;
 
     Receiver = Ring->Receiver;
+    Frontend = Receiver->Frontend;
 
     Info = &Packet->Info;
 
@@ -500,7 +502,6 @@ ReceiverRingProcessChecksum(
             OffloadChecksum = FALSE;
 
         // IP header checksums are always present and not validated
-
         if (OffloadChecksum) {
             USHORT  Embedded;
             USHORT  Calculated;
@@ -513,14 +514,8 @@ ReceiverRingProcessChecksum(
                 Packet->Flags.IpChecksumSucceeded = 1;
             else
                 Packet->Flags.IpChecksumFailed = 1;
-        }
-
-        if (!OffloadChecksum ||
-            Ring->OffloadOptions.NeedChecksumValue ||
-            Receiver->CalculateChecksums) { // Checksum must be present
-            Packet->Flags.IpChecksumPresent = 1;
         } else {
-            IpHeader->Version4.Checksum = 0;
+            Packet->Flags.IpChecksumNotValidated = 1;
         }
     }
 
@@ -556,21 +551,19 @@ ReceiverRingProcessChecksum(
                 else
                     Packet->Flags.TcpChecksumFailed = 1;
             }
+        } else {
+            Packet->Flags.TcpChecksumNotValidated = 1;
         }
         
-        if (!OffloadChecksum ||
-            Ring->OffloadOptions.NeedChecksumValue ||
-            Receiver->CalculateChecksums) {     // Checksum must be present
-            if (flags & NETRXF_csum_blank) {    // Checksum is not present
-                USHORT  Calculated;
+        if ((Ring->OffloadOptions.NeedChecksumValue ||
+             Receiver->CalculateChecksums != 0) &&
+            (flags & NETRXF_data_validated)) {
+            USHORT  Calculated;
 
-                Calculated = ChecksumPseudoHeader(StartVa, Info);
-                Calculated = ChecksumTcpPacket(StartVa, Info, Calculated, &Payload);
+            Calculated = ChecksumPseudoHeader(StartVa, Info);
+            Calculated = ChecksumTcpPacket(StartVa, Info, Calculated, &Payload);
 
-                TcpHeader->Checksum = Calculated;
-            }
-
-            Packet->Flags.TcpChecksumPresent = 1;
+            TcpHeader->Checksum = Calculated;
         }
     } else if (Info->UdpHeader.Length != 0 && !Info->IsAFragment) {
         PUDP_HEADER     UdpHeader;
@@ -590,46 +583,39 @@ ReceiverRingProcessChecksum(
                 Packet->Flags.UdpChecksumSucceeded = 1;
             } else {                                // Checksum is present but is not validated
                 USHORT  Embedded;
-                USHORT  Calculated;
 
                 ASSERT(~flags & NETRXF_csum_blank);
 
                 Embedded = UdpHeader->Checksum;
 
-                Calculated = ChecksumPseudoHeader(StartVa, Info);
-                Calculated = ChecksumUdpPacket(StartVa, Info, Calculated, &Payload);
-
-                if (IpHeader->Version == 4) {
-                    if (Embedded == 0) {    // Tolarate zero checksum for IPv4/UDP
-                        Packet->Flags.UdpChecksumSucceeded = 1;
-                    } else {
-                        if (ChecksumVerify(Calculated, Embedded))
-                            Packet->Flags.UdpChecksumSucceeded = 1;
-                        else
-                            Packet->Flags.UdpChecksumFailed = 1;
-                    }
+                // Tolarate zero checksum for IPv4/UDP
+                if (IpHeader->Version == 4 && Embedded == 0) {
+                    Packet->Flags.UdpChecksumSucceeded = 1;
                 } else {
+                    USHORT  Calculated;
+
+                    Calculated = ChecksumPseudoHeader(StartVa, Info);
+                    Calculated = ChecksumUdpPacket(StartVa, Info, Calculated, &Payload);
+
                     if (ChecksumVerify(Calculated, Embedded))
                         Packet->Flags.UdpChecksumSucceeded = 1;
                     else
                         Packet->Flags.UdpChecksumFailed = 1;
                 }
             }
+        } else {
+            Packet->Flags.UdpChecksumNotValidated = 1;
         }
 
-        if (!OffloadChecksum ||
-            Ring->OffloadOptions.NeedChecksumValue ||
-            Receiver->CalculateChecksums) {     // Checksum must be present
-            if (flags & NETRXF_csum_blank) {    // Checksum is not present
-                USHORT  Calculated;
+        if ((Ring->OffloadOptions.NeedChecksumValue ||
+             Receiver->CalculateChecksums != 0) &&
+            (flags & NETRXF_data_validated)) {
+            USHORT  Calculated;
 
-                Calculated = ChecksumPseudoHeader(StartVa, Info);
-                Calculated = ChecksumUdpPacket(StartVa, Info, Calculated, &Payload);
+            Calculated = ChecksumPseudoHeader(StartVa, Info);
+            Calculated = ChecksumUdpPacket(StartVa, Info, Calculated, &Payload);
 
-                UdpHeader->Checksum = Calculated;
-            }
-
-            Packet->Flags.UdpChecksumPresent = 1;
+            UdpHeader->Checksum = Calculated;
         }
     }
 }
@@ -757,6 +743,8 @@ __ReceiverRingBuildSegment(
     RtlCopyMemory(Segment,
                   Packet,
                   FIELD_OFFSET(XENVIF_RECEIVER_PACKET, Mdl));
+
+    Segment->MaximumSegmentSize = 0;
 
     // The segment contains no data as yet
     Segment->Length = 0;
@@ -1193,7 +1181,6 @@ ReceiverRingProcessPacket(
     PUCHAR                          StartVa;
     PETHERNET_HEADER                EthernetHeader;
     PETHERNET_ADDRESS               DestinationAddress;
-    ETHERNET_ADDRESS_TYPE           Type;
     NTSTATUS                        status;
 
     Receiver = Ring->Receiver;
@@ -1263,41 +1250,6 @@ ReceiverRingProcessPacket(
     status = STATUS_UNSUCCESSFUL;
     if (!MacApplyFilters(Mac, DestinationAddress))
         goto fail3;
-
-    Type = GET_ETHERNET_ADDRESS_TYPE(DestinationAddress);
-
-    switch (Type) {
-    case ETHERNET_ADDRESS_UNICAST:
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_RECEIVER_UNICAST_PACKETS,
-                                   1);
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_RECEIVER_UNICAST_OCTETS,
-                                   Packet->Length);
-        break;
-            
-    case ETHERNET_ADDRESS_MULTICAST:
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_RECEIVER_MULTICAST_PACKETS,
-                                   1);
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_RECEIVER_MULTICAST_OCTETS,
-                                   Packet->Length);
-        break;
-
-    case ETHERNET_ADDRESS_BROADCAST:
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_RECEIVER_BROADCAST_PACKETS,
-                                   1);
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_RECEIVER_BROADCAST_OCTETS,
-                                   Packet->Length);
-        break;
-
-    default:
-        ASSERT(FALSE);
-        break;
-    }
 
     if (Packet->MaximumSegmentSize != 0)
         ReceiverRingProcessLargePacket(Ring, Packet, List);
@@ -1428,6 +1380,11 @@ __ReceiverRingReleaseLock(
     while (More) {
         PLIST_ENTRY             ListEntry;
         PXENVIF_RECEIVER_PACKET Packet;
+        PXENVIF_PACKET_INFO     Info;
+        PUCHAR                  StartVa;
+        PETHERNET_HEADER        EthernetHeader;
+        PETHERNET_ADDRESS       DestinationAddress;
+        ETHERNET_ADDRESS_TYPE   Type;
 
         ListEntry = RemoveHeadList(&List);
         ASSERT3P(ListEntry, !=, &List);
@@ -1440,6 +1397,139 @@ __ReceiverRingReleaseLock(
         Packet = CONTAINING_RECORD(ListEntry,
                                    XENVIF_RECEIVER_PACKET,
                                    ListEntry);
+
+        StartVa = MmGetSystemAddressForMdlSafe(&Packet->Mdl,
+                                               NormalPagePriority);
+        ASSERT(StartVa != NULL);
+        StartVa += Packet->Offset;
+
+        Info = &Packet->Info;
+
+        ASSERT(Info->EthernetHeader.Length != 0);
+        EthernetHeader = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);
+
+        DestinationAddress = &EthernetHeader->DestinationAddress;
+
+        Type = GET_ETHERNET_ADDRESS_TYPE(DestinationAddress);
+
+        switch (Type) {
+        case ETHERNET_ADDRESS_UNICAST:
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_UNICAST_PACKETS,
+                                       1);
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_UNICAST_OCTETS,
+                                       Packet->Length);
+            break;
+
+        case ETHERNET_ADDRESS_MULTICAST:
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_MULTICAST_PACKETS,
+                                       1);
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_MULTICAST_OCTETS,
+                                       Packet->Length);
+            break;
+
+        case ETHERNET_ADDRESS_BROADCAST:
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_BROADCAST_PACKETS,
+                                       1);
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_BROADCAST_OCTETS,
+                                       Packet->Length);
+            break;
+
+        default:
+            ASSERT(FALSE);
+            break;
+        }
+
+        if (ETHERNET_HEADER_IS_TAGGED(EthernetHeader))
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_TAGGED_PACKETS,
+                                       1);
+
+        if (Info->LLCSnapHeader.Length != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_LLC_SNAP_PACKETS,
+                                       1);
+
+        if (Info->IpHeader.Length != 0) {
+            PIP_HEADER  IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+
+            if (IpHeader->Version == 4) {
+                FrontendIncrementStatistic(Frontend,
+                                           XENVIF_RECEIVER_IPV4_PACKETS,
+                                           1);
+            } else {
+                ASSERT3U(IpHeader->Version, ==, 6);
+
+                FrontendIncrementStatistic(Frontend,
+                                           XENVIF_RECEIVER_IPV6_PACKETS,
+                                           1);
+            }
+        }
+
+        if (Info->TcpHeader.Length != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_TCP_PACKETS,
+                                       1);
+
+        if (Info->UdpHeader.Length != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_UDP_PACKETS,
+                                       1);
+
+       if (Packet->MaximumSegmentSize != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_GSO_PACKETS,
+                                       1);
+
+       if (Packet->Flags.IpChecksumSucceeded != 0)
+           FrontendIncrementStatistic(Frontend,
+                                      XENVIF_RECEIVER_IPV4_CHECKSUM_SUCCEEDED,
+                                      1);
+
+       if (Packet->Flags.IpChecksumFailed != 0)
+           FrontendIncrementStatistic(Frontend,
+                                      XENVIF_RECEIVER_IPV4_CHECKSUM_FAILED,
+                                      1);
+
+       if (Packet->Flags.IpChecksumNotValidated != 0)
+           FrontendIncrementStatistic(Frontend,
+                                      XENVIF_RECEIVER_IPV4_CHECKSUM_NOT_VALIDATED,
+                                      1);
+
+       if (Packet->Flags.TcpChecksumSucceeded != 0)
+           FrontendIncrementStatistic(Frontend,
+                                      XENVIF_RECEIVER_TCP_CHECKSUM_SUCCEEDED,
+                                      1);
+
+       if (Packet->Flags.TcpChecksumFailed != 0)
+           FrontendIncrementStatistic(Frontend,
+                                      XENVIF_RECEIVER_TCP_CHECKSUM_FAILED,
+                                      1);
+
+       if (Packet->Flags.TcpChecksumNotValidated != 0)
+           FrontendIncrementStatistic(Frontend,
+                                      XENVIF_RECEIVER_TCP_CHECKSUM_NOT_VALIDATED,
+                                      1);
+
+       if (Packet->Flags.UdpChecksumSucceeded != 0)
+           FrontendIncrementStatistic(Frontend,
+                                      XENVIF_RECEIVER_UDP_CHECKSUM_SUCCEEDED,
+                                      1);
+
+       if (Packet->Flags.UdpChecksumFailed != 0)
+           FrontendIncrementStatistic(Frontend,
+                                      XENVIF_RECEIVER_UDP_CHECKSUM_FAILED,
+                                      1);
+
+       if (Packet->Flags.UdpChecksumNotValidated != 0)
+           FrontendIncrementStatistic(Frontend,
+                                      XENVIF_RECEIVER_UDP_CHECKSUM_NOT_VALIDATED,
+                                      1);
 
         VifReceiverQueuePacket(Context,
                                Ring->Index,

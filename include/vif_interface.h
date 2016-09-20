@@ -152,20 +152,20 @@ struct _XENVIF_PACKET_CHECKSUM_FLAGS_V1 {
             ULONG   IpChecksumSucceeded:1;
             /*! IPv4 header checksum validation failed */
             ULONG   IpChecksumFailed:1;
-            /*! IPv4 header checksum is present */
-            ULONG   IpChecksumPresent:1;
+            /*! IPv4 header checksum not validated */
+            ULONG   IpChecksumNotValidated:1;
             /*! TCP checksum validation succeeded */
             ULONG   TcpChecksumSucceeded:1;
             /*! TCP checksum validation failed */
             ULONG   TcpChecksumFailed:1;
-            /*! TCP checksum is present */
-            ULONG   TcpChecksumPresent:1;
+            /*! TCP checksum not validated */
+            ULONG   TcpChecksumNotValidated:1;
             /*! UDP checksum validation succeeded */
             ULONG   UdpChecksumSucceeded:1;
             /*! UDP checksum validation failed */
             ULONG   UdpChecksumFailed:1;
-            /*! UDP checksum is present */
-            ULONG   UdpChecksumPresent:1;
+            /*! UDP checksum not validated */
+            ULONG   UdpChecksumNotValidated:1;
             ULONG   Reserved:23;
         };
         /*! Raw representation */
@@ -288,6 +288,10 @@ struct _XENVIF_TRANSMITTER_PACKET_V2 {
     \brief Interface statistics
 */
 typedef enum _XENVIF_VIF_STATISTIC {
+    /*
+     * Statistics required by XENNET
+     */
+
     /*! RFC 2863 ifOutDiscards */
     XENVIF_TRANSMITTER_PACKETS_DROPPED = 0,
     /*! Backend component of RFC 2863 ifOutErrors */
@@ -324,6 +328,77 @@ typedef enum _XENVIF_VIF_STATISTIC {
     XENVIF_RECEIVER_BROADCAST_PACKETS,
     /*! Total number of octets in ifInBroadcastPkts */
     XENVIF_RECEIVER_BROADCAST_OCTETS,
+
+    /*
+     * Miscellaneous statistics
+     */
+
+    /*! Total number of outbound VLAN tagged packets */
+    XENVIF_TRANSMITTER_TAGGED_PACKETS,
+    /*! Total number of outbound LLC/SNAP packets */
+    XENVIF_TRANSMITTER_LLC_SNAP_PACKETS,
+    /*! Total number of outbound IP version 4 packets */
+    XENVIF_TRANSMITTER_IPV4_PACKETS,
+    /*! Total number of outbound IP version 6 packets */
+    XENVIF_TRANSMITTER_IPV6_PACKETS,
+    /*! Total number of outbound TCP packets */
+    XENVIF_TRANSMITTER_TCP_PACKETS,
+    /*! Total number of outbound UDP packets */
+    XENVIF_TRANSMITTER_UDP_PACKETS,
+    /*! Total number of outbound GSO packets */
+    XENVIF_TRANSMITTER_GSO_PACKETS,
+    /*! Total number of outbound IP version 4 packets with good checksum */
+    XENVIF_TRANSMITTER_IPV4_CHECKSUM_SUCCEEDED,
+    /*! Total number of outbound IP version 4 packets with bad checksum */
+    XENVIF_TRANSMITTER_IPV4_CHECKSUM_FAILED,
+    /*! Total number of outbound IP version 4 packets without validated checksum */
+    XENVIF_TRANSMITTER_IPV4_CHECKSUM_NOT_VALIDATED,
+    /*! Total number of outbound TCP packets with good checksum */
+    XENVIF_TRANSMITTER_TCP_CHECKSUM_SUCCEEDED,
+    /*! Total number of outbound TCP packets with bad checksum */
+    XENVIF_TRANSMITTER_TCP_CHECKSUM_FAILED,
+    /*! Total number of outbound TCP packets without validated checksum */
+    XENVIF_TRANSMITTER_TCP_CHECKSUM_NOT_VALIDATED,
+    /*! Total number of outbound UDP packets with good checksum */
+    XENVIF_TRANSMITTER_UDP_CHECKSUM_SUCCEEDED,
+    /*! Total number of outbound UDP packets with bad checksum */
+    XENVIF_TRANSMITTER_UDP_CHECKSUM_FAILED,
+    /*! Total number of outbound UDP packets without validated checksum */
+    XENVIF_TRANSMITTER_UDP_CHECKSUM_NOT_VALIDATED,
+
+
+    /*! Total number of inbound VLAN tagged packets */
+    XENVIF_RECEIVER_TAGGED_PACKETS,
+    /*! Total number of inbound LLC/SNAP packets */
+    XENVIF_RECEIVER_LLC_SNAP_PACKETS,
+    /*! Total number of inbound IP version 4 packets */
+    XENVIF_RECEIVER_IPV4_PACKETS,
+    /*! Total number of inbound IP version 6 packets */
+    XENVIF_RECEIVER_IPV6_PACKETS,
+    /*! Total number of inbound TCP packets */
+    XENVIF_RECEIVER_TCP_PACKETS,
+    /*! Total number of inbound UDP packets */
+    XENVIF_RECEIVER_UDP_PACKETS,
+    /*! Total number of inbound GSO packets */
+    XENVIF_RECEIVER_GSO_PACKETS,
+    /*! Total number of inbound IP version 4 packets with good checksum */
+    XENVIF_RECEIVER_IPV4_CHECKSUM_SUCCEEDED,
+    /*! Total number of inbound IP version 4 packets with bad checksum */
+    XENVIF_RECEIVER_IPV4_CHECKSUM_FAILED,
+    /*! Total number of inbound IP version 4 packets without validated checksum */
+    XENVIF_RECEIVER_IPV4_CHECKSUM_NOT_VALIDATED,
+    /*! Total number of inbound TCP packets with good checksum */
+    XENVIF_RECEIVER_TCP_CHECKSUM_SUCCEEDED,
+    /*! Total number of inbound TCP packets with bad checksum */
+    XENVIF_RECEIVER_TCP_CHECKSUM_FAILED,
+    /*! Total number of inbound TCP packets without validated checksum */
+    XENVIF_RECEIVER_TCP_CHECKSUM_NOT_VALIDATED,
+    /*! Total number of inbound UDP packets with good checksum */
+    XENVIF_RECEIVER_UDP_CHECKSUM_SUCCEEDED,
+    /*! Total number of inbound UDP packets with bad checksum */
+    XENVIF_RECEIVER_UDP_CHECKSUM_FAILED,
+    /*! Total number of inbound UDP packets without validated checksum */
+    XENVIF_RECEIVER_UDP_CHECKSUM_NOT_VALIDATED,
     XENVIF_VIF_STATISTIC_COUNT
 } XENVIF_VIF_STATISTIC, *PXENVIF_VIF_STATISTIC;
 

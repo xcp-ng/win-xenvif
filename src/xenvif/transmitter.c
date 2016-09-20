@@ -73,7 +73,6 @@ typedef struct _XENVIF_TRANSMITTER_PACKET {
     XENVIF_VIF_OFFLOAD_OPTIONS                  OffloadOptions;
     USHORT                                      MaximumSegmentSize;
     USHORT                                      TagControlInformation;
-    XENVIF_TRANSMITTER_PACKET_COMPLETION_INFO   Completion;
     PMDL                                        Mdl;
     ULONG                                       Offset;
     ULONG                                       Length;
@@ -81,6 +80,8 @@ typedef struct _XENVIF_TRANSMITTER_PACKET {
     XENVIF_PACKET_HASH                          Hash;
     XENVIF_PACKET_INFO                          Info;
     XENVIF_PACKET_PAYLOAD                       Payload;
+    XENVIF_PACKET_CHECKSUM_FLAGS                Flags;
+    XENVIF_TRANSMITTER_PACKET_COMPLETION_INFO   Completion;
 } XENVIF_TRANSMITTER_PACKET, *PXENVIF_TRANSMITTER_PACKET;
 
 typedef struct _XENVIF_TRANSMITTER_REQUEST_ARP_PARAMETERS {
@@ -220,6 +221,7 @@ struct _XENVIF_TRANSMITTER {
     ULONG                       DisableIpVersion4Gso;
     ULONG                       DisableIpVersion6Gso;
     ULONG                       AlwaysCopy;
+    ULONG                       ValidateChecksums;
     KSPIN_LOCK                  Lock;
     PXENBUS_CACHE               PacketCache;
     XENBUS_STORE_INTERFACE      StoreInterface;
@@ -338,20 +340,22 @@ __TransmitterPutPacket(
 {
     ASSERT(IsZeroMemory(&Packet->ListEntry, sizeof (LIST_ENTRY)));
     ASSERT3U(Packet->Reference, ==, 0);
+    Packet->Cookie = NULL;
 
-    Packet->Mdl = NULL;
-    Packet->Offset = 0;
-    Packet->Length = 0;
     Packet->OffloadOptions.Value = 0;
     Packet->MaximumSegmentSize = 0;
     Packet->TagControlInformation = 0;
-    RtlZeroMemory(&Packet->Completion, sizeof (XENVIF_TRANSMITTER_PACKET_COMPLETION_INFO));
-    Packet->Cookie = NULL;
+    Packet->Mdl = NULL;
+    Packet->Offset = 0;
+    Packet->Length = 0;
 
     RtlZeroMemory(Packet->Header, XENVIF_TRANSMITTER_MAXIMUM_HEADER_LENGTH);
     RtlZeroMemory(&Packet->Info, sizeof (XENVIF_PACKET_INFO));
     RtlZeroMemory(&Packet->Hash, sizeof (XENVIF_PACKET_HASH));
     RtlZeroMemory(&Packet->Payload, sizeof (XENVIF_PACKET_PAYLOAD));
+
+    Packet->Flags.Value = 0;
+    RtlZeroMemory(&Packet->Completion, sizeof (XENVIF_TRANSMITTER_PACKET_COMPLETION_INFO));
 
     XENBUS_CACHE(Put,
                  &Transmitter->CacheInterface,
@@ -1169,6 +1173,7 @@ __TransmitterRingPrepareHeader(
     PUCHAR                          StartVa;
     PFN_NUMBER                      Pfn;
     PETHERNET_HEADER                EthernetHeader;
+    BOOLEAN                         SquashError;
     NTSTATUS                        status;
 
     Transmitter = Ring->Transmitter;
@@ -1180,6 +1185,8 @@ __TransmitterRingPrepareHeader(
 
     Payload = &Packet->Payload;
     Info = &Packet->Info;
+
+    SquashError = FALSE;
 
     status = STATUS_UNSUCCESSFUL;
     if (Info->Length == 0)
@@ -1307,7 +1314,6 @@ __TransmitterRingPrepareHeader(
         Packet->OffloadOptions.OffloadIpVersion4HeaderChecksum = 1;
 
         // TCP checksum calulcation must be offloaded for large packets
-        TcpHeader->Checksum = ChecksumPseudoHeader(StartVa, Info);
         Packet->OffloadOptions.OffloadIpVersion4TcpChecksum = 1;
 
         // If the MSS is such that the payload would constitute only a single fragment then
@@ -1343,7 +1349,6 @@ __TransmitterRingPrepareHeader(
         IpHeader->Version6.PayloadLength = HTONS((USHORT)Length);
 
         // TCP checksum calulcation must be offloaded for large packets
-        TcpHeader->Checksum = ChecksumPseudoHeader(StartVa, Info);
         Packet->OffloadOptions.OffloadIpVersion6TcpChecksum = 1;
 
         // If the MSS is such that the payload would constitute only a single fragment then
@@ -1362,24 +1367,110 @@ __TransmitterRingPrepareHeader(
         
         if (Fragment->Length > MaximumFrameSize) {
             status = STATUS_INVALID_PARAMETER;
+            SquashError = TRUE;
             goto fail5;
         }
     }
 
-    if (Packet->OffloadOptions.OffloadIpVersion4HeaderChecksum) {
+    if (Info->IpHeader.Length != 0) {
         PIP_HEADER  IpHeader;
 
-        ASSERT(Info->IpHeader.Length != 0);
         IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
 
-        ASSERT3U(IpHeader->Version, ==, 4);
-        IpHeader->Version4.Checksum = ChecksumIpVersion4Header(StartVa, Info);
+        if (IpHeader->Version == 4) {
+            if (Packet->OffloadOptions.OffloadIpVersion4HeaderChecksum) {
+                IpHeader->Version4.Checksum = ChecksumIpVersion4Header(StartVa, Info);
+
+                Packet->Flags.IpChecksumNotValidated = 1;
+            } else if (Transmitter->ValidateChecksums != 0) {
+                USHORT      Embedded;
+                USHORT      Calculated;
+
+                Embedded = IpHeader->Version4.Checksum;
+
+                Calculated = ChecksumIpVersion4Header(StartVa, Info);
+
+                if (ChecksumVerify(Calculated, Embedded))
+                    Packet->Flags.IpChecksumSucceeded = 1;
+                else
+                    Packet->Flags.IpChecksumFailed = 1;
+            } else {
+                Packet->Flags.IpChecksumNotValidated = 1;
+            }
+        }
+    }
+
+    if (Info->TcpHeader.Length != 0) {
+        PTCP_HEADER TcpHeader;
+
+        TcpHeader = (PTCP_HEADER)(StartVa + Info->TcpHeader.Offset);
+
+        if (Packet->OffloadOptions.OffloadIpVersion4TcpChecksum ||
+            Packet->OffloadOptions.OffloadIpVersion6TcpChecksum) {
+            TcpHeader->Checksum = ChecksumPseudoHeader(StartVa, Info);
+
+            Packet->Flags.TcpChecksumNotValidated = 1;
+        } else if (Transmitter->ValidateChecksums != 0) {
+            USHORT      Embedded;
+            USHORT      Calculated;
+
+            Embedded = TcpHeader->Checksum;
+
+            Calculated = ChecksumPseudoHeader(StartVa, Info);
+            Calculated = ChecksumTcpPacket(StartVa, Info, Calculated, Payload);
+
+            if (ChecksumVerify(Calculated, Embedded))
+                Packet->Flags.TcpChecksumSucceeded = 1;
+            else
+                Packet->Flags.TcpChecksumFailed = 1;
+        } else {
+            Packet->Flags.TcpChecksumNotValidated = 1;
+        }
+    }
+
+    if (Info->UdpHeader.Length != 0) {
+        PUDP_HEADER UdpHeader;
+
+        UdpHeader = (PUDP_HEADER)(StartVa + Info->UdpHeader.Offset);
+
+        if (Packet->OffloadOptions.OffloadIpVersion4UdpChecksum ||
+            Packet->OffloadOptions.OffloadIpVersion6UdpChecksum) {
+            UdpHeader->Checksum = ChecksumPseudoHeader(StartVa, Info);
+
+            Packet->Flags.UdpChecksumNotValidated = 1;
+        } else if (Transmitter->ValidateChecksums != 0) {
+            PIP_HEADER  IpHeader;
+            USHORT      Embedded;
+
+            ASSERT(Info->IpHeader.Length != 0);
+            IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+
+            Embedded = UdpHeader->Checksum;
+
+            // Tolarate zero checksum for IPv4/UDP
+            if (IpHeader->Version == 4 && Embedded == 0) {
+                Packet->Flags.UdpChecksumSucceeded = 1;
+            } else {
+                USHORT  Calculated;
+
+                Calculated = ChecksumPseudoHeader(StartVa, Info);
+                Calculated = ChecksumUdpPacket(StartVa, Info, Calculated, Payload);
+
+                if (ChecksumVerify(Calculated, Embedded))
+                    Packet->Flags.UdpChecksumSucceeded = 1;
+                else
+                    Packet->Flags.UdpChecksumFailed = 1;
+            }
+        } else {
+            Packet->Flags.UdpChecksumNotValidated = 1;
+        }
     }
 
     return STATUS_SUCCESS;
 
 fail5:
-    Error("fail5\n");
+    if (!SquashError)
+        Error("fail5\n");
 
     ASSERT(State->Count != 0);
     --State->Count;
@@ -1398,7 +1489,8 @@ fail5:
     Fragment->Entry = NULL;
 
 fail4:
-    Error("fail4\n");
+    if (!SquashError)
+        Error("fail4\n");
 
     Fragment->Context = NULL;
     Fragment->Type = XENVIF_TRANSMITTER_FRAGMENT_TYPE_INVALID;
@@ -1409,7 +1501,8 @@ fail4:
     __TransmitterPutFragment(Ring, Fragment);
 
 fail3:
-    Error("fail3\n");
+    if (!SquashError)
+        Error("fail3\n");
 
     --Packet->Reference;
     Buffer->Context = NULL;
@@ -1417,12 +1510,14 @@ fail3:
     __TransmitterPutBuffer(Ring, Buffer);
 
 fail2:
-    Error("fail2\n");
+    if (!SquashError)
+        Error("fail2\n");
 
     ASSERT3U(Packet->Reference, ==, 0);
 
 fail1:
-    Error("fail1 (%08x)\n", status);
+    if (!SquashError)
+        Error("fail1 (%08x)\n", status);
 
     return status;
 }
@@ -1647,13 +1742,9 @@ __TransmitterRingPreparePacket(
     return STATUS_SUCCESS;
 
 fail2:
-    Error("fail2\n");
-
     __TransmitterRingUnprepareFragments(Ring);
 
 fail1:
-    Error("fail1 (%08x)\n", status);
-
     ASSERT(IsListEmpty(&State->List));
     RtlZeroMemory(&State->List, sizeof (LIST_ENTRY));
 
@@ -2265,26 +2356,7 @@ __TransmitterRingPostFragments(
     ASSERT3U(State->Count, ==, 0);
     RtlZeroMemory(&State->List, sizeof (LIST_ENTRY));
 
-    // Set the initial completion information
     if (Packet != NULL) {
-        PUCHAR                  StartVa;
-        PXENVIF_PACKET_INFO     Info;
-        PXENVIF_PACKET_PAYLOAD  Payload;
-        PETHERNET_HEADER        Header;
-
-        StartVa = Packet->Header;
-        Info = &Packet->Info;
-        Payload = &Packet->Payload;
-
-        ASSERT(IsZeroMemory(&Packet->Completion, sizeof (XENVIF_TRANSMITTER_PACKET_COMPLETION_INFO)));
-
-        ASSERT(Info->EthernetHeader.Length != 0);
-        Header = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);
-
-        Packet->Completion.Type = GET_ETHERNET_ADDRESS_TYPE(&Header->Untagged.DestinationAddress);
-        Packet->Completion.PacketLength = (USHORT)Packet->Length;
-        Packet->Completion.PayloadLength = (USHORT)Payload->Length;
-
         State->Packet = NULL;
 
         Ring->PacketsSent++;
@@ -2374,8 +2446,14 @@ __TransmitterRingCompletePacket(
     IN  PXENVIF_TRANSMITTER_PACKET  Packet
     )
 {
-    PXENVIF_TRANSMITTER                 Transmitter;
-    PXENVIF_FRONTEND                    Frontend;
+    PXENVIF_TRANSMITTER             Transmitter;
+    PXENVIF_FRONTEND                Frontend;
+    PXENVIF_PACKET_PAYLOAD          Payload;
+    PXENVIF_PACKET_INFO             Info;
+    PUCHAR                          StartVa;
+    PETHERNET_HEADER                EthernetHeader;
+    PETHERNET_ADDRESS               DestinationAddress;
+    ETHERNET_ADDRESS_TYPE           Type;
 
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
@@ -2391,45 +2469,145 @@ __TransmitterRingCompletePacket(
             FrontendIncrementStatistic(Frontend,
                                        XENVIF_TRANSMITTER_BACKEND_ERRORS,
                                        1);
-    } else {
-        ULONG   Length;
 
-        Length = (ULONG)Packet->Completion.PacketLength;
+        goto done;
+    }
 
-        switch (Packet->Completion.Type) {
-        case ETHERNET_ADDRESS_UNICAST:
+    StartVa = Packet->Header;
+    Info = &Packet->Info;
+    Payload = &Packet->Payload;
+
+    ASSERT(Info->EthernetHeader.Length != 0);
+    EthernetHeader = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);
+
+    DestinationAddress = &EthernetHeader->DestinationAddress;
+
+    Type = GET_ETHERNET_ADDRESS_TYPE(DestinationAddress);
+
+    switch (Type) {
+    case ETHERNET_ADDRESS_UNICAST:
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_UNICAST_PACKETS,
+                                   1);
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_UNICAST_OCTETS,
+                                   Packet->Length);
+        break;
+
+    case ETHERNET_ADDRESS_MULTICAST:
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_MULTICAST_PACKETS,
+                                   1);
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_MULTICAST_OCTETS,
+                                   Packet->Length);
+        break;
+
+    case ETHERNET_ADDRESS_BROADCAST:
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_BROADCAST_PACKETS,
+                                   1);
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_BROADCAST_OCTETS,
+                                   Packet->Length);
+        break;
+
+    default:
+        ASSERT(FALSE);
+        break;
+    }
+
+    if (ETHERNET_HEADER_IS_TAGGED(EthernetHeader))
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_TAGGED_PACKETS,
+                                   1);
+
+    if (Info->LLCSnapHeader.Length != 0)
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_LLC_SNAP_PACKETS,
+                                   1);
+
+    if (Info->IpHeader.Length != 0) {
+        PIP_HEADER  IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+
+        if (IpHeader->Version == 4) {
             FrontendIncrementStatistic(Frontend,
-                                       XENVIF_TRANSMITTER_UNICAST_PACKETS,
+                                       XENVIF_TRANSMITTER_IPV4_PACKETS,
                                        1);
-            FrontendIncrementStatistic(Frontend,
-                                       XENVIF_TRANSMITTER_UNICAST_OCTETS,
-                                       Length);
-            break;
-            
-        case ETHERNET_ADDRESS_MULTICAST:
-            FrontendIncrementStatistic(Frontend,
-                                       XENVIF_TRANSMITTER_MULTICAST_PACKETS,
-                                       1);
-            FrontendIncrementStatistic(Frontend,
-                                       XENVIF_TRANSMITTER_MULTICAST_OCTETS,
-                                       Length);
-            break;
+        } else {
+            ASSERT3U(IpHeader->Version, ==, 6);
 
-        case ETHERNET_ADDRESS_BROADCAST:
             FrontendIncrementStatistic(Frontend,
-                                       XENVIF_TRANSMITTER_BROADCAST_PACKETS,
+                                       XENVIF_TRANSMITTER_IPV6_PACKETS,
                                        1);
-            FrontendIncrementStatistic(Frontend,
-                                       XENVIF_TRANSMITTER_BROADCAST_OCTETS,
-                                       Length);
-            break;
-
-        default:
-            ASSERT(FALSE);
-            break;
         }
     }
 
+    if (Info->TcpHeader.Length != 0)
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_TCP_PACKETS,
+                                   1);
+
+    if (Info->UdpHeader.Length != 0)
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_UDP_PACKETS,
+                                   1);
+
+    if (Packet->MaximumSegmentSize != 0)
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_GSO_PACKETS,
+                                   1);
+
+   if (Packet->Flags.IpChecksumSucceeded != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_IPV4_CHECKSUM_SUCCEEDED,
+                                  1);
+
+   if (Packet->Flags.IpChecksumFailed != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_IPV4_CHECKSUM_FAILED,
+                                  1);
+
+   if (Packet->Flags.IpChecksumNotValidated != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_IPV4_CHECKSUM_NOT_VALIDATED,
+                                  1);
+
+   if (Packet->Flags.TcpChecksumSucceeded != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_TCP_CHECKSUM_SUCCEEDED,
+                                  1);
+
+   if (Packet->Flags.TcpChecksumFailed != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_TCP_CHECKSUM_FAILED,
+                                  1);
+
+   if (Packet->Flags.TcpChecksumNotValidated != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_TCP_CHECKSUM_NOT_VALIDATED,
+                                  1);
+
+   if (Packet->Flags.UdpChecksumSucceeded != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_UDP_CHECKSUM_SUCCEEDED,
+                                  1);
+
+   if (Packet->Flags.UdpChecksumFailed != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_UDP_CHECKSUM_FAILED,
+                                  1);
+
+   if (Packet->Flags.UdpChecksumNotValidated != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_UDP_CHECKSUM_NOT_VALIDATED,
+                                  1);
+
+    Packet->Completion.Type = Type;
+    Packet->Completion.PacketLength = (USHORT)Packet->Length;
+    Packet->Completion.PayloadLength = (USHORT)Payload->Length;
+
+done:
     InsertTailList(&Ring->PacketComplete, &Packet->ListEntry);
     Ring->PacketsCompleted++;
 }
@@ -2826,6 +3004,8 @@ TransmitterRingSchedule(
 
             Packet->Reference = 0;
 
+            ASSERT3U(Packet->Completion.Status, ==, 0);
+
             status = __TransmitterRingPreparePacket(Ring, Packet);
             if (!NT_SUCCESS(status)) {
                 PXENVIF_TRANSMITTER Transmitter;
@@ -2842,10 +3022,6 @@ TransmitterRingSchedule(
                 Ring->PacketsFaked++;
 
                 Packet->Completion.Status = XENVIF_TRANSMITTER_PACKET_DROPPED;
-
-                FrontendIncrementStatistic(Frontend,
-                                           XENVIF_TRANSMITTER_FRONTEND_ERRORS,
-                                           1);
 
                 __TransmitterRingCompletePacket(Ring, Packet);
             }
@@ -4263,11 +4439,13 @@ TransmitterInitialize(
     (*Transmitter)->DisableIpVersion4Gso = 0;
     (*Transmitter)->DisableIpVersion6Gso = 0;
     (*Transmitter)->AlwaysCopy = 0;
+    (*Transmitter)->ValidateChecksums = 0;
 
     if (ParametersKey != NULL) {
         ULONG   TransmitterDisableIpVersion4Gso;
         ULONG   TransmitterDisableIpVersion6Gso;
         ULONG   TransmitterAlwaysCopy;
+        ULONG   TransmitterValidateChecksums;
 
         status = RegistryQueryDwordValue(ParametersKey,
                                          "TransmitterDisableIpVersion4Gso",
@@ -4286,6 +4464,12 @@ TransmitterInitialize(
                                          &TransmitterAlwaysCopy);
         if (NT_SUCCESS(status))
             (*Transmitter)->AlwaysCopy = TransmitterAlwaysCopy;
+
+        status = RegistryQueryDwordValue(ParametersKey,
+                                         "TransmitterValidateChecksums",
+                                         &TransmitterValidateChecksums);
+        if (NT_SUCCESS(status))
+            (*Transmitter)->ValidateChecksums = TransmitterValidateChecksums;
     }
 
     FdoGetDebugInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
@@ -4370,6 +4554,7 @@ fail2:
     (*Transmitter)->DisableIpVersion4Gso = 0;
     (*Transmitter)->DisableIpVersion6Gso = 0;
     (*Transmitter)->AlwaysCopy = 0;
+    (*Transmitter)->ValidateChecksums = 0;
     
     ASSERT(IsZeroMemory(*Transmitter, sizeof (XENVIF_TRANSMITTER)));
     __TransmitterFree(*Transmitter);
@@ -4783,6 +4968,7 @@ TransmitterTeardown(
     Transmitter->DisableIpVersion4Gso = 0;
     Transmitter->DisableIpVersion6Gso = 0;
     Transmitter->AlwaysCopy = 0;
+    Transmitter->ValidateChecksums = 0;
 
     ASSERT(IsZeroMemory(Transmitter, sizeof (XENVIF_TRANSMITTER)));
     __TransmitterFree(Transmitter);
