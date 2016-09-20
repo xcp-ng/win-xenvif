@@ -1192,7 +1192,9 @@ PdoUnplugRequest(
 {
     NTSTATUS        status;
 
-    ASSERT3U(Pdo->UnplugRequested, !=, Make);
+    if (Pdo->UnplugRequested == Make)
+        return;
+
     Pdo->UnplugRequested = Make;
 
     status = XENBUS_UNPLUG(Acquire, &Pdo->UnplugInterface);
