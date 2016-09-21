@@ -1192,9 +1192,7 @@ PdoUnplugRequest(
 {
     NTSTATUS        status;
 
-    if (Pdo->UnplugRequested == Make)
-        return;
-
+    ASSERT3U(Pdo->UnplugRequested, !=, Make);
     Pdo->UnplugRequested = Make;
 
     status = XENBUS_UNPLUG(Acquire, &Pdo->UnplugInterface);
@@ -2842,8 +2840,7 @@ PdoDestroy(
     PDEVICE_OBJECT  PhysicalDeviceObject = Dx->DeviceObject;
     PXENVIF_FDO     Fdo = __PdoGetFdo(Pdo);
 
-    PdoUnplugRequest(Pdo, FALSE);
-
+    Pdo->UnplugRequested = FALSE;
     Pdo->HasAlias = FALSE;
 
     ASSERT3U(__PdoGetDevicePnpState(Pdo), ==, Deleted);
