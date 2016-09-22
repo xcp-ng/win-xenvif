@@ -1369,8 +1369,7 @@ __ReceiverRingReleaseLock(
 
     // We need to bump Loaned before dropping the lock to avoid VifDisable()
     // returning prematurely.
-    if (!IsListEmpty(&List))
-        __InterlockedAdd(&Receiver->Loaned, Count);
+    __InterlockedAdd(&Receiver->Loaned, Count);
 
 #pragma prefast(disable:26110)
     KeReleaseSpinLockFromDpcLevel(&Ring->Lock);
@@ -1543,9 +1542,11 @@ __ReceiverRingReleaseLock(
                                &Packet->Hash,
                                More,
                                Packet);
+
+        --Count;
     }
 
-    ASSERT(!More);
+    ASSERT3U(Count, ==, 0);
 }
 
 static DECLSPEC_NOINLINE VOID
@@ -3625,37 +3626,50 @@ ReceiverReturnPacket(
     KeSetEvent(&Receiver->Event, 0, FALSE);
 }
 
+#define XENVIF_RECEIVER_PACKET_WAIT_PERIOD 10
+
 VOID
 ReceiverWaitForPackets(
     IN  PXENVIF_RECEIVER    Receiver
     )
 {
+    PXENVIF_FRONTEND        Frontend;
     LONG                    Loaned;
+    LONG                    Returned;
+    LARGE_INTEGER           Timeout;
 
     ASSERT3U(KeGetCurrentIrql(), <, DISPATCH_LEVEL);
 
+    Frontend = Receiver->Frontend;
+
+    Returned = Receiver->Returned;
+
+    // Make sure Loaned is not sampled before Returned
+    KeMemoryBarrier();
+
     Loaned = Receiver->Loaned;
 
-    if (Receiver->Returned != Loaned) {
-        PXENVIF_FRONTEND    Frontend;
+    ASSERT3S(Loaned - Returned, >=, 0);
 
-        Frontend = Receiver->Frontend;
+    Timeout.QuadPart = TIME_RELATIVE(TIME_S(XENVIF_RECEIVER_PACKET_WAIT_PERIOD));
 
-        Info("%s\n", FrontendGetPath(Frontend));
-    }
+    while (Returned != Loaned) {
+        Info("%s: (Loaned = %d Returned = %d)\n",
+             FrontendGetPath(Frontend),
+             Receiver->Loaned,
+             Receiver->Returned);
 
-    while (Receiver->Returned != Loaned) {
         (VOID) KeWaitForSingleObject(&Receiver->Event,
                                      Executive,
                                      KernelMode,
                                      FALSE,
-                                     NULL);
+                                     &Timeout);
         KeClearEvent(&Receiver->Event);
 
-        ASSERT3U(Loaned, ==, Receiver->Loaned);
-
-        KeMemoryBarrier();
+        Returned = Receiver->Returned;
     }
+
+    Info("%s: done\n", FrontendGetPath(Frontend));
 }
 
 VOID
