@@ -3349,16 +3349,20 @@ TransmitterRingWatchdog(
 
     Trace("====>\n");
 
-    //
-    // Affinitize this thread to the same CPU as the event channel
-    // and DPC.
-    //
-    status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
-    ASSERT(NT_SUCCESS(status));
+    if (RtlIsNtDdiVersionAvailable(NTDDI_WIN7) ) {
+        //
+        // Affinitize this thread to the same CPU as the event channel
+        // and DPC.
+        //
+        // The following functions don't work before Windows 7
+        //
+        status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
+        ASSERT(NT_SUCCESS(status));
 
-    Affinity.Group = ProcNumber.Group;
-    Affinity.Mask = (KAFFINITY)1 << ProcNumber.Number;
-    KeSetSystemGroupAffinityThread(&Affinity, NULL);
+        Affinity.Group = ProcNumber.Group;
+        Affinity.Mask = (KAFFINITY)1 << ProcNumber.Number;
+        KeSetSystemGroupAffinityThread(&Affinity, NULL);
+    }
 
     Timeout.QuadPart = TIME_RELATIVE(TIME_S(XENVIF_TRANSMITTER_WATCHDOG_PERIOD));
     PacketsQueued = 0;
