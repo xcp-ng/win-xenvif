@@ -1200,6 +1200,14 @@ ReceiverRingProcessPacket(
 
     New = __ReceiverRingGetPacket(Ring, TRUE);
 
+    status = STATUS_NO_MEMORY;
+    if (New == NULL) {
+        FrontendIncrementStatistic(Frontend,
+            XENVIF_RECEIVER_FRONTEND_ERRORS,
+            1);
+        goto fail1;
+    }
+
     RtlCopyMemory(New,
                   Packet,
                   FIELD_OFFSET(XENVIF_RECEIVER_PACKET, Mdl));
@@ -1208,14 +1216,6 @@ ReceiverRingProcessPacket(
 
     // Override offset to align
     Packet->Offset = Receiver->IpAlignOffset;
-
-    status = STATUS_NO_MEMORY;
-    if (Packet == NULL) {
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_RECEIVER_FRONTEND_ERRORS,
-                                   1);
-        goto fail1;
-    }
 
     StartVa = MmGetSystemAddressForMdlSafe(&Packet->Mdl, NormalPagePriority);
     ASSERT(StartVa != NULL);
