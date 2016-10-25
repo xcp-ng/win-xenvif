@@ -3646,13 +3646,14 @@ ReceiverWaitForPackets(
 
     Frontend = Receiver->Frontend;
 
+    Info("%s: ====>\n", FrontendGetPath(Frontend));
+
     Returned = Receiver->Returned;
 
     // Make sure Loaned is not sampled before Returned
     KeMemoryBarrier();
 
     Loaned = Receiver->Loaned;
-
     ASSERT3S(Loaned - Returned, >=, 0);
 
     Timeout.QuadPart = TIME_RELATIVE(TIME_S(XENVIF_RECEIVER_PACKET_WAIT_PERIOD));
@@ -3660,8 +3661,8 @@ ReceiverWaitForPackets(
     while (Returned != Loaned) {
         Info("%s: (Loaned = %d Returned = %d)\n",
              FrontendGetPath(Frontend),
-             Receiver->Loaned,
-             Receiver->Returned);
+             Loaned,
+             Returned);
 
         (VOID) KeWaitForSingleObject(&Receiver->Event,
                                      Executive,
@@ -3671,9 +3672,12 @@ ReceiverWaitForPackets(
         KeClearEvent(&Receiver->Event);
 
         Returned = Receiver->Returned;
+        KeMemoryBarrier();
+
+        ASSERT3S(Loaned, ==, Receiver->Loaned);
     }
 
-    Info("%s: done\n", FrontendGetPath(Frontend));
+    Info("%s: <====\n", FrontendGetPath(Frontend));
 }
 
 VOID
