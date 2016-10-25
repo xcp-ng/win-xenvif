@@ -504,7 +504,7 @@ VifTransmitterQueuePacketsVersion2(
 
     AcquireMrswLockShared(&Context->Lock);
 
-    if (Context->Enabled == FALSE)
+    if (!Context->Enabled)
         goto done;
 
     InitializeListHead(&Reject);
@@ -575,7 +575,7 @@ VifTransmitterQueuePacketVersion4(
     AcquireMrswLockShared(&Context->Lock);
 
     status = STATUS_UNSUCCESSFUL;
-    if (Context->Enabled == FALSE)
+    if (!Context->Enabled)
         goto done;
 
     status = TransmitterQueuePacket(FrontendGetTransmitter(Context->Frontend),
@@ -624,7 +624,7 @@ VifTransmitterQueuePacketVersion5(
     AcquireMrswLockShared(&Context->Lock);
 
     status = STATUS_UNSUCCESSFUL;
-    if (Context->Enabled == FALSE)
+    if (!Context->Enabled)
         goto done;
 
     status = TransmitterQueuePacket(FrontendGetTransmitter(Context->Frontend),
@@ -664,7 +664,7 @@ VifTransmitterQueuePacket(
     AcquireMrswLockShared(&Context->Lock);
 
     status = STATUS_UNSUCCESSFUL;
-    if (Context->Enabled == FALSE)
+    if (!Context->Enabled)
         goto done;
 
     status = TransmitterQueuePacket(FrontendGetTransmitter(Context->Frontend),
