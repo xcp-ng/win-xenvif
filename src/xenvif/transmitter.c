@@ -4209,10 +4209,18 @@ __TransmitterRingAbortPackets(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
 {
+    PXENVIF_TRANSMITTER             Transmitter;
+    PXENVIF_FRONTEND                Frontend;
+    ULONG                           Count;
+
+    Transmitter = Ring->Transmitter;
+    Frontend = Transmitter->Frontend;
+
     __TransmitterRingAcquireLock(Ring);
 
     TransmitterRingSwizzle(Ring);
 
+    Count = 0;
     while (!IsListEmpty(&Ring->PacketQueue)) {
         PLIST_ENTRY                 ListEntry;
         PXENVIF_TRANSMITTER_PACKET  Packet;
@@ -4231,7 +4239,12 @@ __TransmitterRingAbortPackets(
         Packet->Completion.Status = XENVIF_TRANSMITTER_PACKET_DROPPED;
 
         __TransmitterRingCompletePacket(Ring, Packet);
+        Count++;
     }
+
+    Info("%s: aborted %u packets\n",
+         FrontendGetPath(Frontend),
+         Count);
 
     ASSERT3U(Ring->PacketsSent, ==, Ring->PacketsPrepared - Ring->PacketsUnprepared);
     ASSERT3U(Ring->PacketsPrepared, ==, Ring->PacketsCopied + Ring->PacketsGranted + Ring->PacketsFaked);
