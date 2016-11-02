@@ -2435,8 +2435,10 @@ __TransmitterRingFakeResponses(
         Transmitter = Ring->Transmitter;
         Frontend = Transmitter->Frontend;
 
-        Info("%s: faked %lu responses\n",
-             FrontendGetPath(Frontend), Count);
+        Info("%s[%u]: faked %lu responses\n",
+             FrontendGetPath(Frontend),
+             Ring->Index,
+             Count);
     }
 }
 
@@ -4242,8 +4244,9 @@ __TransmitterRingAbortPackets(
         Count++;
     }
 
-    Info("%s: aborted %u packets\n",
+    Info("%s[%u]: aborted %u packets\n",
          FrontendGetPath(Frontend),
+         Ring->Index,
          Count);
 
     ASSERT3U(Ring->PacketsSent, ==, Ring->PacketsPrepared - Ring->PacketsUnprepared);
@@ -4287,8 +4290,9 @@ __TransmitterRingQueueArp(
 
     __TransmitterRingReleaseLock(Ring);
 
-    Info("%s: %u.%u.%u.%u\n",
+    Info("%s[%u]: %u.%u.%u.%u\n",
          FrontendGetPath(Frontend),
+         Ring->Index,
          Address->Byte[0],
          Address->Byte[1],
          Address->Byte[2],
@@ -4336,8 +4340,9 @@ __TransmitterRingQueueNeighbourAdvertisement(
 
     __TransmitterRingReleaseLock(Ring);
 
-    Info("%s: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
+    Info("%s[%u]: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
          FrontendGetPath(Frontend),
+         Ring->Index,
          HTONS(Address->Word[0]),
          HTONS(Address->Word[1]),
          HTONS(Address->Word[2]),
@@ -4412,8 +4417,9 @@ __TransmitterRingQueueMulticastControl(
 
     __TransmitterRingReleaseLock(Ring);
 
-    Info("%s: %s %02X:%02X:%02X:%02X:%02X:%02X\n",
+    Info("%s[%u]: %s %02X:%02X:%02X:%02X:%02X:%02X\n",
          FrontendGetPath(Frontend),
+         Ring->Index,
          (Add) ? "ADD" : "REMOVE",
          Address->Byte[0],
          Address->Byte[1],
