@@ -2458,10 +2458,10 @@ FrontendSetState(
 
     KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
-    Trace("%s: ====> '%s' -> '%s'\n",
-          __FrontendGetPath(Frontend),
-          FrontendStateName(Frontend->State),
-          FrontendStateName(State));
+    Info("%s: ====> '%s' -> '%s'\n",
+         __FrontendGetPath(Frontend),
+         FrontendStateName(Frontend->State),
+         FrontendStateName(State));
 
     Failed = FALSE;
     while (Frontend->State != State && !Failed) {
@@ -2589,14 +2589,14 @@ FrontendSetState(
             break;
         }
 
-        Trace("%s in state '%s'\n",
-              __FrontendGetPath(Frontend),
-              FrontendStateName(Frontend->State));
+        Info("%s in state '%s'\n",
+             __FrontendGetPath(Frontend),
+             FrontendStateName(Frontend->State));
     }
 
     KeReleaseSpinLock(&Frontend->Lock, Irql);
 
-    Trace("%s: <=====\n", __FrontendGetPath(Frontend));
+    Info("%s: <=====\n", __FrontendGetPath(Frontend));
 
     return (!Failed) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }
