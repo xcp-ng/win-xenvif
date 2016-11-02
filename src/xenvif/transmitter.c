@@ -2927,21 +2927,30 @@ TransmitterRingSchedule(
     )
 {
     PXENVIF_TRANSMITTER_STATE       State;
+    BOOLEAN                         Polled;
 
-    if(!Ring->Enabled || Ring->Stopped)
+    if(!Ring->Enabled)
         return;
 
     State = &Ring->State;
+    Polled = FALSE;
 
-    for (;;) {
+    while (!Ring->Stopped) {
         NTSTATUS    status;
 
         if (State->Count != 0) {
             status = __TransmitterRingPostFragments(Ring);
-            if (!NT_SUCCESS(status)) {
+            if (!NT_SUCCESS(status))
                 Ring->Stopped = TRUE;
-                break;
+        }
+
+        if (Ring->Stopped) {
+            if (!Polled) {
+                (VOID) TransmitterRingPoll(Ring);
+                Polled = TRUE;
             }
+
+            continue;
         }
 
         if (Ring->RequestsPosted - Ring->RequestsPushed >=
