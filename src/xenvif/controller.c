@@ -119,6 +119,7 @@ __ControllerReleaseLock(
     IN  PXENVIF_CONTROLLER  Controller
     )
 {
+#pragma prefast(suppress:26110) // Caller failing to hold lock
     KeReleaseSpinLockFromDpcLevel(&Controller->Lock);
 }
 
