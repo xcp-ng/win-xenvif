@@ -222,6 +222,7 @@ struct _XENVIF_TRANSMITTER {
     ULONG                       DisableIpVersion6Gso;
     ULONG                       AlwaysCopy;
     ULONG                       ValidateChecksums;
+    ULONG                       DisableMulticastControl;
     KSPIN_LOCK                  Lock;
     PXENBUS_CACHE               PacketCache;
     XENBUS_STORE_INTERFACE      StoreInterface;
@@ -4472,12 +4473,14 @@ TransmitterInitialize(
     (*Transmitter)->DisableIpVersion6Gso = 0;
     (*Transmitter)->AlwaysCopy = 0;
     (*Transmitter)->ValidateChecksums = 0;
+    (*Transmitter)->DisableMulticastControl = 0;
 
     if (ParametersKey != NULL) {
         ULONG   TransmitterDisableIpVersion4Gso;
         ULONG   TransmitterDisableIpVersion6Gso;
         ULONG   TransmitterAlwaysCopy;
         ULONG   TransmitterValidateChecksums;
+        ULONG   TransmitterDisableMulticastControl;
 
         status = RegistryQueryDwordValue(ParametersKey,
                                          "TransmitterDisableIpVersion4Gso",
@@ -4502,6 +4505,12 @@ TransmitterInitialize(
                                          &TransmitterValidateChecksums);
         if (NT_SUCCESS(status))
             (*Transmitter)->ValidateChecksums = TransmitterValidateChecksums;
+
+        status = RegistryQueryDwordValue(ParametersKey,
+                                         "TransmitterDisableMulticastControl",
+                                         &TransmitterDisableMulticastControl);
+        if (NT_SUCCESS(status))
+            (*Transmitter)->DisableMulticastControl = TransmitterDisableMulticastControl;
     }
 
     FdoGetDebugInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
@@ -4641,6 +4650,7 @@ fail2:
     (*Transmitter)->DisableIpVersion6Gso = 0;
     (*Transmitter)->AlwaysCopy = 0;
     (*Transmitter)->ValidateChecksums = 0;
+    (*Transmitter)->DisableMulticastControl = 0;
     
     ASSERT(IsZeroMemory(*Transmitter, sizeof (XENVIF_TRANSMITTER)));
     __TransmitterFree(*Transmitter);
@@ -4681,20 +4691,20 @@ TransmitterConnect(
     if (!NT_SUCCESS(status))
         goto fail4;
 
-    status = XENBUS_STORE(Read,
-                          &Transmitter->StoreInterface,
-                          NULL,
-                          FrontendGetBackendPath(Frontend),
-                          "feature-dynamic-multicast-control",
-                          &Buffer);
-    if (!NT_SUCCESS(status)) {
-        Transmitter->MulticastControl = FALSE;
-    } else {
-        Transmitter->MulticastControl = (BOOLEAN)strtol(Buffer, NULL, 2);
+    if (Transmitter->DisableMulticastControl == 0) {
+        status = XENBUS_STORE(Read,
+                              &Transmitter->StoreInterface,
+                              NULL,
+                              FrontendGetBackendPath(Frontend),
+                              "feature-dynamic-multicast-control",
+                              &Buffer);
+        if (NT_SUCCESS(status)) {
+            Transmitter->MulticastControl = (BOOLEAN)strtol(Buffer, NULL, 2);
 
-        XENBUS_STORE(Free,
-                     &Transmitter->StoreInterface,
-                     Buffer);
+            XENBUS_STORE(Free,
+                         &Transmitter->StoreInterface,
+                         Buffer);
+        }
     }
 
     Index = 0;
@@ -5000,6 +5010,7 @@ TransmitterTeardown(
     Transmitter->DisableIpVersion6Gso = 0;
     Transmitter->AlwaysCopy = 0;
     Transmitter->ValidateChecksums = 0;
+    Transmitter->DisableMulticastControl = 0;
 
     ASSERT(IsZeroMemory(Transmitter, sizeof (XENVIF_TRANSMITTER)));
     __TransmitterFree(Transmitter);
