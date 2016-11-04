@@ -2735,6 +2735,10 @@ __ReceiverRingEnable(
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
+    Info("%s[%u]: ====>\n",
+         FrontendGetPath(Frontend),
+         Ring->Index);
+
     __ReceiverRingAcquireLock(Ring);
 
     ASSERT(!Ring->Enabled);
@@ -2751,6 +2755,10 @@ __ReceiverRingEnable(
 
     __ReceiverRingReleaseLock(Ring);
 
+    Info("%s[%u]: <====\n",
+         FrontendGetPath(Frontend),
+         Ring->Index);
+
     return STATUS_SUCCESS;
 
 fail1:
@@ -2766,6 +2774,16 @@ __ReceiverRingDisable(
     IN  PXENVIF_RECEIVER_RING   Ring
     )
 {    
+    PXENVIF_RECEIVER            Receiver;
+    PXENVIF_FRONTEND            Frontend;
+
+    Receiver = Ring->Receiver;
+    Frontend = Receiver->Frontend;
+
+    Info("%s[%u]: ====>\n",
+         FrontendGetPath(Frontend),
+         Ring->Index);
+
     __ReceiverRingAcquireLock(Ring);
 
     ASSERT(Ring->Enabled);
@@ -2780,6 +2798,10 @@ __ReceiverRingDisable(
     // Cancel any existing ones.
     //
     (VOID) KeCancelTimer(&Ring->Timer);
+
+    Info("%s[%u]: <====\n",
+         FrontendGetPath(Frontend),
+         Ring->Index);
 }
 
 static FORCEINLINE VOID

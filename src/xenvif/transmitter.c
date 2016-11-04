@@ -3926,6 +3926,10 @@ __TransmitterRingEnable(
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
+    Info("%s[%u]: ====>\n",
+         FrontendGetPath(Frontend),
+         Ring->Index);
+
     __TransmitterRingAcquireLock(Ring);
 
     ASSERT(!Ring->Enabled);
@@ -3934,6 +3938,10 @@ __TransmitterRingEnable(
     KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
 
     __TransmitterRingReleaseLock(Ring);
+
+    Info("%s[%u]: <====\n",
+         FrontendGetPath(Frontend),
+         Ring->Index);
 
     return STATUS_SUCCESS;
 }
@@ -3953,6 +3961,10 @@ __TransmitterRingDisable(
 
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
+
+    Info("%s[%u]: ====>\n",
+         FrontendGetPath(Frontend),
+         Ring->Index);
 
     __TransmitterRingAcquireLock(Ring);
 
@@ -4027,6 +4039,10 @@ __TransmitterRingDisable(
     // Cancel any existing ones.
     //
     (VOID) KeCancelTimer(&Ring->Timer);
+
+    Info("%s[%u]: <====\n",
+         FrontendGetPath(Frontend),
+         Ring->Index);
 }
 
 static FORCEINLINE VOID
