@@ -238,8 +238,9 @@ FrontendSetHashTypes(
 
 extern ULONG
 FrontendGetQueue(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Index
+    IN  PXENVIF_FRONTEND                Frontend,
+    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm,
+    IN  ULONG                           Index
     );
 
 #endif  // _XENVIF_FRONTEND_H

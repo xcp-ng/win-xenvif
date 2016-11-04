@@ -5125,6 +5125,7 @@ TransmitterQueuePacket(
     PUCHAR                          StartVa;
     PXENVIF_PACKET_PAYLOAD          Payload;
     PXENVIF_PACKET_INFO             Info;
+    XENVIF_PACKET_HASH_ALGORITHM    Algorithm;
     ULONG                           Value;
     ULONG                           Index;
     PXENVIF_TRANSMITTER_RING        Ring;
@@ -5158,7 +5159,9 @@ TransmitterQueuePacket(
 
     (VOID) ParsePacket(StartVa, TransmitterPullup, Transmitter, Payload, Info);
 
-    switch (Hash->Algorithm) {
+    Algorithm = Hash->Algorithm;
+
+    switch (Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
         Value = __TransmitterHashPacket(Packet);
         More = FALSE;
@@ -5179,7 +5182,7 @@ TransmitterQueuePacket(
         break;
     }
 
-    Index = FrontendGetQueue(Frontend, Value);
+    Index = FrontendGetQueue(Frontend, Algorithm, Value);
     Ring = Transmitter->Ring[Index];
 
     __TransmitterRingQueuePacket(Ring, Packet, More);

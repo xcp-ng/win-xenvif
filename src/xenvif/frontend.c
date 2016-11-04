@@ -2138,20 +2138,23 @@ fail1:
 
 ULONG
 FrontendGetQueue(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Value
+    IN  PXENVIF_FRONTEND                Frontend,
+    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm,
+    IN  ULONG                           Value
     )
 {
-    ULONG                   Queue;
+    ULONG                               Queue;
 
-    switch (Frontend->Hash.Algorithm) {
+    switch (Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
     case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
         Queue = Value % __FrontendGetNumQueues(Frontend);
         break;
 
     case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
-        Queue = Frontend->Hash.Mapping[Value % Frontend->Hash.Size];
+        Queue = (Frontend->Hash.Size != 0) ?
+                Frontend->Hash.Mapping[Value % Frontend->Hash.Size] :
+                0;
         break;
 
     default:
