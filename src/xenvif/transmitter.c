@@ -5061,13 +5061,17 @@ __TransmitterHashAccumulate(
 
 static FORCEINLINE ULONG
 __TransmitterHashPacket(
+    IN  PXENVIF_TRANSMITTER         Transmitter,
     IN  PXENVIF_TRANSMITTER_PACKET  Packet
     )
 {
+    PXENVIF_FRONTEND                Frontend;
     PUCHAR                          StartVa;
     PXENVIF_PACKET_INFO             Info;
     PIP_HEADER                      IpHeader;
     ULONG                           Value;
+
+    Frontend = Transmitter->Frontend;
 
     StartVa = Packet->Header;
     Info = &Packet->Info;
@@ -5193,7 +5197,7 @@ TransmitterQueuePacket(
 
     switch (Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
-        Value = __TransmitterHashPacket(Packet);
+        Value = __TransmitterHashPacket(Transmitter, Packet);
         More = FALSE;
         break;
 
