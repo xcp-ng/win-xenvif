@@ -1937,7 +1937,11 @@ FrontendSetHashAlgorithm(
         break;
 
     case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
-        status = (Frontend->DisableToeplitz != 0) ?
+        // Don't allow toeplitz hashing to be configured for a single
+        // queue, or if it has been explicitly disabled
+        ASSERT(__FrontendGetNumQueues(Frontend) != 0);
+        status = (__FrontendGetNumQueues(Frontend) == 1 ||
+                  Frontend->DisableToeplitz != 0) ?
                  STATUS_NOT_SUPPORTED :
                  STATUS_SUCCESS;
         break;
