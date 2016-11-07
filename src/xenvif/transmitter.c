@@ -5081,6 +5081,9 @@ __TransmitterHashPacket(
 
     Value = 0;
 
+    if (FrontendGetNumQueues(Frontend) == 1)
+        goto done;
+
     if (IpHeader->Version == 4) {
         PIPV4_HEADER    Version4 = &IpHeader->Version4;
 
