@@ -3751,6 +3751,10 @@ ReceiverSetHashAlgorithm(
 
     Frontend = Receiver->Frontend;
 
+    status = FrontendSetHashAlgorithm(Frontend, Algorithm);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 
     for (Index = 0;
@@ -3768,10 +3772,6 @@ ReceiverSetHashAlgorithm(
     }
 
     KeLowerIrql(Irql);
-
-    status = FrontendSetHashAlgorithm(Frontend, Algorithm);
-    if (!NT_SUCCESS(status))
-        goto fail1;
 
     return STATUS_SUCCESS;
 

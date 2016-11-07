@@ -81,6 +81,7 @@ struct _XENVIF_FRONTEND {
     ULONG                       MaxQueues;
     ULONG                       NumQueues;
     BOOLEAN                     Split;
+    ULONG                       DisableToeplitz;
 
     PXENVIF_MAC                 Mac;
     PXENVIF_RECEIVER            Receiver;
@@ -1932,8 +1933,13 @@ FrontendSetHashAlgorithm(
     switch (Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
     case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
-    case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
         status = STATUS_SUCCESS;
+        break;
+
+    case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
+        status = (Frontend->DisableToeplitz != 0) ?
+                 STATUS_NOT_SUPPORTED :
+                 STATUS_SUCCESS;
         break;
 
     default:
@@ -2773,6 +2779,8 @@ FrontendInitialize(
     ULONG                   Length;
     PCHAR                   Path;
     PCHAR                   Prefix;
+    HANDLE                  ParametersKey;
+    ULONG                   FrontendDisableToeplitz;
     NTSTATUS                status;
 
     Trace("====>\n");
@@ -2830,6 +2838,16 @@ FrontendInitialize(
 
     FrontendSetMaxQueues(*Frontend);
     (*Frontend)->Hash.Algorithm = XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED;
+
+    (*Frontend)->DisableToeplitz = 0;
+
+    ParametersKey = DriverGetParametersKey();
+
+    status = RegistryQueryDwordValue(ParametersKey,
+                                     "FrontendDisableToeplitz",
+                                     &FrontendDisableToeplitz);
+    if (NT_SUCCESS(status))
+        (*Frontend)->DisableToeplitz = FrontendDisableToeplitz;
 
     status = MacInitialize(*Frontend, &(*Frontend)->Mac);
     if (!NT_SUCCESS(status))
@@ -2909,6 +2927,8 @@ fail7:
 
 fail6:
     Error("fail6\n");
+
+    (*Frontend)->DisableToeplitz = 0;
 
     RtlZeroMemory(&(*Frontend)->Hash, sizeof (XENVIF_FRONTEND_HASH));
     (*Frontend)->MaxQueues = 0;
@@ -3004,6 +3024,8 @@ FrontendTeardown(
 
     MacTeardown(__FrontendGetMac(Frontend));
     Frontend->Mac = NULL;
+
+    Frontend->DisableToeplitz = 0;
 
     RtlZeroMemory(&Frontend->Hash, sizeof (XENVIF_FRONTEND_HASH));
     Frontend->MaxQueues = 0;
