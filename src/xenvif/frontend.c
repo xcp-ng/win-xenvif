@@ -2773,6 +2773,7 @@ FrontendSuspend(
     Trace("<====\n");
 }
 
+__drv_requiresIRQL(PASSIVE_LEVEL)
 NTSTATUS
 FrontendInitialize(
     IN  PXENVIF_PDO         Pdo,

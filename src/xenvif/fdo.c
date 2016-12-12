@@ -228,6 +228,7 @@ FdoGetPhysicalDeviceObject(
     return __FdoGetPhysicalDeviceObject(Fdo);
 }
 
+__drv_requiresIRQL(PASSIVE_LEVEL)
 static FORCEINLINE NTSTATUS
 __FdoAcquireLowerBusInterface(
     IN  PXENVIF_FDO         Fdo
@@ -2912,6 +2913,7 @@ FdoDispatch(
     return status;
 }
 
+__drv_requiresIRQL(PASSIVE_LEVEL)
 static NTSTATUS
 FdoQueryInterface(
     IN  PXENVIF_FDO     Fdo,
