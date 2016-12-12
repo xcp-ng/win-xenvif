@@ -572,23 +572,19 @@ PdoDumpRevisions(
         ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
                      Revision->VifInterfaceVersion == XENVIF_VIF_INTERFACE_VERSION_MAX));
 
-        if (Revision->StoreInterfaceVersion == 0) { // not-supported
-            ASSERT(Index != ARRAYSIZE(PdoRevision) - 1);
-            goto show_revision;
+        if (Revision->StoreInterfaceVersion != 0) {
+            ASSERT3U(Revision->StoreInterfaceVersion, >=, XENBUS_STORE_INTERFACE_VERSION_MIN);
+            ASSERT3U(Revision->StoreInterfaceVersion, <=, XENBUS_STORE_INTERFACE_VERSION_MAX);
+            ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
+                         Revision->StoreInterfaceVersion == XENBUS_STORE_INTERFACE_VERSION_MAX));
         }
 
-        ASSERT3U(Revision->StoreInterfaceVersion, >=, XENBUS_STORE_INTERFACE_VERSION_MIN);
-        ASSERT3U(Revision->StoreInterfaceVersion, <=, XENBUS_STORE_INTERFACE_VERSION_MAX);
-        ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
-                     Revision->StoreInterfaceVersion == XENBUS_STORE_INTERFACE_VERSION_MAX));
-
-        ASSERT3U(Revision->SuspendInterfaceVersion, >=, XENBUS_SUSPEND_INTERFACE_VERSION_MIN);
-        ASSERT3U(Revision->SuspendInterfaceVersion, <=, XENBUS_SUSPEND_INTERFACE_VERSION_MAX);
-        ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
-                     Revision->SuspendInterfaceVersion == XENBUS_SUSPEND_INTERFACE_VERSION_MAX));
-
-show_revision:
-        ASSERT3U(Revision->Number >> 24, ==, MAJOR_VERSION);
+        if (Revision->SuspendInterfaceVersion != 0) {
+            ASSERT3U(Revision->SuspendInterfaceVersion, >=, XENBUS_SUSPEND_INTERFACE_VERSION_MIN);
+            ASSERT3U(Revision->SuspendInterfaceVersion, <=, XENBUS_SUSPEND_INTERFACE_VERSION_MAX);
+            ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
+                         Revision->SuspendInterfaceVersion == XENBUS_SUSPEND_INTERFACE_VERSION_MAX));
+        }
 
         Info("%08X -> "
              "CACHE v%u "
