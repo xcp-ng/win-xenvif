@@ -69,8 +69,6 @@ struct _XENVIF_CONTROLLER {
     xen_netif_ctrl_sring_t              *Shared;
     PXENBUS_GNTTAB_ENTRY                Entry;
     PXENBUS_EVTCHN_CHANNEL              Channel;
-    KDPC                                Dpc;
-    ULONG                               Dpcs;
     ULONG                               Events;
     BOOLEAN                             Connected;
     USHORT                              RequestId;
@@ -81,7 +79,6 @@ struct _XENVIF_CONTROLLER {
     XENBUS_STORE_INTERFACE              StoreInterface;
     XENBUS_DEBUG_INTERFACE              DebugInterface;
     PXENBUS_DEBUG_CALLBACK              DebugCallback;
-    PXENVIF_THREAD                      WatchdogThread;
 };
 
 #define XENVIF_CONTROLLER_TAG  'TNOC'
@@ -202,7 +199,11 @@ ControllerPutRequest(
         goto fail2;
 
     Controller->Request.type = Type;
+
     Controller->Request.id = Controller->RequestId++;
+    if (Controller->Request.id == 0) // Make sure we skip zero
+        Controller->Request.id = Controller->RequestId++;
+
     Controller->Request.data[0] = Data0;
     Controller->Request.data[1] = Data1;
     Controller->Request.data[2] = Data2;
@@ -242,10 +243,9 @@ fail1:
 
 #define TIME_US(_us)        ((_us) * 10)
 #define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
-#define TIME_S(_s)          (TIME_MS((_s) * 1000))
 #define TIME_RELATIVE(_t)   (-(_t))
 
-#define XENVIF_CONTROLLER_POLL_PERIOD 5
+#define XENVIF_CONTROLLER_POLL_PERIOD 100 // ms
 
 static NTSTATUS
 ControllerGetResponse(
@@ -256,7 +256,7 @@ ControllerGetResponse(
     LARGE_INTEGER                   Timeout;
     NTSTATUS                        status;
 
-    Timeout.QuadPart = TIME_RELATIVE(TIME_S(XENVIF_CONTROLLER_POLL_PERIOD));
+    Timeout.QuadPart = TIME_RELATIVE(TIME_MS(XENVIF_CONTROLLER_POLL_PERIOD));
 
     for (;;) {
         ControllerPoll(Controller);
@@ -270,7 +270,7 @@ ControllerGetResponse(
                                Controller->Channel,
                                &Timeout);
         if (status == STATUS_TIMEOUT)
-            Warning("TIMED OUT\n");
+            __ControllerSend(Controller);
     }
 
     ASSERT3U(Controller->Response.type, ==, Controller->Request.type);
@@ -308,103 +308,6 @@ ControllerGetResponse(
     return status;
 }
 
-#define XENVIF_CONTROLLER_WATCHDOG_PERIOD 15
-
-static NTSTATUS
-ControllerWatchdog(
-    IN  PXENVIF_THREAD  Self,
-    IN  PVOID           Context
-    )
-{
-    PXENVIF_CONTROLLER  Controller = Context;
-    LARGE_INTEGER       Timeout;
-    RING_IDX            rsp_prod;
-    RING_IDX            rsp_cons;
-
-    Trace("====>\n");
-
-    Timeout.QuadPart = TIME_RELATIVE(TIME_S(XENVIF_CONTROLLER_WATCHDOG_PERIOD));
-
-    rsp_prod = 0;
-    rsp_cons = 0;
-
-    for (;;) {
-        PKEVENT Event;
-        KIRQL   Irql;
-
-        Event = ThreadGetEvent(Self);
-
-        (VOID) KeWaitForSingleObject(Event,
-                                     Executive,
-                                     KernelMode,
-                                     FALSE,
-                                     &Timeout);
-        KeClearEvent(Event);
-
-        if (ThreadIsAlerted(Self))
-            break;
-
-        KeRaiseIrql(DISPATCH_LEVEL, &Irql);
-        __ControllerAcquireLock(Controller);
-
-        if (Controller->Connected) {
-            KeMemoryBarrier();
-
-            if (Controller->Shared->rsp_prod != rsp_prod &&
-                Controller->Front.rsp_cons == rsp_cons) {
-                XENBUS_DEBUG(Trigger,
-                             &Controller->DebugInterface,
-                             Controller->DebugCallback);
-
-                // Try to move things along
-                ControllerPoll(Controller);
-                __ControllerSend(Controller);
-            }
-
-            KeMemoryBarrier();
-
-            rsp_prod = Controller->Shared->rsp_prod;
-            rsp_cons = Controller->Front.rsp_cons;
-        }
-
-        __ControllerReleaseLock(Controller);
-        KeLowerIrql(Irql);
-    }
-
-    Trace("<====\n");
-
-    return STATUS_SUCCESS;
-}
-
-__drv_functionClass(KDEFERRED_ROUTINE)
-__drv_maxIRQL(DISPATCH_LEVEL)
-__drv_minIRQL(DISPATCH_LEVEL)
-__drv_requiresIRQL(DISPATCH_LEVEL)
-__drv_sameIRQL
-static VOID
-ControllerDpc(
-    IN  PKDPC                   Dpc,
-    IN  PVOID                   Context,
-    IN  PVOID                   Argument1,
-    IN  PVOID                   Argument2
-    )
-{
-    PXENVIF_CONTROLLER          Controller = Context;
-
-    UNREFERENCED_PARAMETER(Dpc);
-    UNREFERENCED_PARAMETER(Argument1);
-    UNREFERENCED_PARAMETER(Argument2);
-
-    ASSERT(Controller != NULL);
-
-    __ControllerAcquireLock(Controller);
-
-    if (Controller->Connected)
-        ControllerPoll(Controller);
-
-    __ControllerReleaseLock(Controller);
-}
-
 KSERVICE_ROUTINE    ControllerEvtchnCallback;
 
 BOOLEAN
@@ -420,9 +323,6 @@ ControllerEvtchnCallback(
     ASSERT(Controller != NULL);
 
     Controller->Events++;
-
-    if (KeInsertQueueDpc(&Controller->Dpc, NULL, NULL))
-        Controller->Dpcs++;
 
     return TRUE;
 }
@@ -466,40 +366,15 @@ ControllerInitialize(
                           &(*Controller)->EvtchnInterface);
 
     KeInitializeSpinLock(&(*Controller)->Lock);
-    KeInitializeDpc(&(*Controller)->Dpc, ControllerDpc, *Controller);
 
     KeQuerySystemTime(&Now);
     Seed = Now.LowPart;
 
     (*Controller)->RequestId = (USHORT)RtlRandomEx(&Seed);
 
-    status = ThreadCreate(ControllerWatchdog,
-                          *Controller,
-                          &(*Controller)->WatchdogThread);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
     (*Controller)->Frontend = Frontend;
 
     return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
-
-    RtlZeroMemory(&(*Controller)->Lock,
-                  sizeof (KSPIN_LOCK));
-
-    RtlZeroMemory(&(*Controller)->GnttabInterface,
-                  sizeof (XENBUS_GNTTAB_INTERFACE));
-
-    RtlZeroMemory(&(*Controller)->StoreInterface,
-                  sizeof (XENBUS_STORE_INTERFACE));
-
-    RtlZeroMemory(&(*Controller)->DebugInterface,
-                  sizeof (XENBUS_DEBUG_INTERFACE));
-
-    RtlZeroMemory(&(*Controller)->EvtchnInterface,
-                  sizeof (XENBUS_EVTCHN_INTERFACE));
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -638,9 +513,6 @@ ControllerConnect(
 
     Controller->Connected = TRUE;
 
-    if (KeInsertQueueDpc(&Controller->Dpc, NULL, NULL))
-        Controller->Dpcs++;
-
     __ControllerReleaseLock(Controller);
 
 done:
@@ -656,7 +528,6 @@ fail10:
     Controller->Channel = NULL;
 
     Controller->Events = 0;
-    Controller->Dpcs = 0;
 
 fail9:
     Error("fail9\n");
@@ -818,7 +689,6 @@ ControllerDisconnect(
     Controller->Channel = NULL;
 
     Controller->Events = 0;
-    Controller->Dpcs = 0;
 
     (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
                          &Controller->GnttabInterface,
@@ -858,18 +728,10 @@ ControllerTeardown(
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
-    KeFlushQueuedDpcs();
 
     Controller->Frontend = NULL;
 
-    ThreadAlert(Controller->WatchdogThread);
-    ThreadJoin(Controller->WatchdogThread);
-    Controller->WatchdogThread = NULL;
-
     Controller->RequestId = 0;
-
-    RtlZeroMemory(&Controller->Dpc,
-                  sizeof (KDPC));
 
     RtlZeroMemory(&Controller->Lock,
                   sizeof (KSPIN_LOCK));
