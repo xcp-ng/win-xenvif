@@ -63,12 +63,6 @@ VifTeardown(
 // CALLBACKS
 
 extern VOID
-VifReceiverQueuePacketsVersion1(
-    IN  PXENVIF_VIF_CONTEXT Context,
-    IN  PLIST_ENTRY         List
-    );
-
-extern VOID
 VifReceiverQueuePacket(
     IN  PXENVIF_VIF_CONTEXT             Context,
     IN  ULONG                           Index,
@@ -82,12 +76,6 @@ VifReceiverQueuePacket(
     IN  PXENVIF_PACKET_HASH             Hash,
     IN  BOOLEAN                         More,
     IN  PVOID                           Cookie
-    );
-
-extern VOID
-VifTransmitterReturnPacketsVersion2(
-    IN  PXENVIF_VIF_CONTEXT Context,
-    IN  PLIST_ENTRY         List
     );
 
 extern VOID

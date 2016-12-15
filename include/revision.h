@@ -40,15 +40,6 @@
 
 //                    REVISION   C   V   ST  SU
 #define DEFINE_REVISION_TABLE                       \
-    DEFINE_REVISION(0x08000002,  1,  2,  0,  0),    \
-    DEFINE_REVISION(0x08000003,  1,  3,  0,  0),    \
-    DEFINE_REVISION(0x08000004,  1,  3,  2,  1),    \
-    DEFINE_REVISION(0x08000005,  1,  2,  1,  1),    \
-    DEFINE_REVISION(0x08000006,  1,  4,  2,  1),    \
-    DEFINE_REVISION(0x08000007,  1,  3,  1,  1),    \
-    DEFINE_REVISION(0x08000008,  1,  4,  1,  1),    \
-    DEFINE_REVISION(0x08000009,  1,  5,  2,  1),    \
-    DEFINE_REVISION(0x0800000A,  1,  5,  1,  1),    \
     DEFINE_REVISION(0x0800000B,  1,  6,  2,  1),    \
     DEFINE_REVISION(0x0800000C,  1,  7,  2,  1),    \
     DEFINE_REVISION(0x0800000D,  1,  8,  2,  1),    \
