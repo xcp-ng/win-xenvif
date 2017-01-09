@@ -420,7 +420,6 @@ TransmitterBufferDtor(
     Mdl->ByteCount = PAGE_SIZE;
 
     __FreePage(Mdl);
-    ExFreePool(Mdl);
 
     ASSERT(IsZeroMemory(Buffer, sizeof (XENVIF_TRANSMITTER_BUFFER)));
 }
