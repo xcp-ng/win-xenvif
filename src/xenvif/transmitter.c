@@ -2786,6 +2786,7 @@ TransmitterRingPoll(
         KeMemoryBarrier();
 
         Ring->Front.rsp_cons = rsp_cons;
+        Ring->Shared->rsp_event = rsp_cons + 1;
     }
 
 done:
@@ -2858,8 +2859,6 @@ __TransmitterRingPushRequests(
 
 #pragma warning (push)
 #pragma warning (disable:4244)
-
-    Ring->Shared->rsp_event = Ring->Front.req_prod_pvt;
 
     // Make the requests visible to the backend
     RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&Ring->Front, Notify);
