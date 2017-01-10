@@ -121,6 +121,7 @@ typedef struct _XENVIF_RECEIVER_PACKET {
     PXENVIF_RECEIVER_RING           Ring;
     MDL                             Mdl;
     PFN_NUMBER                      __Pfn;
+    PMDL                            SystemMdl;
 } XENVIF_RECEIVER_PACKET, *PXENVIF_RECEIVER_PACKET;
 
 struct _XENVIF_RECEIVER {
@@ -170,7 +171,6 @@ ReceiverPacketCtor(
     PXENVIF_RECEIVER_RING   Ring = Argument;
     PXENVIF_RECEIVER_PACKET Packet = Object;
     PMDL                    Mdl;
-    PUCHAR                  StartVa;
     NTSTATUS                status;
 
     ASSERT(IsZeroMemory(Packet, sizeof (XENVIF_RECEIVER_PACKET)));
@@ -181,18 +181,17 @@ ReceiverPacketCtor(
     if (Mdl == NULL)
         goto fail1;
 
-    StartVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-    ASSERT(StartVa != NULL);
-    RtlFillMemory(StartVa, PAGE_SIZE, 0xAA);
-
     ASSERT3U(Mdl->ByteOffset, ==, 0);
-    Mdl->StartVa = StartVa;
-    Mdl->ByteCount = 0;
 
-    Packet->Mdl = *Mdl;
+    Packet->SystemMdl = Mdl;
+
+    Packet->Mdl.Size = sizeof (MDL) + sizeof (PFN_NUMBER);
+    Packet->Mdl.MdlFlags = Mdl->MdlFlags;
+
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    Packet->Mdl.MappedSystemVa = Mdl->MappedSystemVa;
+
     Packet->__Pfn = MmGetMdlPfnArray(Mdl)[0];
-
-    ExFreePool(Mdl);
 
     Packet->Ring = Ring;
 
@@ -219,13 +218,12 @@ ReceiverPacketDtor(
     ASSERT3P(Packet->Ring, ==, Ring);
     Packet->Ring = NULL;
 
-    Mdl = &Packet->Mdl;
-
-    Mdl->ByteCount = PAGE_SIZE;
+    Mdl = Packet->SystemMdl;
+    Packet->SystemMdl = NULL;
 
     __FreePage(Mdl);
 
-    RtlZeroMemory(Mdl, sizeof (MDL) + sizeof (PFN_NUMBER));
+    RtlZeroMemory(&Packet->Mdl, sizeof (MDL) + sizeof (PFN_NUMBER));
 
     ASSERT(IsZeroMemory(Packet, sizeof (XENVIF_RECEIVER_PACKET)));
 }
@@ -263,7 +261,7 @@ __ReceiverRingPutPacket(
 {
     PXENVIF_RECEIVER            Receiver;
     PXENVIF_FRONTEND            Frontend;
-    PMDL                        Mdl = &Packet->Mdl;
+    PMDL                        Mdl = Packet->SystemMdl;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -280,10 +278,13 @@ __ReceiverRingPutPacket(
     RtlZeroMemory(&Packet->Info, sizeof (XENVIF_PACKET_INFO));
     RtlZeroMemory(&Packet->Hash, sizeof (XENVIF_PACKET_HASH));
 
-    Mdl->MappedSystemVa = Mdl->StartVa;
-    Mdl->ByteOffset = 0;
-    Mdl->ByteCount = 0;
-    ASSERT3P(Mdl->Next, ==, NULL);
+    RtlZeroMemory(&Packet->Mdl, sizeof (MDL));
+
+    Packet->Mdl.Size = sizeof (MDL) + sizeof (PFN_NUMBER);
+    Packet->Mdl.MdlFlags = Mdl->MdlFlags;
+
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    Packet->Mdl.MappedSystemVa = Mdl->MappedSystemVa;
 
     XENBUS_CACHE(Put,
                  &Receiver->CacheInterface,
@@ -2042,10 +2043,19 @@ ReceiverRingPoll(
 
                 Extra = (extra->flags & XEN_NETIF_EXTRA_FLAG_MORE) ? TRUE : FALSE;
             } else {
+                PUCHAR  StartVa;
+
                 ASSERT3U(rsp->id, ==, id);
 
+                StartVa = MmGetSystemAddressForMdlSafe(Mdl,
+                                                       NormalPagePriority);
+                ASSERT(StartVa != NULL);
+
                 Mdl->ByteOffset = rsp->offset;
-                Mdl->MappedSystemVa = (PUCHAR)Mdl->StartVa + rsp->offset;
+
+                StartVa += rsp->offset;
+                Mdl->MappedSystemVa = StartVa;
+
                 Mdl->ByteCount = rsp->status;
 
                 if (rsp->status < 0)
