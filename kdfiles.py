@@ -2,25 +2,14 @@
 
 import os, sys
 import subprocess
+import glob
 from pprint import pprint
-
-def callfnout(cmd):
-    print(cmd)
-
-    sub = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-    output = sub.communicate()[0]
-    ret = sub.returncode
-
-    if ret != 0:
-        raise(Exception("Error %d in : %s" % (ret, cmd)))
-
-    return output.decode('utf-8')
 
 def regenerate_kdfiles(filename, arch, pkg, source):
 	cwd = os.getcwd()
 	file = open(filename, 'w')
 	os.chdir(pkg + '/' + arch)
-	drivers = callfnout(['ls','*.sys']).split()
+	drivers = glob.glob('*.sys')
 	pprint(drivers)
 	for driver in drivers:
 		file.write("map\n")
