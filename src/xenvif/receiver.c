@@ -424,7 +424,11 @@ ReceiverRingProcessTag(
                   Offset);
 
     // Fix up the packet information
-    Packet->Offset += sizeof (ETHERNET_TAG);
+    BaseVa += sizeof (ETHERNET_TAG);
+
+    BaseVa -= Packet->Offset;
+    Packet->Mdl.MappedSystemVa = BaseVa;
+
     Packet->Length -= sizeof (ETHERNET_TAG);
 
     Info->EthernetHeader.Length -= sizeof (ETHERNET_TAG);
@@ -445,10 +449,6 @@ ReceiverRingProcessTag(
         Info->TcpOptions.Offset -= sizeof (ETHERNET_TAG);
 
     Info->Length -= sizeof (ETHERNET_TAG);
-
-    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
-    BaseVa = Packet->Mdl.MappedSystemVa;
-    ASSERT(BaseVa != NULL);
 
     BaseVa += Packet->Offset;
 
