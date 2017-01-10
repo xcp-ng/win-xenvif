@@ -185,8 +185,13 @@ ReceiverPacketCtor(
 
     Packet->SystemMdl = Mdl;
 
+#pragma warning(push)
+#pragma warning(disable:28145) // modifying struct MDL
+
     Packet->Mdl.Size = sizeof (MDL) + sizeof (PFN_NUMBER);
     Packet->Mdl.MdlFlags = Mdl->MdlFlags;
+
+#pragma warning(pop)
 
     ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     Packet->Mdl.MappedSystemVa = Mdl->MappedSystemVa;
@@ -280,8 +285,13 @@ __ReceiverRingPutPacket(
 
     RtlZeroMemory(&Packet->Mdl, sizeof (MDL));
 
+#pragma warning(push)
+#pragma warning(disable:28145) // modifying struct MDL
+
     Packet->Mdl.Size = sizeof (MDL) + sizeof (PFN_NUMBER);
     Packet->Mdl.MdlFlags = Mdl->MdlFlags;
+
+#pragma warning(pop)
 
     ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     Packet->Mdl.MappedSystemVa = Mdl->MappedSystemVa;
