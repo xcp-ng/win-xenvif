@@ -395,7 +395,7 @@ ReceiverRingProcessTag(
 {
     PXENVIF_PACKET_INFO          Info;
     ULONG                        PayloadLength;
-    PUCHAR                       StartVa;
+    PUCHAR                       BaseVa;
     PETHERNET_HEADER             EthernetHeader;
     ULONG                        Offset;
 
@@ -403,12 +403,14 @@ ReceiverRingProcessTag(
 
     PayloadLength = Packet->Length - Info->Length;
 
-    StartVa = MmGetSystemAddressForMdlSafe(&Packet->Mdl, NormalPagePriority);
-    ASSERT(StartVa != NULL);
-    StartVa += Packet->Offset;
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    BaseVa = Packet->Mdl.MappedSystemVa;
+    ASSERT(BaseVa != NULL);
+
+    BaseVa += Packet->Offset;
 
     ASSERT(Info->EthernetHeader.Length != 0);
-    EthernetHeader = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);
+    EthernetHeader = (PETHERNET_HEADER)(BaseVa + Info->EthernetHeader.Offset);
 
     if (!ETHERNET_HEADER_IS_TAGGED(EthernetHeader) ||
         Ring->OffloadOptions.OffloadTagManipulation == 0)
@@ -422,10 +424,10 @@ ReceiverRingProcessTag(
                   Offset);
 
     // Fix up the packet information
-    StartVa += sizeof (ETHERNET_TAG);
+    BaseVa += sizeof (ETHERNET_TAG);
 
-    StartVa -= Packet->Offset;
-    Packet->Mdl.MappedSystemVa = StartVa;
+    BaseVa -= Packet->Offset;
+    Packet->Mdl.MappedSystemVa = BaseVa;
 
     Packet->Length -= sizeof (ETHERNET_TAG);
 
@@ -448,10 +450,6 @@ ReceiverRingProcessTag(
 
     Info->Length -= sizeof (ETHERNET_TAG);
 
-    StartVa += Packet->Offset;
-
-    EthernetHeader = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);
-
     ASSERT3U(PayloadLength, ==, Packet->Length - Info->Length);
 }
 
@@ -466,7 +464,7 @@ ReceiverRingProcessChecksum(
     PXENVIF_PACKET_INFO         Info;
     XENVIF_PACKET_PAYLOAD       Payload;
     uint16_t                    flags;
-    PUCHAR                      StartVa;
+    PUCHAR                      BaseVa;
     PIP_HEADER                  IpHeader;
 
     Receiver = Ring->Receiver;
@@ -492,11 +490,13 @@ ReceiverRingProcessChecksum(
     if (Info->IpHeader.Length == 0)
         return;
 
-    StartVa = MmGetSystemAddressForMdlSafe(&Packet->Mdl, NormalPagePriority);
-    ASSERT(StartVa != NULL);
-    StartVa += Packet->Offset;
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    BaseVa = Packet->Mdl.MappedSystemVa;
+    ASSERT(BaseVa != NULL);
 
-    IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+    BaseVa += Packet->Offset;
+
+    IpHeader = (PIP_HEADER)(BaseVa + Info->IpHeader.Offset);
 
     if (IpHeader->Version == 4) {
         BOOLEAN OffloadChecksum;
@@ -513,7 +513,7 @@ ReceiverRingProcessChecksum(
 
             Embedded = IpHeader->Version4.Checksum;
 
-            Calculated = ChecksumIpVersion4Header(StartVa, Info);
+            Calculated = ChecksumIpVersion4Header(BaseVa, Info);
 
             if (ChecksumVerify(Calculated, Embedded))
                 Packet->Flags.IpChecksumSucceeded = 1;
@@ -528,7 +528,7 @@ ReceiverRingProcessChecksum(
         PTCP_HEADER     TcpHeader;
         BOOLEAN         OffloadChecksum;
 
-        TcpHeader = (PTCP_HEADER)(StartVa + Info->TcpHeader.Offset);
+        TcpHeader = (PTCP_HEADER)(BaseVa + Info->TcpHeader.Offset);
 
         if (IpHeader->Version == 4 && Ring->OffloadOptions.OffloadIpVersion4TcpChecksum)
             OffloadChecksum = TRUE;
@@ -548,8 +548,8 @@ ReceiverRingProcessChecksum(
 
                 Embedded = TcpHeader->Checksum;
 
-                Calculated = ChecksumPseudoHeader(StartVa, Info);
-                Calculated = ChecksumTcpPacket(StartVa, Info, Calculated, &Payload);
+                Calculated = ChecksumPseudoHeader(BaseVa, Info);
+                Calculated = ChecksumTcpPacket(BaseVa, Info, Calculated, &Payload);
 
                 if (ChecksumVerify(Calculated, Embedded))
                     Packet->Flags.TcpChecksumSucceeded = 1;
@@ -565,8 +565,8 @@ ReceiverRingProcessChecksum(
             (flags & NETRXF_data_validated)) {
             USHORT  Calculated;
 
-            Calculated = ChecksumPseudoHeader(StartVa, Info);
-            Calculated = ChecksumTcpPacket(StartVa, Info, Calculated, &Payload);
+            Calculated = ChecksumPseudoHeader(BaseVa, Info);
+            Calculated = ChecksumTcpPacket(BaseVa, Info, Calculated, &Payload);
 
             TcpHeader->Checksum = Calculated;
         }
@@ -574,7 +574,7 @@ ReceiverRingProcessChecksum(
         PUDP_HEADER     UdpHeader;
         BOOLEAN         OffloadChecksum;
 
-        UdpHeader = (PUDP_HEADER)(StartVa + Info->UdpHeader.Offset);
+        UdpHeader = (PUDP_HEADER)(BaseVa + Info->UdpHeader.Offset);
 
         if (IpHeader->Version == 4 && Ring->OffloadOptions.OffloadIpVersion4UdpChecksum)
             OffloadChecksum = TRUE;
@@ -599,8 +599,8 @@ ReceiverRingProcessChecksum(
                 } else {
                     USHORT  Calculated;
 
-                    Calculated = ChecksumPseudoHeader(StartVa, Info);
-                    Calculated = ChecksumUdpPacket(StartVa, Info, Calculated, &Payload);
+                    Calculated = ChecksumPseudoHeader(BaseVa, Info);
+                    Calculated = ChecksumUdpPacket(BaseVa, Info, Calculated, &Payload);
 
                     if (ChecksumVerify(Calculated, Embedded))
                         Packet->Flags.UdpChecksumSucceeded = 1;
@@ -617,8 +617,8 @@ ReceiverRingProcessChecksum(
             (flags & NETRXF_data_validated)) {
             USHORT  Calculated;
 
-            Calculated = ChecksumPseudoHeader(StartVa, Info);
-            Calculated = ChecksumUdpPacket(StartVa, Info, Calculated, &Payload);
+            Calculated = ChecksumPseudoHeader(BaseVa, Info);
+            Calculated = ChecksumUdpPacket(BaseVa, Info, Calculated, &Payload);
 
             UdpHeader->Checksum = Calculated;
         }
@@ -647,7 +647,8 @@ ReceiverRingPullup(
         PUCHAR  SourceVa;
         ULONG   CopyLength;
 
-        SourceVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+        ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+        SourceVa = Mdl->MappedSystemVa;
         ASSERT(SourceVa != NULL);
 
         CopyLength = __min(Mdl->ByteCount, Length);
@@ -657,7 +658,7 @@ ReceiverRingPullup(
         DestinationVa += CopyLength;
 
         Mdl->ByteOffset += CopyLength;
-        Mdl->MappedSystemVa = (PUCHAR)Mdl->MappedSystemVa + CopyLength;
+        Mdl->MappedSystemVa = SourceVa + CopyLength;
         Length -= CopyLength;
 
         Mdl->ByteCount -= CopyLength;
@@ -688,12 +689,13 @@ __ReceiverRingPullupPacket(
     IN  PXENVIF_RECEIVER_PACKET Packet
     )
 {
-    PUCHAR                      StartVa;
+    PUCHAR                      BaseVa;
     XENVIF_PACKET_PAYLOAD       Payload;
     ULONG                       Length;
 
-    StartVa = MmGetSystemAddressForMdlSafe(&Packet->Mdl, NormalPagePriority);
-    ASSERT(StartVa != NULL);
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    BaseVa = Packet->Mdl.MappedSystemVa;
+    ASSERT(BaseVa != NULL);
 
     Payload.Mdl = Packet->Mdl.Next;
     Payload.Offset = 0;
@@ -703,7 +705,7 @@ __ReceiverRingPullupPacket(
 
     Packet->Mdl.Next = NULL;
 
-    (VOID) ReceiverRingPullup(Ring, StartVa + Packet->Mdl.ByteCount, &Payload, Length);
+    (VOID) ReceiverRingPullup(Ring, BaseVa + Packet->Mdl.ByteCount, &Payload, Length);
     Packet->Mdl.ByteCount += Length;
 
     if (Payload.Length != 0) {
@@ -725,7 +727,7 @@ __ReceiverRingBuildSegment(
     PXENVIF_RECEIVER_PACKET     Segment;
     PMDL                        Mdl;
     PUCHAR                      InfoVa;
-    PUCHAR                      StartVa;
+    PUCHAR                      BaseVa;
     PIP_HEADER                  IpHeader;
     PTCP_HEADER                 TcpHeader;
     ULONG                       Seq;
@@ -735,8 +737,10 @@ __ReceiverRingBuildSegment(
 
     Info = &Packet->Info;
 
-    InfoVa = MmGetSystemAddressForMdlSafe(&Packet->Mdl, NormalPagePriority);
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    InfoVa = Packet->Mdl.MappedSystemVa;
     ASSERT(InfoVa != NULL);
+
     InfoVa += Packet->Offset;
 
     Segment = __ReceiverRingGetPacket(Ring, TRUE);
@@ -756,14 +760,16 @@ __ReceiverRingBuildSegment(
 
     Mdl = &Segment->Mdl;
 
-    StartVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-    ASSERT(StartVa != NULL);
-    StartVa += Segment->Offset;
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    BaseVa = Mdl->MappedSystemVa;
+    ASSERT(BaseVa != NULL);
+
+    BaseVa += Segment->Offset;
 
     Mdl->ByteCount = Segment->Offset;
 
     // Copy in the header
-    RtlCopyMemory(StartVa, InfoVa, Info->Length);
+    RtlCopyMemory(BaseVa, InfoVa, Info->Length);
     Mdl->ByteCount += Info->Length;
 
     // Adjust the info for the next segment
@@ -794,7 +800,7 @@ __ReceiverRingBuildSegment(
     TcpHeader->Flags &= ~TCP_CWR;
 
     // Adjust the segment IP header
-    IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+    IpHeader = (PIP_HEADER)(BaseVa + Info->IpHeader.Offset);
     if (IpHeader->Version == 4) {
         ULONG   PacketLength;
 
@@ -805,7 +811,7 @@ __ReceiverRingBuildSegment(
                        SegmentSize;
 
         IpHeader->Version4.PacketLength = HTONS((USHORT)PacketLength);
-        IpHeader->Version4.Checksum = ChecksumIpVersion4Header(StartVa, Info);
+        IpHeader->Version4.Checksum = ChecksumIpVersion4Header(BaseVa, Info);
     } else {
         ULONG   PayloadLength;
 
@@ -820,7 +826,7 @@ __ReceiverRingBuildSegment(
     }
 
     // Adjust the segment TCP header
-    TcpHeader = (PTCP_HEADER)(StartVa + Info->TcpHeader.Offset);
+    TcpHeader = (PTCP_HEADER)(BaseVa + Info->TcpHeader.Offset);
 
     TcpHeader->Flags &= ~(TCP_PSH | TCP_FIN);
 
@@ -835,18 +841,20 @@ __ReceiverRingBuildSegment(
             goto fail2;
 
         Mdl = Mdl->Next;
-        StartVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-        ASSERT(StartVa != NULL);
+
+        ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+        BaseVa = Mdl->MappedSystemVa;
+        ASSERT(BaseVa != NULL);
 
         Mdl->ByteOffset = Ring->BackfillSize;
 
-        StartVa += Ring->BackfillSize;
-        Mdl->MappedSystemVa = StartVa;
+        BaseVa += Ring->BackfillSize;
+        Mdl->MappedSystemVa = BaseVa;
 
         Length = __min(SegmentSize - Segment->Length, PAGE_SIZE - Mdl->ByteOffset);
         ASSERT(Length != 0);
 
-        (VOID) ReceiverRingPullup(Ring, StartVa, Payload, Length);
+        (VOID) ReceiverRingPullup(Ring, BaseVa, Payload, Length);
         Mdl->ByteCount += Length;
         Segment->Length += Length;
 
@@ -924,8 +932,10 @@ ReceiverRingProcessLargePacket(
 
     Packet->Mdl.Next = NULL;
 
-    InfoVa = MmGetSystemAddressForMdlSafe(&Packet->Mdl, NormalPagePriority);
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    InfoVa = Packet->Mdl.MappedSystemVa;
     ASSERT(InfoVa != NULL);
+
     InfoVa += Packet->Offset;
 
     IpHeader = (PIP_HEADER)(InfoVa + Info->IpHeader.Offset);
@@ -1105,7 +1115,7 @@ ReceiverRingProcessStandardPacket(
         __ReceiverRingPullupPacket(Ring, Packet);
     else if (Payload.Mdl != NULL && Payload.Mdl->ByteOffset < Ring->BackfillSize) {
         PMDL    Mdl;
-        PUCHAR  StartVa;
+        PUCHAR  BaseVa;
 
         // NDIS Header/Data split requires that the data MDL has a minimum length
         // of headroom (i.e. ByteOffset) so that it can pre-pend the header to the data
@@ -1117,17 +1127,18 @@ ReceiverRingProcessStandardPacket(
         if (Mdl == NULL)
             goto fail2;
 
-        StartVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-        ASSERT(StartVa != NULL);
+        ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+        BaseVa = Mdl->MappedSystemVa;
+        ASSERT(BaseVa != NULL);
 
         Mdl->ByteOffset = Ring->BackfillSize;
         Mdl->ByteCount = __min(Payload.Mdl->ByteCount,
                                PAGE_SIZE - Mdl->ByteOffset);
 
-        StartVa += Ring->BackfillSize;
-        Mdl->MappedSystemVa = StartVa;
+        BaseVa += Ring->BackfillSize;
+        Mdl->MappedSystemVa = BaseVa;
 
-        (VOID) ReceiverRingPullup(Ring, StartVa, &Payload, Mdl->ByteCount);
+        (VOID) ReceiverRingPullup(Ring, BaseVa, &Payload, Mdl->ByteCount);
 
         if (Payload.Length != 0) {
             ASSERT(Payload.Mdl != NULL);
@@ -1183,7 +1194,7 @@ ReceiverRingProcessPacket(
     XENVIF_PACKET_PAYLOAD           Payload;
     PXENVIF_RECEIVER_PACKET         New;
     PXENVIF_PACKET_INFO             Info;
-    PUCHAR                          StartVa;
+    PUCHAR                          BaseVa;
     PETHERNET_HEADER                EthernetHeader;
     PETHERNET_ADDRESS               DestinationAddress;
     NTSTATUS                        status;
@@ -1222,15 +1233,17 @@ ReceiverRingProcessPacket(
     // Override offset to align
     Packet->Offset = Receiver->IpAlignOffset;
 
-    StartVa = MmGetSystemAddressForMdlSafe(&Packet->Mdl, NormalPagePriority);
-    ASSERT(StartVa != NULL);
-    StartVa += Packet->Offset;
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    BaseVa = Packet->Mdl.MappedSystemVa;
+    ASSERT(BaseVa != NULL);
+
+    BaseVa += Packet->Offset;
 
     Packet->Mdl.ByteCount = Packet->Offset;
 
     Info = &Packet->Info;
 
-    status = ParsePacket(StartVa, ReceiverRingPullup, Ring, &Payload, Info);
+    status = ParsePacket(BaseVa, ReceiverRingPullup, Ring, &Payload, Info);
     if (!NT_SUCCESS(status)) {
         FrontendIncrementStatistic(Frontend,
                                    XENVIF_RECEIVER_FRONTEND_ERRORS,
@@ -1248,7 +1261,7 @@ ReceiverRingProcessPacket(
     }
 
     ASSERT(Info->EthernetHeader.Length != 0);
-    EthernetHeader = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);
+    EthernetHeader = (PETHERNET_HEADER)(BaseVa + Info->EthernetHeader.Offset);
 
     DestinationAddress = &EthernetHeader->DestinationAddress;
 
@@ -1385,7 +1398,7 @@ __ReceiverRingReleaseLock(
         PLIST_ENTRY             ListEntry;
         PXENVIF_RECEIVER_PACKET Packet;
         PXENVIF_PACKET_INFO     Info;
-        PUCHAR                  StartVa;
+        PUCHAR                  BaseVa;
         PETHERNET_HEADER        EthernetHeader;
         PETHERNET_ADDRESS       DestinationAddress;
         ETHERNET_ADDRESS_TYPE   Type;
@@ -1402,15 +1415,16 @@ __ReceiverRingReleaseLock(
                                    XENVIF_RECEIVER_PACKET,
                                    ListEntry);
 
-        StartVa = MmGetSystemAddressForMdlSafe(&Packet->Mdl,
-                                               NormalPagePriority);
-        ASSERT(StartVa != NULL);
-        StartVa += Packet->Offset;
+        ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+        BaseVa = Packet->Mdl.MappedSystemVa;
+        ASSERT(BaseVa != NULL);
+
+        BaseVa += Packet->Offset;
 
         Info = &Packet->Info;
 
         ASSERT(Info->EthernetHeader.Length != 0);
-        EthernetHeader = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);
+        EthernetHeader = (PETHERNET_HEADER)(BaseVa + Info->EthernetHeader.Offset);
 
         DestinationAddress = &EthernetHeader->DestinationAddress;
 
@@ -1460,7 +1474,7 @@ __ReceiverRingReleaseLock(
                                        1);
 
         if (Info->IpHeader.Length != 0) {
-            PIP_HEADER  IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+            PIP_HEADER  IpHeader = (PIP_HEADER)(BaseVa + Info->IpHeader.Offset);
 
             if (IpHeader->Version == 4) {
                 FrontendIncrementStatistic(Frontend,
@@ -2045,18 +2059,18 @@ ReceiverRingPoll(
 
                 Extra = (extra->flags & XEN_NETIF_EXTRA_FLAG_MORE) ? TRUE : FALSE;
             } else {
-                PUCHAR  StartVa;
+                PUCHAR  BaseVa;
 
                 ASSERT3U(rsp->id, ==, id);
 
-                StartVa = MmGetSystemAddressForMdlSafe(Mdl,
-                                                       NormalPagePriority);
-                ASSERT(StartVa != NULL);
+                ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+                BaseVa = Mdl->MappedSystemVa;
+                ASSERT(BaseVa != NULL);
 
                 Mdl->ByteOffset = rsp->offset;
 
-                StartVa += rsp->offset;
-                Mdl->MappedSystemVa = StartVa;
+                BaseVa += rsp->offset;
+                Mdl->MappedSystemVa = BaseVa;
 
                 Mdl->ByteCount = rsp->status;
 
@@ -2556,7 +2570,8 @@ __ReceiverRingConnect(
     if (Ring->Mdl == NULL)
         goto fail3;
 
-    Ring->Shared = MmGetSystemAddressForMdlSafe(Ring->Mdl, NormalPagePriority);
+    ASSERT(Ring->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    Ring->Shared = Ring->Mdl->MappedSystemVa;
     ASSERT(Ring->Shared != NULL);
 
     SHARED_RING_INIT(Ring->Shared);

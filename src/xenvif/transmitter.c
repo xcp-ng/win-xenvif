@@ -373,7 +373,6 @@ TransmitterBufferCtor(
 {
     PXENVIF_TRANSMITTER_BUFFER  Buffer = Object;
     PMDL		                Mdl;
-    PUCHAR		                MdlMappedSystemVa;
     NTSTATUS	                status;
 
     UNREFERENCED_PARAMETER(Argument);
@@ -385,10 +384,6 @@ TransmitterBufferCtor(
     status = STATUS_NO_MEMORY;
     if (Mdl == NULL)
 	goto fail1;
-
-    MdlMappedSystemVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-    ASSERT(MdlMappedSystemVa != NULL);
-    RtlFillMemory(MdlMappedSystemVa, PAGE_SIZE, 0xAA);
 
     Mdl->ByteCount = 0;
     Buffer->Mdl = Mdl;
@@ -808,22 +803,22 @@ TransmitterPullup(
     Payload->Length -= Length;
 
     while (Length != 0) {
-        PUCHAR  MdlMappedSystemVa;
+        PUCHAR  SourceVa;
         ULONG   MdlByteCount;
         ULONG   CopyLength;
 
         ASSERT(Mdl != NULL);
 
-        MdlMappedSystemVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-        ASSERT(MdlMappedSystemVa != NULL);
+        SourceVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+        ASSERT(SourceVa != NULL);
 
-        MdlMappedSystemVa += Offset;
+        SourceVa += Offset;
 
         MdlByteCount = Mdl->ByteCount - Offset;
 
         CopyLength = __min(MdlByteCount, Length);
 
-        RtlCopyMemory(DestinationVa, MdlMappedSystemVa, CopyLength);
+        RtlCopyMemory(DestinationVa, SourceVa, CopyLength);
         DestinationVa += CopyLength;
 
         Offset += CopyLength;
@@ -872,7 +867,7 @@ __TransmitterRingCopyPayload(
     while (Payload.Length != 0) {
         PMDL        Mdl;
         ULONG       Length;
-        PUCHAR      MdlMappedSystemVa;
+        PUCHAR      BaseVa;
         PFN_NUMBER  Pfn;
 
         Buffer = __TransmitterGetBuffer(Ring);
@@ -888,8 +883,11 @@ __TransmitterRingCopyPayload(
 
         Length = __min(Payload.Length, PAGE_SIZE);
 
-        MdlMappedSystemVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-        (VOID) TransmitterPullup(Transmitter, MdlMappedSystemVa, &Payload, Length);
+        ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+        BaseVa = Mdl->MappedSystemVa;
+        ASSERT(BaseVa != NULL);
+
+        (VOID) TransmitterPullup(Transmitter, BaseVa, &Payload, Length);
 
         Mdl->ByteCount = Length;
 
@@ -1170,7 +1168,7 @@ __TransmitterRingPrepareHeader(
     PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
     PXENVIF_TRANSMITTER_BUFFER      Buffer;
     PMDL                            Mdl;
-    PUCHAR                          StartVa;
+    PUCHAR                          BaseVa;
     PFN_NUMBER                      Pfn;
     PETHERNET_HEADER                EthernetHeader;
     BOOLEAN                         SquashError;
@@ -1205,10 +1203,11 @@ __TransmitterRingPrepareHeader(
 
     Mdl = Buffer->Mdl;
 
-    StartVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-    ASSERT(StartVa != NULL);
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    BaseVa = Mdl->MappedSystemVa;
+    ASSERT(BaseVa != NULL);
 
-    RtlCopyMemory(StartVa, Packet->Header, Info->Length);
+    RtlCopyMemory(BaseVa, Packet->Header, Info->Length);
 
     Mdl->ByteCount = Info->Length;
 
@@ -1244,7 +1243,7 @@ __TransmitterRingPrepareHeader(
     State->Count++;
 
     ASSERT(Info->EthernetHeader.Length != 0);
-    EthernetHeader = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);        
+    EthernetHeader = (PETHERNET_HEADER)(BaseVa + Info->EthernetHeader.Offset);
 
     if (Packet->OffloadOptions.OffloadTagManipulation) {
         ULONG   Offset;
@@ -1292,10 +1291,10 @@ __TransmitterRingPrepareHeader(
         ASSERT(!Info->IsAFragment);
 
         ASSERT(Info->IpHeader.Length != 0);
-        IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+        IpHeader = (PIP_HEADER)(BaseVa + Info->IpHeader.Offset);
 
         ASSERT(Info->TcpHeader.Length != 0);
-        TcpHeader = (PTCP_HEADER)(StartVa + Info->TcpHeader.Offset);
+        TcpHeader = (PTCP_HEADER)(BaseVa + Info->TcpHeader.Offset);
 
         // Fix up the IP packet length
         Length = Info->IpHeader.Length +
@@ -1331,10 +1330,10 @@ __TransmitterRingPrepareHeader(
         ASSERT(!Info->IsAFragment);
 
         ASSERT(Info->IpHeader.Length != 0);
-        IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+        IpHeader = (PIP_HEADER)(BaseVa + Info->IpHeader.Offset);
 
         ASSERT(Info->TcpHeader.Length != 0);
-        TcpHeader = (PTCP_HEADER)(StartVa + Info->TcpHeader.Offset);
+        TcpHeader = (PTCP_HEADER)(BaseVa + Info->TcpHeader.Offset);
 
         // Fix up the IP payload length
         Length = Info->IpOptions.Length + 
@@ -1375,11 +1374,11 @@ __TransmitterRingPrepareHeader(
     if (Info->IpHeader.Length != 0) {
         PIP_HEADER  IpHeader;
 
-        IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+        IpHeader = (PIP_HEADER)(BaseVa + Info->IpHeader.Offset);
 
         if (IpHeader->Version == 4) {
             if (Packet->OffloadOptions.OffloadIpVersion4HeaderChecksum) {
-                IpHeader->Version4.Checksum = ChecksumIpVersion4Header(StartVa, Info);
+                IpHeader->Version4.Checksum = ChecksumIpVersion4Header(BaseVa, Info);
 
                 Packet->Flags.IpChecksumNotValidated = 1;
             } else if (Transmitter->ValidateChecksums != 0) {
@@ -1388,7 +1387,7 @@ __TransmitterRingPrepareHeader(
 
                 Embedded = IpHeader->Version4.Checksum;
 
-                Calculated = ChecksumIpVersion4Header(StartVa, Info);
+                Calculated = ChecksumIpVersion4Header(BaseVa, Info);
 
                 if (ChecksumVerify(Calculated, Embedded))
                     Packet->Flags.IpChecksumSucceeded = 1;
@@ -1403,11 +1402,11 @@ __TransmitterRingPrepareHeader(
     if (Info->TcpHeader.Length != 0) {
         PTCP_HEADER TcpHeader;
 
-        TcpHeader = (PTCP_HEADER)(StartVa + Info->TcpHeader.Offset);
+        TcpHeader = (PTCP_HEADER)(BaseVa + Info->TcpHeader.Offset);
 
         if (Packet->OffloadOptions.OffloadIpVersion4TcpChecksum ||
             Packet->OffloadOptions.OffloadIpVersion6TcpChecksum) {
-            TcpHeader->Checksum = ChecksumPseudoHeader(StartVa, Info);
+            TcpHeader->Checksum = ChecksumPseudoHeader(BaseVa, Info);
 
             Packet->Flags.TcpChecksumNotValidated = 1;
         } else if (Transmitter->ValidateChecksums != 0) {
@@ -1416,8 +1415,8 @@ __TransmitterRingPrepareHeader(
 
             Embedded = TcpHeader->Checksum;
 
-            Calculated = ChecksumPseudoHeader(StartVa, Info);
-            Calculated = ChecksumTcpPacket(StartVa, Info, Calculated, Payload);
+            Calculated = ChecksumPseudoHeader(BaseVa, Info);
+            Calculated = ChecksumTcpPacket(BaseVa, Info, Calculated, Payload);
 
             if (ChecksumVerify(Calculated, Embedded))
                 Packet->Flags.TcpChecksumSucceeded = 1;
@@ -1431,11 +1430,11 @@ __TransmitterRingPrepareHeader(
     if (Info->UdpHeader.Length != 0) {
         PUDP_HEADER UdpHeader;
 
-        UdpHeader = (PUDP_HEADER)(StartVa + Info->UdpHeader.Offset);
+        UdpHeader = (PUDP_HEADER)(BaseVa + Info->UdpHeader.Offset);
 
         if (Packet->OffloadOptions.OffloadIpVersion4UdpChecksum ||
             Packet->OffloadOptions.OffloadIpVersion6UdpChecksum) {
-            UdpHeader->Checksum = ChecksumPseudoHeader(StartVa, Info);
+            UdpHeader->Checksum = ChecksumPseudoHeader(BaseVa, Info);
 
             Packet->Flags.UdpChecksumNotValidated = 1;
         } else if (Transmitter->ValidateChecksums != 0) {
@@ -1443,7 +1442,7 @@ __TransmitterRingPrepareHeader(
             USHORT      Embedded;
 
             ASSERT(Info->IpHeader.Length != 0);
-            IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+            IpHeader = (PIP_HEADER)(BaseVa + Info->IpHeader.Offset);
 
             Embedded = UdpHeader->Checksum;
 
@@ -1453,8 +1452,8 @@ __TransmitterRingPrepareHeader(
             } else {
                 USHORT  Calculated;
 
-                Calculated = ChecksumPseudoHeader(StartVa, Info);
-                Calculated = ChecksumUdpPacket(StartVa, Info, Calculated, Payload);
+                Calculated = ChecksumPseudoHeader(BaseVa, Info);
+                Calculated = ChecksumUdpPacket(BaseVa, Info, Calculated, Payload);
 
                 if (ChecksumVerify(Calculated, Embedded))
                     Packet->Flags.UdpChecksumSucceeded = 1;
@@ -1688,7 +1687,7 @@ __TransmitterRingPreparePacket(
             PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
             PXENVIF_TRANSMITTER_BUFFER      Buffer;
             PMDL                            Mdl;
-            PUCHAR                          MdlMappedSystemVa;
+            PUCHAR                          BaseVa;
 
             // Add padding to the tail buffer
             ListEntry = State->List.Blink;
@@ -1701,12 +1700,13 @@ __TransmitterRingPreparePacket(
 
             ASSERT3U(Mdl->ByteCount, <=, PAGE_SIZE - Trailer);
 
-            MdlMappedSystemVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-            ASSERT(MdlMappedSystemVa != NULL);
+            ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+            BaseVa = Mdl->MappedSystemVa;
+            ASSERT(BaseVa != NULL);
 
-            MdlMappedSystemVa += Mdl->ByteCount;
+            BaseVa += Mdl->ByteCount;
 
-            RtlZeroMemory(MdlMappedSystemVa, Trailer);
+            RtlZeroMemory(BaseVa, Trailer);
             Mdl->ByteCount += Trailer;
 
             if (!SingleFragment) {
@@ -1768,7 +1768,7 @@ __TransmitterRingPrepareArp(
     PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
     PXENVIF_TRANSMITTER_BUFFER      Buffer;
     PMDL                            Mdl;
-    PUCHAR                          MdlMappedSystemVa;
+    PUCHAR                          BaseVa;
     PETHERNET_UNTAGGED_HEADER       EthernetHeader;
     PARP_HEADER                     ArpHeader;
     ETHERNET_ADDRESS                SenderHardwareAddress;
@@ -1799,18 +1799,19 @@ __TransmitterRingPrepareArp(
 
     Mdl = Buffer->Mdl;
 
-    MdlMappedSystemVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-    ASSERT(MdlMappedSystemVa != NULL);
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    BaseVa = Mdl->MappedSystemVa;
+    ASSERT(BaseVa != NULL);
 
-    EthernetHeader = (PETHERNET_UNTAGGED_HEADER)MdlMappedSystemVa;
+    EthernetHeader = (PETHERNET_UNTAGGED_HEADER)BaseVa;
 
     MacQueryBroadcastAddress(Mac, &EthernetHeader->DestinationAddress);
     MacQueryCurrentAddress(Mac, &EthernetHeader->SourceAddress);
     EthernetHeader->TypeOrLength = HTONS(ETHERTYPE_ARP);
 
-    MdlMappedSystemVa += sizeof (ETHERNET_UNTAGGED_HEADER);
+    BaseVa += sizeof (ETHERNET_UNTAGGED_HEADER);
 
-    ArpHeader = (PARP_HEADER)MdlMappedSystemVa;
+    ArpHeader = (PARP_HEADER)BaseVa;
 
     ArpHeader->HardwareType = HTONS(HARDWARE_ETHER);
     ArpHeader->ProtocolType = HTONS(PROTOCOL_IPV4);
@@ -1818,21 +1819,21 @@ __TransmitterRingPrepareArp(
     ArpHeader->ProtocolAddressLength = IPV4_ADDRESS_LENGTH;
     ArpHeader->Operation = HTONS(ARP_REQUEST);
 
-    MdlMappedSystemVa += sizeof (ARP_HEADER);
+    BaseVa += sizeof (ARP_HEADER);
 
-    RtlCopyMemory(MdlMappedSystemVa, SenderHardwareAddress.Byte, ETHERNET_ADDRESS_LENGTH);
-    MdlMappedSystemVa += ETHERNET_ADDRESS_LENGTH;
+    RtlCopyMemory(BaseVa, SenderHardwareAddress.Byte, ETHERNET_ADDRESS_LENGTH);
+    BaseVa += ETHERNET_ADDRESS_LENGTH;
 
-    RtlCopyMemory(MdlMappedSystemVa, SenderProtocolAddress.Byte, IPV4_ADDRESS_LENGTH);
-    MdlMappedSystemVa += IPV4_ADDRESS_LENGTH;
+    RtlCopyMemory(BaseVa, SenderProtocolAddress.Byte, IPV4_ADDRESS_LENGTH);
+    BaseVa += IPV4_ADDRESS_LENGTH;
 
-    RtlCopyMemory(MdlMappedSystemVa, TargetHardwareAddress.Byte, ETHERNET_ADDRESS_LENGTH);
-    MdlMappedSystemVa += ETHERNET_ADDRESS_LENGTH;
+    RtlCopyMemory(BaseVa, TargetHardwareAddress.Byte, ETHERNET_ADDRESS_LENGTH);
+    BaseVa += ETHERNET_ADDRESS_LENGTH;
 
-    RtlCopyMemory(MdlMappedSystemVa, TargetProtocolAddress.Byte, IPV4_ADDRESS_LENGTH);
-    MdlMappedSystemVa += IPV4_ADDRESS_LENGTH;
+    RtlCopyMemory(BaseVa, TargetProtocolAddress.Byte, IPV4_ADDRESS_LENGTH);
+    BaseVa += IPV4_ADDRESS_LENGTH;
 
-    Mdl->ByteCount = (ULONG)(MdlMappedSystemVa - (PUCHAR)MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority));
+    Mdl->ByteCount = (ULONG)(BaseVa - (PUCHAR)(Mdl->MappedSystemVa));
 
     Fragment = __TransmitterGetFragment(Ring);
 
@@ -1909,7 +1910,7 @@ __TransmitterRingPrepareNeighbourAdvertisement(
     PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
     PXENVIF_TRANSMITTER_BUFFER      Buffer;
     PMDL                            Mdl;
-    PUCHAR                          MdlMappedSystemVa;
+    PUCHAR                          BaseVa;
     PETHERNET_UNTAGGED_HEADER       EthernetHeader;
     PIPV6_HEADER                    IpHeader;
     PICMPV6_HEADER                  IcmpHeader;
@@ -1939,18 +1940,19 @@ __TransmitterRingPrepareNeighbourAdvertisement(
 
     Mdl = Buffer->Mdl;
 
-    MdlMappedSystemVa = MmGetSystemAddressForMdlSafe(Buffer->Mdl, NormalPagePriority);
-    ASSERT(MdlMappedSystemVa != NULL);
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    BaseVa = Mdl->MappedSystemVa;
+    ASSERT(BaseVa != NULL);
 
-    EthernetHeader = (PETHERNET_UNTAGGED_HEADER)MdlMappedSystemVa;
+    EthernetHeader = (PETHERNET_UNTAGGED_HEADER)BaseVa;
 
     MacQueryBroadcastAddress(Mac, &EthernetHeader->DestinationAddress);
     MacQueryCurrentAddress(Mac, &EthernetHeader->SourceAddress);
     EthernetHeader->TypeOrLength = HTONS(ETHERTYPE_IPV6);
 
-    MdlMappedSystemVa += sizeof (ETHERNET_UNTAGGED_HEADER);
+    BaseVa += sizeof (ETHERNET_UNTAGGED_HEADER);
 
-    IpHeader = (PIPV6_HEADER)MdlMappedSystemVa;
+    IpHeader = (PIPV6_HEADER)BaseVa;
     RtlZeroMemory(IpHeader, sizeof (IPV6_HEADER));
 
     IpHeader->Version = 6;
@@ -1967,28 +1969,28 @@ __TransmitterRingPrepareNeighbourAdvertisement(
     IpHeader->DestinationAddress.Byte[15] = 0x02;
 
     PayloadLength = 0;
-    MdlMappedSystemVa += sizeof (IPV6_HEADER);
+    BaseVa += sizeof (IPV6_HEADER);
 
-    IcmpHeader = (PICMPV6_HEADER)MdlMappedSystemVa;
+    IcmpHeader = (PICMPV6_HEADER)BaseVa;
 
     IcmpHeader->Type = ICMPV6_TYPE_NA;
     IcmpHeader->Code = 0;
     IcmpHeader->Data = HTONL(0x02); // Override flag
 
     PayloadLength += sizeof (ICMPV6_HEADER);
-    MdlMappedSystemVa += sizeof (ICMPV6_HEADER);
+    BaseVa += sizeof (ICMPV6_HEADER);
 
-    RtlCopyMemory(MdlMappedSystemVa, TargetProtocolAddress.Byte, IPV6_ADDRESS_LENGTH);
+    RtlCopyMemory(BaseVa, TargetProtocolAddress.Byte, IPV6_ADDRESS_LENGTH);
 
     PayloadLength += IPV6_ADDRESS_LENGTH;
-    MdlMappedSystemVa += IPV6_ADDRESS_LENGTH;
+    BaseVa += IPV6_ADDRESS_LENGTH;
 
-    RtlCopyMemory(MdlMappedSystemVa, SenderHardwareAddress.Byte, ETHERNET_ADDRESS_LENGTH);
+    RtlCopyMemory(BaseVa, SenderHardwareAddress.Byte, ETHERNET_ADDRESS_LENGTH);
 
     PayloadLength += ETHERNET_ADDRESS_LENGTH;
-    MdlMappedSystemVa += ETHERNET_ADDRESS_LENGTH;
+    BaseVa += ETHERNET_ADDRESS_LENGTH;
 
-    Mdl->ByteCount = (ULONG)(MdlMappedSystemVa - (PUCHAR)MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority));
+    Mdl->ByteCount = (ULONG)(BaseVa - (PUCHAR)(Mdl->MappedSystemVa));
 
     // Fix up IP payload length and ICMPv6 checksum
     IpHeader->PayloadLength = HTONS(PayloadLength);
@@ -2452,7 +2454,7 @@ __TransmitterRingCompletePacket(
     PXENVIF_FRONTEND                Frontend;
     PXENVIF_PACKET_PAYLOAD          Payload;
     PXENVIF_PACKET_INFO             Info;
-    PUCHAR                          StartVa;
+    PUCHAR                          BaseVa;
     PETHERNET_HEADER                EthernetHeader;
     PETHERNET_ADDRESS               DestinationAddress;
     ETHERNET_ADDRESS_TYPE           Type;
@@ -2475,12 +2477,12 @@ __TransmitterRingCompletePacket(
         goto done;
     }
 
-    StartVa = Packet->Header;
+    BaseVa = Packet->Header;
     Info = &Packet->Info;
     Payload = &Packet->Payload;
 
     ASSERT(Info->EthernetHeader.Length != 0);
-    EthernetHeader = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);
+    EthernetHeader = (PETHERNET_HEADER)(BaseVa + Info->EthernetHeader.Offset);
 
     DestinationAddress = &EthernetHeader->DestinationAddress;
 
@@ -2530,7 +2532,7 @@ __TransmitterRingCompletePacket(
                                    1);
 
     if (Info->IpHeader.Length != 0) {
-        PIP_HEADER  IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+        PIP_HEADER  IpHeader = (PIP_HEADER)(BaseVa + Info->IpHeader.Offset);
 
         if (IpHeader->Version == 4) {
             FrontendIncrementStatistic(Frontend,
@@ -3730,7 +3732,8 @@ __TransmitterRingConnect(
     if (Ring->Mdl == NULL)
         goto fail3;
 
-    Ring->Shared = MmGetSystemAddressForMdlSafe(Ring->Mdl, NormalPagePriority);
+    ASSERT(Ring->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    Ring->Shared = Ring->Mdl->MappedSystemVa;
     ASSERT(Ring->Shared != NULL);
 
     SHARED_RING_INIT(Ring->Shared);
@@ -5064,14 +5067,14 @@ __TransmitterHashPacket(
     )
 {
     PXENVIF_FRONTEND                Frontend;
-    PUCHAR                          StartVa;
+    PUCHAR                          BaseVa;
     PXENVIF_PACKET_INFO             Info;
     PIP_HEADER                      IpHeader;
     ULONG                           Value;
 
     Frontend = Transmitter->Frontend;
 
-    StartVa = Packet->Header;
+    BaseVa = Packet->Header;
     Info = &Packet->Info;
 
     if (Info->IpHeader.Length == 0) {
@@ -5079,7 +5082,7 @@ __TransmitterHashPacket(
         goto done;
     }
 
-    IpHeader = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
+    IpHeader = (PIP_HEADER)(BaseVa + Info->IpHeader.Offset);
 
     Value = 0;
 
@@ -5111,7 +5114,7 @@ __TransmitterHashPacket(
     if (Info->TcpHeader.Length != 0) {
         PTCP_HEADER TcpHeader;
 
-        TcpHeader = (PTCP_HEADER)(StartVa + Info->TcpHeader.Offset);
+        TcpHeader = (PTCP_HEADER)(BaseVa + Info->TcpHeader.Offset);
 
         __TransmitterHashAccumulate(&Value,
                                     (PUCHAR)&TcpHeader->SourcePort,
@@ -5124,7 +5127,7 @@ __TransmitterHashPacket(
 
         ASSERT(Info->UdpHeader.Length != 0);
 
-        UdpHeader = (PUDP_HEADER)(StartVa + Info->UdpHeader.Offset);
+        UdpHeader = (PUDP_HEADER)(BaseVa + Info->UdpHeader.Offset);
 
         __TransmitterHashAccumulate(&Value,
                                     (PUCHAR)&UdpHeader->SourcePort,
@@ -5154,7 +5157,7 @@ TransmitterQueuePacket(
 {
     PXENVIF_FRONTEND                Frontend;
     PXENVIF_TRANSMITTER_PACKET      Packet;
-    PUCHAR                          StartVa;
+    PUCHAR                          BaseVa;
     PXENVIF_PACKET_PAYLOAD          Payload;
     PXENVIF_PACKET_INFO             Info;
     XENVIF_PACKET_HASH_ALGORITHM    Algorithm;
@@ -5180,7 +5183,7 @@ TransmitterQueuePacket(
     Packet->Hash = *Hash;
     Packet->Cookie = Cookie;
 
-    StartVa = Packet->Header;
+    BaseVa = Packet->Header;
 
     Payload = &Packet->Payload;
     Payload->Mdl = Packet->Mdl;
@@ -5189,7 +5192,7 @@ TransmitterQueuePacket(
 
     Info = &Packet->Info;
 
-    (VOID) ParsePacket(StartVa, TransmitterPullup, Transmitter, Payload, Info);
+    (VOID) ParsePacket(BaseVa, TransmitterPullup, Transmitter, Payload, Info);
 
     Algorithm = Hash->Algorithm;
 

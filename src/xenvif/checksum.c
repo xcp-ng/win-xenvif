@@ -45,7 +45,7 @@
 static FORCEINLINE VOID
 __AccumulateChecksum(
     IN OUT  PULONG  Accumulator,
-    IN      PUCHAR  MappedSystemVa,
+    IN      PUCHAR  BaseVa,
     IN      ULONG   ByteCount
     )
 {
@@ -54,15 +54,15 @@ __AccumulateChecksum(
     Current = *Accumulator;
 
     while (ByteCount > 1) {
-        Current += *((PUSHORT)MappedSystemVa);
+        Current += *((PUSHORT)BaseVa);
         if (Current & (1 << 31))
             Current = (Current & 0xFFFF) + (Current >> 16);
-        MappedSystemVa += 2;
+        BaseVa += 2;
         ByteCount -= 2;
     }
 
     if (ByteCount != 0)
-        Current += (USHORT)*MappedSystemVa;
+        Current += (USHORT)*BaseVa;
 
     while ((Current >> 16) != 0)
         Current = (Current & 0xFFFF) + (Current >> 16);
@@ -73,11 +73,11 @@ __AccumulateChecksum(
 VOID
 AccumulateChecksum(
     IN OUT  PULONG  Accumulator,
-    IN      PVOID   MappedSystemVa,
+    IN      PVOID   BaseVa,
     IN      ULONG   ByteCount
     )
 {
-    __AccumulateChecksum(Accumulator, MappedSystemVa, ByteCount);
+    __AccumulateChecksum(Accumulator, BaseVa, ByteCount);
 }
 
 BOOLEAN
@@ -324,20 +324,20 @@ ChecksumTcpPacket(
     Length = __min(Length, Payload->Length);
 
     while (Length != 0) {
-        PUCHAR  MappedSystemVa;
+        PUCHAR  BaseVa;
         ULONG   ByteCount;
 
         ASSERT(Mdl != NULL);
 
-        MappedSystemVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-        MappedSystemVa += Offset;
+        BaseVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+        BaseVa += Offset;
 
         ByteCount = Mdl->ByteCount;
         ASSERT3U(Offset, <=, ByteCount);
         ByteCount -= Offset;
         ByteCount = __min(ByteCount, Length);
 
-        __AccumulateChecksum(&Accumulator, MappedSystemVa, ByteCount);
+        __AccumulateChecksum(&Accumulator, BaseVa, ByteCount);
 
         Length -= ByteCount;
 
@@ -403,20 +403,20 @@ ChecksumUdpPacket(
     Length = __min(Length, Payload->Length);
 
     while (Length != 0) {
-        PUCHAR  MappedSystemVa;
+        PUCHAR  BaseVa;
         ULONG   ByteCount;
 
         ASSERT(Mdl != NULL);
 
-        MappedSystemVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
-        MappedSystemVa += Offset;
+        BaseVa = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+        BaseVa += Offset;
 
         ByteCount = Mdl->ByteCount;
         ASSERT3U(Offset, <=, ByteCount);
         ByteCount -= Offset;
         ByteCount = __min(ByteCount, Length);
 
-        __AccumulateChecksum(&Accumulator, MappedSystemVa, ByteCount);
+        __AccumulateChecksum(&Accumulator, BaseVa, ByteCount);
 
         Length -= ByteCount;
 
