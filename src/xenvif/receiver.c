@@ -421,7 +421,11 @@ ReceiverRingProcessTag(
                   Offset);
 
     // Fix up the packet information
-    Packet->Offset += sizeof (ETHERNET_TAG);
+    StartVa += sizeof (ETHERNET_TAG);
+
+    StartVa -= Packet->Offset;
+    Packet->Mdl.MappedSystemVa = StartVa;
+
     Packet->Length -= sizeof (ETHERNET_TAG);
 
     Info->EthernetHeader.Length -= sizeof (ETHERNET_TAG);
@@ -443,8 +447,6 @@ ReceiverRingProcessTag(
 
     Info->Length -= sizeof (ETHERNET_TAG);
 
-    StartVa = MmGetSystemAddressForMdlSafe(&Packet->Mdl, NormalPagePriority);
-    ASSERT(StartVa != NULL);
     StartVa += Packet->Offset;
 
     EthernetHeader = (PETHERNET_HEADER)(StartVa + Info->EthernetHeader.Offset);
