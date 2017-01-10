@@ -462,8 +462,8 @@ ControllerConnect(
     if (Controller->Mdl == NULL)
         goto fail7;
 
-    Controller->Shared = MmGetSystemAddressForMdlSafe(Controller->Mdl,
-                                                      NormalPagePriority);
+    ASSERT(Controller->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    Controller->Shared = Controller->Mdl->MappedSystemVa;
     ASSERT(Controller->Shared != NULL);
 
     SHARED_RING_INIT(Controller->Shared);
@@ -896,7 +896,8 @@ ControllerSetHashKey(
     if (Controller->Mdl == NULL)
         goto fail1;
 
-    Buffer = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    Buffer = Mdl->MappedSystemVa;
     ASSERT(Buffer != NULL);
 
     RtlCopyMemory(Buffer, Key, Size);
@@ -1074,7 +1075,8 @@ ControllerSetHashMapping(
     if (Controller->Mdl == NULL)
         goto fail2;
 
-    Buffer = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    Buffer = Mdl->MappedSystemVa;
     ASSERT(Buffer != NULL);
 
     RtlCopyMemory(Buffer, Mapping, Size * sizeof (ULONG));
