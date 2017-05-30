@@ -259,6 +259,12 @@ ControllerGetResponse(
     Timeout.QuadPart = TIME_RELATIVE(TIME_MS(XENVIF_CONTROLLER_POLL_PERIOD));
 
     for (;;) {
+        ULONG   Count;
+
+        Count = XENBUS_EVTCHN(GetCount,
+                              &Controller->EvtchnInterface,
+                              Controller->Channel);
+
         ControllerPoll(Controller);
         KeMemoryBarrier();
 
@@ -268,6 +274,7 @@ ControllerGetResponse(
         status = XENBUS_EVTCHN(Wait,
                                &Controller->EvtchnInterface,
                                Controller->Channel,
+                               Count + 1,
                                &Timeout);
         if (status == STATUS_TIMEOUT)
             __ControllerSend(Controller);
