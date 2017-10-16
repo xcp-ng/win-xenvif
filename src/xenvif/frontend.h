@@ -166,6 +166,13 @@ FrontendGetTransmitter(
     IN  PXENVIF_FRONTEND    Frontend
     );
 
+#include "poller.h"
+
+extern PXENVIF_POLLER
+FrontendGetPoller(
+    IN  PXENVIF_FRONTEND    Frontend
+    );
+
 #include "controller.h"
 
 extern PXENVIF_CONTROLLER
