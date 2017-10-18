@@ -40,10 +40,16 @@
 
 typedef struct _XENVIF_POLLER XENVIF_POLLER, *PXENVIF_POLLER;
 
+typedef enum _XENVIF_POLLER_EVENT_TYPE {
+    XENVIF_POLLER_EVENT_RECEIVE,
+    XENVIF_POLLER_EVENT_TRANSMIT,
+    XENVIF_POLLER_EVENT_TYPE_COUNT
+} XENVIF_POLLER_EVENT_TYPE, *PXENVIF_POLLER_EVENT_TYPE;
+
 extern NTSTATUS
 PollerInitialize(
     IN  PXENVIF_FRONTEND    Frontend,
-    OUT PXENVIF_POLLER  *Poller
+    OUT PXENVIF_POLLER      *Poller
     );
 
 extern NTSTATUS
@@ -53,13 +59,27 @@ PollerConnect(
 
 extern NTSTATUS
 PollerStoreWrite(
-    IN  PXENVIF_POLLER          Poller,
+    IN  PXENVIF_POLLER              Poller,
     IN  PXENBUS_STORE_TRANSACTION   Transaction
     );
 
 extern NTSTATUS
 PollerEnable(
     IN  PXENVIF_POLLER  Poller
+    );
+
+extern NTSTATUS
+PollerSend(
+    IN  PXENVIF_POLLER              Poller,
+    IN  ULONG                       Index,
+    IN  XENVIF_POLLER_EVENT_TYPE    Event
+    );
+
+extern NTSTATUS
+PollerTrigger(
+    IN  PXENVIF_POLLER              Poller,
+    IN  ULONG                       Index,
+    IN  XENVIF_POLLER_EVENT_TYPE    Event
     );
 
 extern VOID

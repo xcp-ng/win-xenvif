@@ -41,7 +41,6 @@
 #include <store_interface.h>
 #include <cache_interface.h>
 #include <gnttab_interface.h>
-#include <evtchn_interface.h>
 
 #include "pdo.h"
 #include "registry.h"
@@ -88,12 +87,6 @@ typedef struct _XENVIF_RECEIVER_RING {
     netif_rx_front_ring_t       Front;
     netif_rx_sring_t            *Shared;
     PXENBUS_GNTTAB_ENTRY        Entry;
-    PXENBUS_EVTCHN_CHANNEL      Channel;
-    KDPC                        Dpc;
-    ULONG                       Dpcs;
-    KTIMER                      Timer;
-    KDPC                        TimerDpc;
-    ULONG                       Events;
     PXENVIF_RECEIVER_FRAGMENT   Pending[XENVIF_RECEIVER_MAXIMUM_FRAGMENT_ID + 1];
     ULONG                       RequestsPosted;
     ULONG                       RequestsPushed;
@@ -128,7 +121,6 @@ struct _XENVIF_RECEIVER {
     PXENVIF_FRONTEND                Frontend;
     XENBUS_CACHE_INTERFACE          CacheInterface;
     XENBUS_GNTTAB_INTERFACE         GnttabInterface;
-    XENBUS_EVTCHN_INTERFACE         EvtchnInterface;
     PXENVIF_RECEIVER_RING           *Ring;
     LONG                            Loaned;
     LONG                            Returned;
@@ -1615,57 +1607,18 @@ __ReceiverRingIsStopped(
 }
 
 static FORCEINLINE VOID
-__ReceiverRingTrigger(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  BOOLEAN                 Locked
-    )
-{
-    PXENVIF_RECEIVER            Receiver;
-
-    Receiver = Ring->Receiver;
-
-    if (!Locked)
-        __ReceiverRingAcquireLock(Ring);
-
-    if (Ring->Connected)
-        (VOID) XENBUS_EVTCHN(Trigger,
-                             &Receiver->EvtchnInterface,
-                             Ring->Channel);
-
-    if (!Locked)
-        __ReceiverRingReleaseLock(Ring);
-}
-
-static FORCEINLINE VOID
-__ReceiverRingSend(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  BOOLEAN                 Locked
-    )
-{
-    PXENVIF_RECEIVER            Receiver;
-
-    Receiver = Ring->Receiver;
-
-    if (!Locked)
-        __ReceiverRingAcquireLock(Ring);
-
-    if (Ring->Connected)
-        (VOID) XENBUS_EVTCHN(Send,
-                             &Receiver->EvtchnInterface,
-                             Ring->Channel);
-
-    if (!Locked)
-        __ReceiverRingReleaseLock(Ring);
-}
-
-static FORCEINLINE VOID
 __ReceiverRingReturnPacket(
     IN  PXENVIF_RECEIVER_RING   Ring,
     IN  PXENVIF_RECEIVER_PACKET Packet,
     IN  BOOLEAN                 Locked
     )
 {
+    PXENVIF_RECEIVER            Receiver;
+    PXENVIF_FRONTEND            Frontend;
     PMDL                        Mdl;
+
+    Receiver = Ring->Receiver;
+    Frontend = Receiver->Frontend;
 
     Mdl = &Packet->Mdl;
 
@@ -1690,7 +1643,9 @@ __ReceiverRingReturnPacket(
 
         if (__ReceiverRingIsStopped(Ring)) {
             __ReceiverRingStart(Ring);
-            __ReceiverRingTrigger(Ring, TRUE);
+            PollerTrigger(FrontendGetPoller(Frontend),
+                          Ring->Index,
+                          XENVIF_POLLER_EVENT_RECEIVE);
         }
 
         if (!Locked)
@@ -1770,8 +1725,17 @@ __ReceiverRingPushRequests(
 
 #pragma warning (pop)
 
-    if (Notify)
-        __ReceiverRingSend(Ring, TRUE);
+    if (Notify) {
+        PXENVIF_RECEIVER    Receiver;
+        PXENVIF_FRONTEND    Frontend;
+
+        Receiver = Ring->Receiver;
+        Frontend = Receiver->Frontend;
+
+        PollerSend(FrontendGetPoller(Frontend),
+                   Ring->Index,
+                   XENVIF_POLLER_EVENT_RECEIVE);
+    }
 
     Ring->RequestsPushed = Ring->RequestsPosted;
 }
@@ -1927,14 +1891,6 @@ ReceiverRingDebugCallback(
                  Ring->RequestsPosted,
                  Ring->RequestsPushed,
                  Ring->ResponsesProcessed);
-
-    // Dump event channel
-    XENBUS_DEBUG(Printf,
-                 &Receiver->DebugInterface,
-                 "[%s]: Events = %lu Dpcs = %lu\n",
-                 FrontendIsSplit(Frontend) ? "RX" : "COMBINED",
-                 Ring->Events,
-                 Ring->Dpcs);
 }
 
 static DECLSPEC_NOINLINE BOOLEAN
@@ -2182,129 +2138,10 @@ done:
 #undef  XENVIF_RECEIVER_BATCH
 }
 
-static FORCEINLINE VOID
-__ReceiverRingUnmask(
-    IN  PXENVIF_RECEIVER_RING   Ring
-    )
-{
-    PXENVIF_RECEIVER            Receiver;
-
-    if (!Ring->Connected)
-        return;
-
-    Receiver = Ring->Receiver;
-
-    XENBUS_EVTCHN(Unmask,
-                  &Receiver->EvtchnInterface,
-                  Ring->Channel,
-                  FALSE);
-}
-
-static FORCEINLINE BOOLEAN
-__ReceiverRingDpcTimeout(
-    IN  PXENVIF_RECEIVER_RING   Ring
-    )
-{
-    KDPC_WATCHDOG_INFORMATION   Watchdog;
-    NTSTATUS                    status;
-
-    UNREFERENCED_PARAMETER(Ring);
-
-    RtlZeroMemory(&Watchdog, sizeof (Watchdog));
-
-    status = KeQueryDpcWatchdogInformation(&Watchdog);
-    ASSERT(NT_SUCCESS(status));
-
-    if (Watchdog.DpcTimeLimit == 0 ||
-        Watchdog.DpcWatchdogLimit == 0)
-        return FALSE;
-
-    if (Watchdog.DpcTimeCount > (Watchdog.DpcTimeLimit / 2) &&
-        Watchdog.DpcWatchdogCount > (Watchdog.DpcWatchdogLimit / 2))
-        return FALSE;
-
-    return TRUE;
-}
-
 #define TIME_US(_us)        ((_us) * 10)
 #define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
 #define TIME_S(_s)          (TIME_MS((_s) * 1000))
 #define TIME_RELATIVE(_t)   (-(_t))
-
-__drv_functionClass(KDEFERRED_ROUTINE)
-__drv_maxIRQL(DISPATCH_LEVEL)
-__drv_minIRQL(DISPATCH_LEVEL)
-__drv_requiresIRQL(DISPATCH_LEVEL)
-__drv_sameIRQL
-static VOID
-ReceiverRingDpc(
-    IN  PKDPC               Dpc,
-    IN  PVOID               Context,
-    IN  PVOID               Argument1,
-    IN  PVOID               Argument2
-    )
-{
-    PXENVIF_RECEIVER_RING   Ring = Context;
-
-    UNREFERENCED_PARAMETER(Dpc);
-    UNREFERENCED_PARAMETER(Argument1);
-    UNREFERENCED_PARAMETER(Argument2);
-
-    ASSERT(Ring != NULL);
-
-    for (;;) {
-        BOOLEAN Retry;
-
-        __ReceiverRingAcquireLock(Ring);
-        Retry = ReceiverRingPoll(Ring);
-        __ReceiverRingReleaseLock(Ring);
-
-        if (!Retry) {
-            __ReceiverRingUnmask(Ring);
-            break;
-        }
-
-        if (__ReceiverRingDpcTimeout(Ring)) {
-            LARGE_INTEGER   Delay;
-
-            Delay.QuadPart = TIME_RELATIVE(TIME_US(100));
-
-            KeSetTimer(&Ring->Timer, Delay, &Ring->TimerDpc);
-            break;
-        }
-    }
-}
-
-KSERVICE_ROUTINE    ReceiverRingEvtchnCallback;
-
-BOOLEAN
-ReceiverRingEvtchnCallback(
-    IN  PKINTERRUPT             InterruptObject,
-    IN  PVOID                   Argument
-    )
-{
-    PXENVIF_RECEIVER_RING       Ring = Argument;
-    PXENVIF_RECEIVER            Receiver;
-    PXENVIF_FRONTEND            Frontend;
-
-    UNREFERENCED_PARAMETER(InterruptObject);
-
-    ASSERT(Ring != NULL);
-
-    Ring->Events++;
-
-    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
-        Ring->Dpcs++;
-
-    Receiver = Ring->Receiver;
-    Frontend = Receiver->Frontend;
-
-    if (!FrontendIsSplit(Frontend))
-        TransmitterNotify(FrontendGetTransmitter(Frontend),
-                          Ring->Index);
-
-    return TRUE;
-}
 
 #define XENVIF_RECEIVER_WATCHDOG_PERIOD 30
 
@@ -2369,16 +2206,22 @@ ReceiverRingWatchdog(
             if (Ring->Shared->rsp_prod != rsp_prod &&
                 Ring->Front.rsp_cons == rsp_cons) {
                 PXENVIF_RECEIVER    Receiver;
+                PXENVIF_FRONTEND    Frontend;
 
                 Receiver = Ring->Receiver;
+                Frontend = Receiver->Frontend;
 
                 XENBUS_DEBUG(Trigger,
                              &Receiver->DebugInterface,
                              Ring->DebugCallback);
 
                 // Try to move things along
-                __ReceiverRingTrigger(Ring, TRUE);
-                __ReceiverRingSend(Ring, TRUE);
+                PollerTrigger(FrontendGetPoller(Frontend),
+                              Ring->Index,
+                              XENVIF_POLLER_EVENT_RECEIVE);
+                PollerSend(FrontendGetPoller(Frontend),
+                           Ring->Index,
+                           XENVIF_POLLER_EVENT_RECEIVE);
             }
 
             KeMemoryBarrier();
@@ -2425,10 +2268,6 @@ __ReceiverRingInitialize(
         goto fail2;
 
     InitializeListHead(&(*Ring)->PacketList);
-
-    KeInitializeDpc(&(*Ring)->Dpc, ReceiverRingDpc, *Ring);
-    KeInitializeTimer(&(*Ring)->Timer);
-    KeInitializeDpc(&(*Ring)->TimerDpc, ReceiverRingDpc, *Ring);
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
@@ -2513,10 +2352,6 @@ fail4:
 fail3:
     Error("fail3\n");
 
-    RtlZeroMemory(&(*Ring)->TimerDpc, sizeof (KDPC));
-    RtlZeroMemory(&(*Ring)->Timer, sizeof (KTIMER));
-    RtlZeroMemory(&(*Ring)->Dpc, sizeof (KDPC));
-
     RtlZeroMemory(&(*Ring)->PacketList, sizeof (LIST_ENTRY));
 
     FrontendFreePath(Frontend, (*Ring)->Path);
@@ -2550,7 +2385,6 @@ __ReceiverRingConnect(
     PFN_NUMBER                  Pfn;
     CHAR                        Name[MAXNAMELEN];
     ULONG                       Index;
-    PROCESSOR_NUMBER            ProcNumber;
     NTSTATUS                    status;
 
     Receiver = Ring->Receiver;
@@ -2614,35 +2448,6 @@ __ReceiverRingConnect(
 
     ASSERT(!Ring->Connected);
 
-    Ring->Channel = XENBUS_EVTCHN(Open,
-                                  &Receiver->EvtchnInterface,
-                                  XENBUS_EVTCHN_TYPE_UNBOUND,
-                                  ReceiverRingEvtchnCallback,
-                                  Ring,
-                                  FrontendGetBackendDomain(Frontend),
-                                  TRUE);
-
-    status = STATUS_UNSUCCESSFUL;
-    if (Ring->Channel == NULL)
-        goto fail6;
-
-    status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
-    ASSERT(NT_SUCCESS(status));
-
-    KeSetTargetProcessorDpcEx(&Ring->Dpc, &ProcNumber);
-    KeSetTargetProcessorDpcEx(&Ring->TimerDpc, &ProcNumber);
-
-    (VOID) XENBUS_EVTCHN(Bind,
-                         &Receiver->EvtchnInterface,
-                         Ring->Channel,
-                         ProcNumber.Group,
-                         ProcNumber.Number);
-
-    XENBUS_EVTCHN(Unmask,
-                  &Receiver->EvtchnInterface,
-                  Ring->Channel,
-                  FALSE);
-
     Ring->Connected = TRUE;
 
     status = XENBUS_DEBUG(Register,
@@ -2652,24 +2457,14 @@ __ReceiverRingConnect(
                           Ring,
                           &Ring->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail6;
 
     return STATUS_SUCCESS;
 
-fail7:
-    Error("fail7\n");
-
-    Ring->Connected = FALSE;
-
-    XENBUS_EVTCHN(Close,
-                  &Receiver->EvtchnInterface,
-                  Ring->Channel);
-    Ring->Channel = NULL;
-
-    Ring->Events = 0;
-
 fail6:
     Error("fail6\n");
+
+    Ring->Connected = FALSE;
 
 fail5:
     Error("fail5\n");
@@ -2716,7 +2511,6 @@ __ReceiverRingStoreWrite(
 {
     PXENVIF_RECEIVER                Receiver;
     PXENVIF_FRONTEND                Frontend;
-    ULONG                           Port;
     PCHAR                           Path;
     NTSTATUS                        status;
 
@@ -2739,24 +2533,7 @@ __ReceiverRingStoreWrite(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    Port = XENBUS_EVTCHN(GetPort,
-                         &Receiver->EvtchnInterface,
-                         Ring->Channel);
-
-    status = XENBUS_STORE(Printf,
-                          &Receiver->StoreInterface,
-                          Transaction,
-                          Path,
-                          FrontendIsSplit(Frontend) ? "event-channel-rx" : "event-channel",
-                          "%u",
-                          Port);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
     return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -2791,8 +2568,6 @@ __ReceiverRingEnable(
         goto fail1;
 
     Ring->Enabled = TRUE;
-
-    (VOID) KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
 
     __ReceiverRingReleaseLock(Ring);
 
@@ -2834,12 +2609,6 @@ __ReceiverRingDisable(
 
     __ReceiverRingReleaseLock(Ring);
 
-    //
-    // No new timers can be scheduled once Enabled goes to FALSE.
-    // Cancel any existing ones.
-    //
-    (VOID) KeCancelTimer(&Ring->Timer);
-
     Info("%s[%u]: <====\n",
          FrontendGetPath(Frontend),
          Ring->Index);
@@ -2860,14 +2629,6 @@ __ReceiverRingDisconnect(
 
     ASSERT(Ring->Connected);
     Ring->Connected = FALSE;
-
-    XENBUS_EVTCHN(Close,
-                  &Receiver->EvtchnInterface,
-                  Ring->Channel);
-    Ring->Channel = NULL;
-
-    Ring->Events = 0;
-    Ring->Dpcs = 0;
 
     ASSERT3U(Ring->ResponsesProcessed, ==, Ring->RequestsPushed);
     ASSERT3U(Ring->RequestsPushed, ==, Ring->RequestsPosted);
@@ -2913,9 +2674,6 @@ __ReceiverRingTeardown(
     Frontend = Receiver->Frontend;
 
     RtlZeroMemory(&Ring->Hash, sizeof (XENVIF_RECEIVER_HASH));
-    RtlZeroMemory(&Ring->TimerDpc, sizeof (KDPC));
-    RtlZeroMemory(&Ring->Timer, sizeof (KTIMER));
-    RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
 
     Ring->BackfillSize = 0;
     Ring->OffloadOptions.Value = 0;
@@ -3085,9 +2843,6 @@ ReceiverInitialize(
     FdoGetGnttabInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
                           &(*Receiver)->GnttabInterface);
 
-    FdoGetEvtchnInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
-                          &(*Receiver)->EvtchnInterface);
-
     (*Receiver)->Frontend = Frontend;
 
     status = XENBUS_CACHE(Acquire, &(*Receiver)->CacheInterface);
@@ -3140,9 +2895,6 @@ fail2:
 
     (*Receiver)->Frontend = NULL;
 
-    RtlZeroMemory(&(*Receiver)->EvtchnInterface,
-                  sizeof (XENBUS_EVTCHN_INTERFACE));
-
     RtlZeroMemory(&(*Receiver)->GnttabInterface,
                   sizeof (XENBUS_GNTTAB_INTERFACE));
 
@@ -3194,13 +2946,9 @@ ReceiverConnect(
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    status = XENBUS_EVTCHN(Acquire, &Receiver->EvtchnInterface);
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
     status = XENBUS_GNTTAB(Acquire, &Receiver->GnttabInterface);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail3;
 
     Index = 0;
     while (Index < (LONG)FrontendGetNumQueues(Frontend)) {
@@ -3208,7 +2956,7 @@ ReceiverConnect(
 
         status = __ReceiverRingConnect(Ring);
         if (!NT_SUCCESS(status))
-            goto fail5;
+            goto fail4;
 
         Index++;
     }    
@@ -3220,18 +2968,18 @@ ReceiverConnect(
                           Receiver,
                           &Receiver->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail5;
 
     Trace("<====\n");
     return STATUS_SUCCESS;
 
-fail6:
-    Error("fail6\n");
+fail5:
+    Error("fail5\n");
 
     Index = FrontendGetNumQueues(Frontend);
 
-fail5:
-    Error("fail5\n");
+fail4:
+    Error("fail4\n");
 
     while (--Index >= 0) {
         PXENVIF_RECEIVER_RING   Ring = Receiver->Ring[Index];
@@ -3240,11 +2988,6 @@ fail5:
     }
 
     XENBUS_GNTTAB(Release, &Receiver->GnttabInterface);
-
-fail4:
-    Error("fail4\n");
-
-    XENBUS_EVTCHN(Release, &Receiver->EvtchnInterface);
 
 fail3:
     Error("fail3\n");
@@ -3485,6 +3228,34 @@ fail1:
     return status;
 }
 
+BOOLEAN
+ReceiverPoll(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  ULONG               Index
+    )
+{
+    PXENVIF_FRONTEND        Frontend;
+    ULONG                   NumQueues;
+    PXENVIF_RECEIVER_RING   Ring;
+    BOOLEAN                 Retry;
+
+    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+    Frontend = Receiver->Frontend;
+
+    NumQueues = FrontendGetNumQueues(Frontend);
+    if (Index >= NumQueues)
+        return FALSE;
+
+    Ring = Receiver->Ring[Index];
+
+    __ReceiverRingAcquireLock(Ring);
+    Retry = ReceiverRingPoll(Ring);
+    __ReceiverRingReleaseLock(Ring);
+
+    return Retry;
+}
+
 VOID
 ReceiverDisable(
     IN  PXENVIF_RECEIVER    Receiver
@@ -3533,8 +3304,6 @@ ReceiverDisconnect(
 
     XENBUS_GNTTAB(Release, &Receiver->GnttabInterface);
 
-    XENBUS_EVTCHN(Release, &Receiver->EvtchnInterface);
-
     XENBUS_STORE(Release, &Receiver->StoreInterface);
 
     XENBUS_DEBUG(Release, &Receiver->DebugInterface);
@@ -3551,9 +3320,6 @@ ReceiverTeardown(
     LONG                    Index;
 
     Frontend = Receiver->Frontend;
-
-    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
-    KeFlushQueuedDpcs();
 
     ASSERT3U(Receiver->Returned, ==, Receiver->Loaned);
     Receiver->Loaned = 0;
@@ -3573,9 +3339,6 @@ ReceiverTeardown(
     XENBUS_CACHE(Release, &Receiver->CacheInterface);
 
     Receiver->Frontend = NULL;
-
-    RtlZeroMemory(&Receiver->EvtchnInterface,
-                  sizeof (XENBUS_EVTCHN_INTERFACE));
 
     RtlZeroMemory(&Receiver->GnttabInterface,
                   sizeof (XENBUS_GNTTAB_INTERFACE));
@@ -3751,32 +3514,6 @@ ReceiverWaitForPackets(
          Returned);
 
     Trace("%s: <====\n", FrontendGetPath(Frontend));
-}
-
-VOID
-ReceiverTrigger(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  ULONG               Index
-    )
-{
-    PXENVIF_RECEIVER_RING   Ring;
-
-    Ring = Receiver->Ring[Index];
-
-    __ReceiverRingTrigger(Ring, FALSE);
-}
-
-VOID
-ReceiverSend(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  ULONG               Index
-    )
-{
-    PXENVIF_RECEIVER_RING   Ring;
-
-    Ring = Receiver->Ring[Index];
-
-    __ReceiverRingSend(Ring, FALSE);
 }
 
 NTSTATUS
