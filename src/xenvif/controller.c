@@ -502,10 +502,11 @@ ControllerConnect(
     if (Controller->Channel == NULL)
         goto fail9;
 
-    XENBUS_EVTCHN(Unmask,
-                  &Controller->EvtchnInterface,
-                  Controller->Channel,
-                  FALSE);
+    (VOID) XENBUS_EVTCHN(Unmask,
+                         &Controller->EvtchnInterface,
+                         Controller->Channel,
+                         FALSE,
+                         TRUE);
 
     status = XENBUS_DEBUG(Register,
                           &Controller->DebugInterface,

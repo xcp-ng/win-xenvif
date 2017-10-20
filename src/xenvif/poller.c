@@ -330,10 +330,11 @@ PollerChannelConnect(
                          ProcNumber.Group,
                          ProcNumber.Number);
 
-    XENBUS_EVTCHN(Unmask,
-                  &Poller->EvtchnInterface,
-                  Channel->Channel,
-                  FALSE);
+    (VOID) XENBUS_EVTCHN(Unmask,
+                         &Poller->EvtchnInterface,
+                         Channel->Channel,
+                         FALSE,
+                         TRUE);
 
 done:
     return STATUS_SUCCESS;
@@ -391,6 +392,7 @@ PollerChannelUnmask(
 {
     PXENVIF_POLLER_INSTANCE     Instance;
     PXENVIF_POLLER              Poller;
+    BOOLEAN                     Pending;
 
     Instance = Channel->Instance;
     Poller = Instance->Poller;
@@ -398,11 +400,16 @@ PollerChannelUnmask(
     if (Channel->Channel == NULL)
         return;
 
-    if (!PollerChannelTestPending(Channel))
-        XENBUS_EVTCHN(Unmask,
-                      &Poller->EvtchnInterface,
-                      Channel->Channel,
-                      FALSE);
+    if (PollerChannelTestPending(Channel))
+        return;
+
+    Pending = XENBUS_EVTCHN(Unmask,
+                            &Poller->EvtchnInterface,
+                            Channel->Channel,
+                            FALSE,
+                            FALSE);
+    if (Pending)
+        PollerChannelSetPending(Channel);
 }
 
 static VOID
