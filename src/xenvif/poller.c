@@ -602,8 +602,6 @@ PollerInstanceDpc(
     PXENVIF_POLLER_INSTANCE Instance = Context;
     PXENVIF_POLLER          Poller;
     PXENVIF_FRONTEND        Frontend;
-    BOOLEAN                 NeedReceiverPoll;
-    BOOLEAN                 NeedTransmitterPoll;
 
     UNREFERENCED_PARAMETER(Dpc);
     UNREFERENCED_PARAMETER(Argument1);
@@ -614,17 +612,17 @@ PollerInstanceDpc(
     Poller = Instance->Poller;
     Frontend = Poller->Frontend;
 
-    NeedReceiverPoll = FALSE;
-    NeedTransmitterPoll = FALSE;
-
     for (;;) {
-        NeedReceiverPoll |=
+        BOOLEAN NeedReceiverPoll;
+        BOOLEAN NeedTransmitterPoll;
+
+        NeedReceiverPoll =
             (InterlockedBitTestAndReset(&Instance->Pending,
                                         XENVIF_POLLER_EVENT_RECEIVE) != 0) ?
             TRUE :
             FALSE;
 
-        NeedTransmitterPoll |=
+        NeedTransmitterPoll =
             (InterlockedBitTestAndReset(&Instance->Pending,
                                         XENVIF_POLLER_EVENT_TRANSMIT) != 0) ?
             TRUE :
@@ -639,18 +637,23 @@ PollerInstanceDpc(
                                          Instance->Index);
 
             if (!Retry) {
-                NeedReceiverPoll = FALSE;
                 PollerInstanceUnmask(Instance, XENVIF_POLLER_EVENT_RECEIVE);
+            } else {
+                (VOID) InterlockedBitTestAndSet(&Instance->Pending,
+                                                XENVIF_POLLER_EVENT_RECEIVE);
             }
         }
+
         if (NeedTransmitterPoll)
         {
             BOOLEAN Retry = TransmitterPoll(FrontendGetTransmitter(Frontend),
                                             Instance->Index);
 
             if (!Retry) {
-                NeedTransmitterPoll = FALSE;
                 PollerInstanceUnmask(Instance, XENVIF_POLLER_EVENT_TRANSMIT);
+            } else {
+                (VOID) InterlockedBitTestAndSet(&Instance->Pending,
+                                                XENVIF_POLLER_EVENT_TRANSMIT);
             }
         }
 
@@ -659,6 +662,39 @@ PollerInstanceDpc(
             break;
         }
     }
+}
+
+__drv_functionClass(KDEFERRED_ROUTINE)
+__drv_maxIRQL(DISPATCH_LEVEL)
+__drv_minIRQL(DISPATCH_LEVEL)
+__drv_requiresIRQL(DISPATCH_LEVEL)
+__drv_sameIRQL
+static VOID
+PollerInstanceTimerDpc(
+    IN  PKDPC               Dpc,
+    IN  PVOID               Context,
+    IN  PVOID               Argument1,
+    IN  PVOID               Argument2
+    )
+{
+    PXENVIF_POLLER_INSTANCE Instance = Context;
+
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(Argument1);
+    UNREFERENCED_PARAMETER(Argument2);
+
+    ASSERT(Instance != NULL);
+
+    KeAcquireSpinLockAtDpcLevel(&Instance->Lock);
+
+    if (!Instance->Enabled)
+        goto done;
+
+    if (KeInsertQueueDpc(&Instance->Dpc, NULL, NULL))
+        Instance->Dpcs++;
+
+done:
+    KeReleaseSpinLockFromDpcLevel(&Instance->Lock);
 }
 
 static NTSTATUS
@@ -702,7 +738,7 @@ PollerInstanceInitialize(
 
     KeInitializeDpc(&(*Instance)->Dpc, PollerInstanceDpc, *Instance);
     KeInitializeTimer(&(*Instance)->Timer);
-    KeInitializeDpc(&(*Instance)->TimerDpc, PollerInstanceDpc, *Instance);
+    KeInitializeDpc(&(*Instance)->TimerDpc, PollerInstanceTimerDpc, *Instance);
 
     return STATUS_SUCCESS;
 
@@ -750,7 +786,6 @@ PollerInstanceConnect(
     ASSERT(NT_SUCCESS(status));
 
     KeSetTargetProcessorDpcEx(&Instance->Dpc, &ProcNumber);
-    KeSetTargetProcessorDpcEx(&Instance->TimerDpc, &ProcNumber);
 
     for (Type = 0; Type < XENVIF_POLLER_CHANNEL_TYPE_COUNT; Type++)
     {
