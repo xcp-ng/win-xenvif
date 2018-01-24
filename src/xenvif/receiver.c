@@ -162,6 +162,28 @@ __ReceiverFree(
     __FreePoolWithTag(Buffer, XENVIF_RECEIVER_TAG);
 }
 
+static VOID FORCEINLINE
+__ReceiverPacketMdlInit(
+    IN  PXENVIF_RECEIVER_PACKET Packet
+    )
+{
+    PMDL    Mdl = Packet->SystemMdl;
+
+    ASSERT(IsZeroMemory(&Packet->Mdl, sizeof (MDL)));
+
+#pragma warning(push)
+#pragma warning(disable:28145) // modifying struct MDL
+
+    Packet->Mdl.Size = sizeof (MDL) + sizeof (PFN_NUMBER);
+    Packet->Mdl.MdlFlags = Mdl->MdlFlags;
+
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    Packet->Mdl.StartVa = Mdl->StartVa;
+    Packet->Mdl.MappedSystemVa = Mdl->MappedSystemVa;
+
+#pragma warning(pop)
+}
+
 static NTSTATUS
 ReceiverPacketCtor(
     IN  PVOID               Argument,
@@ -181,20 +203,9 @@ ReceiverPacketCtor(
     if (Mdl == NULL)
         goto fail1;
 
-    ASSERT3U(Mdl->ByteOffset, ==, 0);
-
     Packet->SystemMdl = Mdl;
 
-#pragma warning(push)
-#pragma warning(disable:28145) // modifying struct MDL
-
-    Packet->Mdl.Size = sizeof (MDL) + sizeof (PFN_NUMBER);
-    Packet->Mdl.MdlFlags = Mdl->MdlFlags;
-
-#pragma warning(pop)
-
-    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
-    Packet->Mdl.MappedSystemVa = Mdl->MappedSystemVa;
+    __ReceiverPacketMdlInit(Packet);
 
     Packet->__Pfn = MmGetMdlPfnArray(Mdl)[0];
 
@@ -266,7 +277,6 @@ __ReceiverRingPutPacket(
 {
     PXENVIF_RECEIVER            Receiver;
     PXENVIF_FRONTEND            Frontend;
-    PMDL                        Mdl = Packet->SystemMdl;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -285,16 +295,7 @@ __ReceiverRingPutPacket(
 
     RtlZeroMemory(&Packet->Mdl, sizeof (MDL));
 
-#pragma warning(push)
-#pragma warning(disable:28145) // modifying struct MDL
-
-    Packet->Mdl.Size = sizeof (MDL) + sizeof (PFN_NUMBER);
-    Packet->Mdl.MdlFlags = Mdl->MdlFlags;
-
-#pragma warning(pop)
-
-    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
-    Packet->Mdl.MappedSystemVa = Mdl->MappedSystemVa;
+    __ReceiverPacketMdlInit(Packet);
 
     XENBUS_CACHE(Put,
                  &Receiver->CacheInterface,
