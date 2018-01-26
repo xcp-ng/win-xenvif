@@ -80,8 +80,6 @@ struct _XENVIF_POLLER_INSTANCE {
     KSPIN_LOCK              Lock;
     KDPC                    Dpc;
     ULONG                   Dpcs;
-    KTIMER                  Timer;
-    KDPC                    TimerDpc;
     PXENVIF_POLLER_CHANNEL  Channel[XENVIF_POLLER_CHANNEL_TYPE_COUNT];
     BOOLEAN                 Enabled;
     LONG                    Pending;
@@ -533,63 +531,9 @@ done:
     KeReleaseSpinLockFromDpcLevel(&Instance->Lock);
 }
 
-#define TIME_US(_us)        ((_us) * 10)
-#define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
-#define TIME_S(_s)          (TIME_MS((_s) * 1000))
-#define TIME_RELATIVE(_t)   (-(_t))
-
-__drv_requiresIRQL(DISPATCH_LEVEL)
-static VOID
-PollerInstanceDefer(
-    IN  PXENVIF_POLLER_INSTANCE Instance
-    )
-{
-    LARGE_INTEGER               Delay;
-
-    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
-
-    KeAcquireSpinLockAtDpcLevel(&Instance->Lock);
-
-    if (!Instance->Enabled)
-        goto done;
-
-    Delay.QuadPart = TIME_RELATIVE(TIME_US(100));
-    KeSetTimer(&Instance->Timer, Delay, &Instance->TimerDpc);
-
-done:
-    KeReleaseSpinLockFromDpcLevel(&Instance->Lock);
-}
-
-static FORCEINLINE BOOLEAN
-PollerInstanceDpcTimeout(
-    IN  PXENVIF_POLLER_INSTANCE Instance
-    )
-{
-    KDPC_WATCHDOG_INFORMATION   Watchdog;
-    NTSTATUS                    status;
-
-    UNREFERENCED_PARAMETER(Instance);
-
-    RtlZeroMemory(&Watchdog, sizeof (Watchdog));
-
-    status = KeQueryDpcWatchdogInformation(&Watchdog);
-    ASSERT(NT_SUCCESS(status));
-
-    if (Watchdog.DpcTimeLimit == 0 ||
-        Watchdog.DpcWatchdogLimit == 0)
-        return FALSE;
-
-    if (Watchdog.DpcTimeCount > (Watchdog.DpcTimeLimit / 2) &&
-        Watchdog.DpcWatchdogCount > (Watchdog.DpcWatchdogLimit / 2))
-        return FALSE;
-
-    return TRUE;
-}
-
 __drv_functionClass(KDEFERRED_ROUTINE)
 __drv_maxIRQL(DISPATCH_LEVEL)
-__drv_minIRQL(DISPATCH_LEVEL)
-__drv_requiresIRQL(DISPATCH_LEVEL)
+__drv_minIRQL(PASSIVE_LEVEL)
 __drv_sameIRQL
 static VOID
 PollerInstanceDpc(
@@ -613,8 +557,17 @@ PollerInstanceDpc(
     Frontend = Poller->Frontend;
 
     for (;;) {
+        BOOLEAN Enabled;
         BOOLEAN NeedReceiverPoll;
         BOOLEAN NeedTransmitterPoll;
+        KIRQL   Irql;
+
+        KeAcquireSpinLock(&Instance->Lock, &Irql);
+        Enabled = Instance->Enabled;
+        KeReleaseSpinLock(&Instance->Lock, Irql);
+
+        if (!Enabled)
+            break;
 
         NeedReceiverPoll =
             (InterlockedBitTestAndReset(&Instance->Pending,
@@ -633,8 +586,12 @@ PollerInstanceDpc(
 
         if (NeedReceiverPoll)
         {
-            BOOLEAN Retry = ReceiverPoll(FrontendGetReceiver(Frontend),
-                                         Instance->Index);
+            BOOLEAN Retry;
+
+            KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+
+            Retry = ReceiverPoll(FrontendGetReceiver(Frontend),
+                                 Instance->Index);
 
             if (!Retry) {
                 PollerInstanceUnmask(Instance, XENVIF_POLLER_EVENT_RECEIVE);
@@ -642,12 +599,18 @@ PollerInstanceDpc(
                 (VOID) InterlockedBitTestAndSet(&Instance->Pending,
                                                 XENVIF_POLLER_EVENT_RECEIVE);
             }
+
+            KeLowerIrql(Irql);
         }
 
         if (NeedTransmitterPoll)
         {
-            BOOLEAN Retry = TransmitterPoll(FrontendGetTransmitter(Frontend),
-                                            Instance->Index);
+            BOOLEAN Retry;
+
+            KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+
+            Retry = TransmitterPoll(FrontendGetTransmitter(Frontend),
+                                    Instance->Index);
 
             if (!Retry) {
                 PollerInstanceUnmask(Instance, XENVIF_POLLER_EVENT_TRANSMIT);
@@ -655,46 +618,10 @@ PollerInstanceDpc(
                 (VOID) InterlockedBitTestAndSet(&Instance->Pending,
                                                 XENVIF_POLLER_EVENT_TRANSMIT);
             }
-        }
 
-        if (PollerInstanceDpcTimeout(Instance)) {
-            PollerInstanceDefer(Instance);
-            break;
+            KeLowerIrql(Irql);
         }
     }
-}
-
-__drv_functionClass(KDEFERRED_ROUTINE)
-__drv_maxIRQL(DISPATCH_LEVEL)
-__drv_minIRQL(DISPATCH_LEVEL)
-__drv_requiresIRQL(DISPATCH_LEVEL)
-__drv_sameIRQL
-static VOID
-PollerInstanceTimerDpc(
-    IN  PKDPC               Dpc,
-    IN  PVOID               Context,
-    IN  PVOID               Argument1,
-    IN  PVOID               Argument2
-    )
-{
-    PXENVIF_POLLER_INSTANCE Instance = Context;
-
-    UNREFERENCED_PARAMETER(Dpc);
-    UNREFERENCED_PARAMETER(Argument1);
-    UNREFERENCED_PARAMETER(Argument2);
-
-    ASSERT(Instance != NULL);
-
-    KeAcquireSpinLockAtDpcLevel(&Instance->Lock);
-
-    if (!Instance->Enabled)
-        goto done;
-
-    if (KeInsertQueueDpc(&Instance->Dpc, NULL, NULL))
-        Instance->Dpcs++;
-
-done:
-    KeReleaseSpinLockFromDpcLevel(&Instance->Lock);
 }
 
 static NTSTATUS
@@ -736,9 +663,7 @@ PollerInstanceInitialize(
 
     KeInitializeSpinLock(&(*Instance)->Lock);
 
-    KeInitializeDpc(&(*Instance)->Dpc, PollerInstanceDpc, *Instance);
-    KeInitializeTimer(&(*Instance)->Timer);
-    KeInitializeDpc(&(*Instance)->TimerDpc, PollerInstanceTimerDpc, *Instance);
+    KeInitializeThreadedDpc(&(*Instance)->Dpc, PollerInstanceDpc, *Instance);
 
     return STATUS_SUCCESS;
 
@@ -786,6 +711,7 @@ PollerInstanceConnect(
     ASSERT(NT_SUCCESS(status));
 
     KeSetTargetProcessorDpcEx(&Instance->Dpc, &ProcNumber);
+    KeSetImportanceDpc(&Instance->Dpc, MediumHighImportance);
 
     for (Type = 0; Type < XENVIF_POLLER_CHANNEL_TYPE_COUNT; Type++)
     {
@@ -978,12 +904,6 @@ PollerInstanceDisable(
     KeAcquireSpinLockAtDpcLevel(&Instance->Lock);
     Instance->Enabled = FALSE;
     KeReleaseSpinLockFromDpcLevel(&Instance->Lock);
-
-    //
-    // No new timers can be scheduled once Enabled goes to FALSE.
-    // Cancel any existing ones.
-    //
-    (VOID) KeCancelTimer(&Instance->Timer);
 }
 
 __drv_requiresIRQL(DISPATCH_LEVEL)
@@ -1024,8 +944,6 @@ PollerInstanceTeardown(
     Poller = Instance->Poller;
     Frontend = Poller->Frontend;
 
-    RtlZeroMemory(&Instance->TimerDpc, sizeof (KDPC));
-    RtlZeroMemory(&Instance->Timer, sizeof (KTIMER));
     RtlZeroMemory(&Instance->Dpc, sizeof (KDPC));
 
     RtlZeroMemory(&Instance->Lock, sizeof (KSPIN_LOCK));
