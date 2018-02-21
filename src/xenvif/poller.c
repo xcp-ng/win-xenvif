@@ -351,6 +351,7 @@ PollerChannelStoreWrite(
 {
     PXENVIF_POLLER_INSTANCE         Instance;
     PXENVIF_POLLER                  Poller;
+    PCHAR                           Path;
     ULONG                           Port;
     NTSTATUS                        status;
 
@@ -360,6 +361,10 @@ PollerChannelStoreWrite(
     if (Channel->Channel == NULL)
         goto done;
 
+    Path = (FrontendGetNumQueues(Poller->Frontend) == 1) ?
+           FrontendGetPath(Poller->Frontend) :
+           Instance->Path;
+
     Port = XENBUS_EVTCHN(GetPort,
                          &Poller->EvtchnInterface,
                          Channel->Channel);
@@ -367,7 +372,7 @@ PollerChannelStoreWrite(
     status = XENBUS_STORE(Printf,
                           &Poller->StoreInterface,
                           Transaction,
-                          Instance->Path,
+                          Path,
                           (PCHAR)Channel->Node,
                           "%u",
                           Port);
