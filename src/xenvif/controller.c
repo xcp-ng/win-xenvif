@@ -893,7 +893,7 @@ ControllerSetHashKey(
     Mdl = __AllocatePage();
 
     status = STATUS_NO_MEMORY;
-    if (Controller->Mdl == NULL)
+    if (Mdl == NULL)
         goto fail1;
 
     ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
@@ -1072,7 +1072,7 @@ ControllerSetHashMapping(
     Mdl = __AllocatePage();
 
     status = STATUS_NO_MEMORY;
-    if (Controller->Mdl == NULL)
+    if (Mdl == NULL)
         goto fail2;
 
     ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
