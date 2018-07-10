@@ -867,7 +867,9 @@ __TransmitterRingCopyPayload(
 
         Length = __min(Payload.Length, PAGE_SIZE);
 
-        ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+        ASSERT(Mdl->MdlFlags &
+               (MDL_MAPPED_TO_SYSTEM_VA |
+                MDL_SOURCE_IS_NONPAGED_POOL));
         BaseVa = Mdl->MappedSystemVa;
         ASSERT(BaseVa != NULL);
 
@@ -1187,7 +1189,9 @@ __TransmitterRingPrepareHeader(
 
     Mdl = Buffer->Mdl;
 
-    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    ASSERT(Mdl->MdlFlags &
+           (MDL_MAPPED_TO_SYSTEM_VA |
+            MDL_SOURCE_IS_NONPAGED_POOL));
     BaseVa = Mdl->MappedSystemVa;
     ASSERT(BaseVa != NULL);
 
@@ -1684,7 +1688,9 @@ __TransmitterRingPreparePacket(
 
             ASSERT3U(Mdl->ByteCount, <=, PAGE_SIZE - Trailer);
 
-            ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+            ASSERT(Mdl->MdlFlags &
+                   (MDL_MAPPED_TO_SYSTEM_VA |
+                    MDL_SOURCE_IS_NONPAGED_POOL));
             BaseVa = Mdl->MappedSystemVa;
             ASSERT(BaseVa != NULL);
 
@@ -1783,7 +1789,9 @@ __TransmitterRingPrepareArp(
 
     Mdl = Buffer->Mdl;
 
-    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    ASSERT(Mdl->MdlFlags &
+           (MDL_MAPPED_TO_SYSTEM_VA |
+            MDL_SOURCE_IS_NONPAGED_POOL));
     BaseVa = Mdl->MappedSystemVa;
     ASSERT(BaseVa != NULL);
 
@@ -1924,7 +1932,9 @@ __TransmitterRingPrepareNeighbourAdvertisement(
 
     Mdl = Buffer->Mdl;
 
-    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    ASSERT(Mdl->MdlFlags &
+           (MDL_MAPPED_TO_SYSTEM_VA |
+            MDL_SOURCE_IS_NONPAGED_POOL));
     BaseVa = Mdl->MappedSystemVa;
     ASSERT(BaseVa != NULL);
 
@@ -3638,7 +3648,9 @@ __TransmitterRingConnect(
     if (Ring->Mdl == NULL)
         goto fail3;
 
-    ASSERT(Ring->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    ASSERT(Ring->Mdl->MdlFlags &
+           (MDL_MAPPED_TO_SYSTEM_VA |
+            MDL_SOURCE_IS_NONPAGED_POOL));
     Ring->Shared = Ring->Mdl->MappedSystemVa;
     ASSERT(Ring->Shared != NULL);
 

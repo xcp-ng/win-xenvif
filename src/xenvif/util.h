@@ -244,7 +244,63 @@ fail1:
     return NULL;
 }
 
-#define __AllocatePage()    __AllocatePages(1)
+
+static FORCEINLINE PMDL
+__AllocatePage()
+{
+    PHYSICAL_ADDRESS    LowAddress;
+    PHYSICAL_ADDRESS    HighAddress;
+    PHYSICAL_ADDRESS    Align;
+    SIZE_T              TotalBytes;
+    PMDL                Mdl;
+    PUCHAR              MdlMappedSystemVa;
+    NTSTATUS            status;
+
+    ASSERT3U(KeGetCurrentIrql(), <=, DISPATCH_LEVEL);
+
+    LowAddress.QuadPart  = 0ull;
+    HighAddress.QuadPart = ~0ull;
+    Align.QuadPart       = PAGE_SIZE;
+    TotalBytes           = (SIZE_T)PAGE_SIZE;
+
+    MdlMappedSystemVa = MmAllocateContiguousMemorySpecifyCache(
+                            TotalBytes,
+                            LowAddress,
+                            HighAddress,
+                            Align,
+                            MmCached);
+
+    status = STATUS_NO_MEMORY;
+    if (MdlMappedSystemVa == NULL)
+        goto fail1;
+
+    Mdl = IoAllocateMdl(MdlMappedSystemVa,
+                        (ULONG)TotalBytes,
+                        FALSE,
+                        FALSE,
+                        NULL);
+    if (Mdl == NULL)
+        goto fail2;
+
+    MmBuildMdlForNonPagedPool(Mdl);
+
+    ASSERT3U(Mdl->ByteOffset, ==, 0);
+    ASSERT3P(Mdl->StartVa, ==, MdlMappedSystemVa);
+    ASSERT3P(Mdl->MappedSystemVa, ==, MdlMappedSystemVa);
+
+    RtlZeroMemory(MdlMappedSystemVa, Mdl->ByteCount);
+
+    return Mdl;
+
+fail2:
+    Error("fail2\n");
+
+    MmFreeContiguousMemory(MdlMappedSystemVa);
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return NULL;
+}
 
 static FORCEINLINE VOID
 __FreePages(
@@ -262,7 +318,23 @@ __FreePages(
     ExFreePool(Mdl);
 }
 
-#define __FreePage(_Mdl)    __FreePages(_Mdl)
+static FORCEINLINE VOID
+__FreePage(
+    IN  PMDL    Mdl
+    )
+{
+    PUCHAR  MdlMappedSystemVa;
+
+    ASSERT(Mdl->MdlFlags &
+            (MDL_MAPPED_TO_SYSTEM_VA |
+             MDL_SOURCE_IS_NONPAGED_POOL));
+
+    MdlMappedSystemVa = Mdl->MappedSystemVa;
+
+    IoFreeMdl(Mdl);
+
+    MmFreeContiguousMemory(MdlMappedSystemVa);
+}
 
 static FORCEINLINE PCHAR
 __strtok_r(
