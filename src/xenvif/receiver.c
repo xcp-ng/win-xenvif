@@ -1959,6 +1959,9 @@ ReceiverRingPoll(
         TailMdl = NULL;
         EOP = TRUE;
 
+        if (Retry)
+            break;
+
         KeMemoryBarrier();
 
         rsp_prod = Ring->Shared->rsp_prod;
@@ -1966,7 +1969,7 @@ ReceiverRingPoll(
 
         KeMemoryBarrier();
 
-        if (rsp_cons == rsp_prod || Retry)
+        if (rsp_cons == rsp_prod)
             break;
 
         while (rsp_cons != rsp_prod && !Retry) {
@@ -2153,7 +2156,9 @@ ReceiverRingPoll(
         KeMemoryBarrier();
 
         Ring->Front.rsp_cons = rsp_cons;
-        Ring->Shared->rsp_event = rsp_cons + 1;
+        if (!Retry)
+            Ring->Shared->rsp_event = rsp_cons + 1;
+
     }
 
     if (!__ReceiverRingIsStopped(Ring))

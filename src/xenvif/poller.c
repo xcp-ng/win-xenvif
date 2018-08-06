@@ -551,6 +551,9 @@ PollerInstanceDpc(
     PXENVIF_POLLER_INSTANCE Instance = Context;
     PXENVIF_POLLER          Poller;
     PXENVIF_FRONTEND        Frontend;
+    BOOLEAN                 Enabled;
+    BOOLEAN                 ReceiverRetry;
+    BOOLEAN                 TransmitterRetry;
 
     UNREFERENCED_PARAMETER(Dpc);
     UNREFERENCED_PARAMETER(Argument1);
@@ -560,9 +563,11 @@ PollerInstanceDpc(
 
     Poller = Instance->Poller;
     Frontend = Poller->Frontend;
+    Enabled = FALSE;
+    ReceiverRetry = FALSE;
+    TransmitterRetry = FALSE;
 
     for (;;) {
-        BOOLEAN Enabled;
         BOOLEAN NeedReceiverPoll;
         BOOLEAN NeedTransmitterPoll;
         KIRQL   Irql;
@@ -591,14 +596,12 @@ PollerInstanceDpc(
 
         if (NeedReceiverPoll)
         {
-            BOOLEAN Retry;
-
             KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 
-            Retry = ReceiverPoll(FrontendGetReceiver(Frontend),
-                                 Instance->Index);
+            ReceiverRetry = ReceiverPoll(FrontendGetReceiver(Frontend),
+                                         Instance->Index);
 
-            if (!Retry) {
+            if (!ReceiverRetry) {
                 PollerInstanceUnmask(Instance, XENVIF_POLLER_EVENT_RECEIVE);
             } else {
                 (VOID) InterlockedBitTestAndSet(&Instance->Pending,
@@ -610,14 +613,12 @@ PollerInstanceDpc(
 
         if (NeedTransmitterPoll)
         {
-            BOOLEAN Retry;
-
             KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 
-            Retry = TransmitterPoll(FrontendGetTransmitter(Frontend),
-                                    Instance->Index);
+            TransmitterRetry = TransmitterPoll(FrontendGetTransmitter(Frontend),
+                                               Instance->Index);
 
-            if (!Retry) {
+            if (!TransmitterRetry) {
                 PollerInstanceUnmask(Instance, XENVIF_POLLER_EVENT_TRANSMIT);
             } else {
                 (VOID) InterlockedBitTestAndSet(&Instance->Pending,
@@ -627,6 +628,9 @@ PollerInstanceDpc(
             KeLowerIrql(Irql);
         }
     }
+
+    ASSERT(!Enabled || !ReceiverRetry);
+    ASSERT(!Enabled || !TransmitterRetry);
 }
 
 static NTSTATUS
