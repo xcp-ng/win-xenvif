@@ -1634,10 +1634,11 @@ FrontendIncrementStatistic(
 {
     ULONG                       Index;
     PXENVIF_FRONTEND_STATISTICS Statistics;
+    KIRQL                       Irql;
 
     ASSERT(Name < XENVIF_VIF_STATISTIC_COUNT);
 
-    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 
     Index = KeGetCurrentProcessorNumberEx(NULL);
 
@@ -1645,6 +1646,8 @@ FrontendIncrementStatistic(
     Statistics = &Frontend->Statistics[Index];
 
     Statistics->Value[Name] += Delta;
+
+    KeLowerIrql(Irql);
 }
 
 static FORCEINLINE const CHAR *
