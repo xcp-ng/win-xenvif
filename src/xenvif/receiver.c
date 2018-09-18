@@ -1969,8 +1969,13 @@ ReceiverRingPoll(
 
         KeMemoryBarrier();
 
-        if (rsp_cons == rsp_prod)
-            break;
+        if (rsp_cons == rsp_prod) {
+            RING_IDX WorkToDo;
+
+            RING_FINAL_CHECK_FOR_RESPONSES(&Ring->Front, WorkToDo);
+            if (!WorkToDo)
+                break;
+        }
 
         while (rsp_cons != rsp_prod && !Retry) {
             netif_rx_response_t         *rsp;
@@ -2156,9 +2161,6 @@ ReceiverRingPoll(
         KeMemoryBarrier();
 
         Ring->Front.rsp_cons = rsp_cons;
-        if (!Retry)
-            Ring->Shared->rsp_event = rsp_cons + 1;
-
     }
 
     if (!__ReceiverRingIsStopped(Ring))
