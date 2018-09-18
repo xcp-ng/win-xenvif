@@ -157,38 +157,42 @@ fail1:
     return status;
 }
 
-static VOID
+static BOOLEAN
 PollerChannelSetPending(
     IN  PXENVIF_POLLER_CHANNEL  Channel
     )
 {
     PXENVIF_POLLER_INSTANCE     Instance;
+    ULONG                       Set;
 
     Instance = Channel->Instance;
 
     switch (Channel->Type)
     {
     case XENVIF_POLLER_CHANNEL_RECEIVER:
-        (VOID) InterlockedBitTestAndSet(&Instance->Pending,
-                                        XENVIF_POLLER_EVENT_RECEIVE);
+        Set = InterlockedBitTestAndSet(&Instance->Pending,
+                                       XENVIF_POLLER_EVENT_RECEIVE);
         break;
 
     case XENVIF_POLLER_CHANNEL_TRANSMITTER:
-        (VOID) InterlockedBitTestAndSet(&Instance->Pending,
-                                        XENVIF_POLLER_EVENT_TRANSMIT);
+        Set = InterlockedBitTestAndSet(&Instance->Pending,
+                                       XENVIF_POLLER_EVENT_TRANSMIT);
         break;
 
     case XENVIF_POLLER_CHANNEL_COMBINED:
-        (VOID) InterlockedBitTestAndSet(&Instance->Pending,
-                                        XENVIF_POLLER_EVENT_RECEIVE);
-        (VOID) InterlockedBitTestAndSet(&Instance->Pending,
+        Set = InterlockedBitTestAndSet(&Instance->Pending,
+                                       XENVIF_POLLER_EVENT_RECEIVE);
+        Set |= InterlockedBitTestAndSet(&Instance->Pending,
                                         XENVIF_POLLER_EVENT_TRANSMIT);
         break;
 
     default:
         ASSERT(FALSE);
+        Set = 0;
         break;
     }
+
+    return (Set != 0) ? FALSE : TRUE;
 }
 
 static FORCEINLINE BOOLEAN
@@ -256,9 +260,8 @@ PollerChannelEvtchnCallback(
 
     Channel->Events++;
 
-    PollerChannelSetPending(Channel);
-
-    if (KeInsertQueueDpc(&Instance->Dpc, NULL, NULL))
+    if (PollerChannelSetPending(Channel) &&
+        KeInsertQueueDpc(&Instance->Dpc, NULL, NULL))
         Instance->Dpcs++;
 
     return TRUE;
@@ -412,7 +415,7 @@ PollerChannelUnmask(
                             FALSE,
                             FALSE);
     if (Pending)
-        PollerChannelSetPending(Channel);
+        (VOID) PollerChannelSetPending(Channel);
 }
 
 static VOID
@@ -538,7 +541,7 @@ done:
 
 __drv_functionClass(KDEFERRED_ROUTINE)
 __drv_maxIRQL(DISPATCH_LEVEL)
-__drv_minIRQL(PASSIVE_LEVEL)
+__drv_minIRQL(DISPATCH_LEVEL)
 __drv_sameIRQL
 static VOID
 PollerInstanceDpc(
@@ -570,11 +573,10 @@ PollerInstanceDpc(
     for (;;) {
         BOOLEAN NeedReceiverPoll;
         BOOLEAN NeedTransmitterPoll;
-        KIRQL   Irql;
 
-        KeAcquireSpinLock(&Instance->Lock, &Irql);
+        KeAcquireSpinLockAtDpcLevel(&Instance->Lock);
         Enabled = Instance->Enabled;
-        KeReleaseSpinLock(&Instance->Lock, Irql);
+        KeReleaseSpinLockFromDpcLevel(&Instance->Lock);
 
         if (!Enabled)
             break;
@@ -596,8 +598,6 @@ PollerInstanceDpc(
 
         if (NeedReceiverPoll)
         {
-            KeRaiseIrql(DISPATCH_LEVEL, &Irql);
-
             ReceiverRetry = ReceiverPoll(FrontendGetReceiver(Frontend),
                                          Instance->Index);
 
@@ -607,14 +607,10 @@ PollerInstanceDpc(
                 (VOID) InterlockedBitTestAndSet(&Instance->Pending,
                                                 XENVIF_POLLER_EVENT_RECEIVE);
             }
-
-            KeLowerIrql(Irql);
         }
 
         if (NeedTransmitterPoll)
         {
-            KeRaiseIrql(DISPATCH_LEVEL, &Irql);
-
             TransmitterRetry = TransmitterPoll(FrontendGetTransmitter(Frontend),
                                                Instance->Index);
 
@@ -624,8 +620,6 @@ PollerInstanceDpc(
                 (VOID) InterlockedBitTestAndSet(&Instance->Pending,
                                                 XENVIF_POLLER_EVENT_TRANSMIT);
             }
-
-            KeLowerIrql(Irql);
         }
     }
 
@@ -672,7 +666,7 @@ PollerInstanceInitialize(
 
     KeInitializeSpinLock(&(*Instance)->Lock);
 
-    KeInitializeThreadedDpc(&(*Instance)->Dpc, PollerInstanceDpc, *Instance);
+    KeInitializeDpc(&(*Instance)->Dpc, PollerInstanceDpc, *Instance);
 
     return STATUS_SUCCESS;
 
