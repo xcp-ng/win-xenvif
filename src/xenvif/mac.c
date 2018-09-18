@@ -49,7 +49,7 @@ typedef struct _XENVIF_MAC_MULTICAST {
 
 struct _XENVIF_MAC {
     PXENVIF_FRONTEND        Frontend;
-    KSPIN_LOCK              Lock;
+    EX_SPIN_LOCK            Lock;
     BOOLEAN                 Connected;
     BOOLEAN                 Enabled;
     ULONG                   MaximumFrameSize;
@@ -214,7 +214,6 @@ MacInitialize(
     if (*Mac == NULL)
         goto fail1;
 
-    KeInitializeSpinLock(&(*Mac)->Lock);
     InitializeListHead(&(*Mac)->MulticastList);
 
     FdoGetDebugInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
@@ -231,6 +230,52 @@ fail1:
     Error("fail1 (%08x)\n");
 
     return status;
+}
+
+static FORCEINLINE VOID
+__drv_requiresIRQL(DISPATCH_LEVEL)
+__MacAcquireLockExclusive(
+    IN  PXENVIF_MAC     Mac
+    )
+{
+    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+    ExAcquireSpinLockExclusiveAtDpcLevel(&Mac->Lock);
+}
+
+static FORCEINLINE VOID
+__drv_requiresIRQL(DISPATCH_LEVEL)
+__MacReleaseLockExclusive(
+    IN  PXENVIF_MAC     Mac
+    )
+{
+    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+#pragma prefast(disable:26110)
+    ExReleaseSpinLockExclusiveFromDpcLevel(&Mac->Lock);
+}
+
+static FORCEINLINE VOID
+__drv_requiresIRQL(DISPATCH_LEVEL)
+__MacAcquireLockShared(
+    IN  PXENVIF_MAC     Mac
+    )
+{
+    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+    ExAcquireSpinLockSharedAtDpcLevel(&Mac->Lock);
+}
+
+static FORCEINLINE VOID
+__drv_requiresIRQL(DISPATCH_LEVEL)
+__MacReleaseLockShared(
+    IN  PXENVIF_MAC     Mac
+    )
+{
+    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+#pragma prefast(disable:26110)
+    ExReleaseSpinLockSharedFromDpcLevel(&Mac->Lock);
 }
 
 static NTSTATUS
@@ -250,7 +295,8 @@ MacDumpAddressTable(
 
     Frontend = Mac->Frontend;
 
-    KeAcquireSpinLock(&Mac->Lock, &Irql);
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+    __MacAcquireLockShared(Mac);
 
     status  = STATUS_UNSUCCESSFUL;
     if (!Mac->Connected)
@@ -284,7 +330,8 @@ MacDumpAddressTable(
 
     ASSERT3U(Index, ==, Count);
 
-    KeReleaseSpinLock(&Mac->Lock, Irql);
+    __MacReleaseLockShared(Mac);
+    KeLowerIrql(Irql);
 
     (VOID) XENBUS_STORE(Remove,
                         &Mac->StoreInterface,
@@ -328,7 +375,8 @@ fail2:
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    KeReleaseSpinLock(&Mac->Lock, Irql);
+    __MacReleaseLockExclusive(Mac);
+    KeLowerIrql(Irql);
 
     return status;
 }
@@ -343,6 +391,8 @@ MacConnect(
     PCHAR               Buffer;
     ULONG64             Mtu;
     NTSTATUS            status;
+
+    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
 
     Frontend = Mac->Frontend;
 
@@ -399,10 +449,12 @@ MacConnect(
     if (!NT_SUCCESS(status))
         goto fail5;
 
-    KeAcquireSpinLockAtDpcLevel(&Mac->Lock);
+    __MacAcquireLockExclusive(Mac);
+
     ASSERT(!Mac->Connected);
     Mac->Connected = TRUE;
-    KeReleaseSpinLockFromDpcLevel(&Mac->Lock);
+
+    __MacReleaseLockExclusive(Mac);
 
     (VOID) MacDumpAddressTable(Mac);
 
@@ -456,7 +508,8 @@ MacEnable(
     Frontend = Mac->Frontend;
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
-    KeAcquireSpinLockAtDpcLevel(&Mac->Lock);
+
+    __MacAcquireLockExclusive(Mac);
 
     Thread = VifGetMacThread(PdoGetVifContext(FrontendGetPdo(Frontend)));
 
@@ -472,7 +525,7 @@ MacEnable(
     ASSERT(!Mac->Enabled);
     Mac->Enabled = TRUE;
 
-    KeReleaseSpinLockFromDpcLevel(&Mac->Lock);
+    __MacReleaseLockExclusive(Mac);
 
     Trace("<====\n");
     return STATUS_SUCCESS;
@@ -480,7 +533,7 @@ MacEnable(
 fail1:
     Error("fail1 (%08x)\n");
 
-    KeReleaseSpinLockFromDpcLevel(&Mac->Lock);
+    __MacReleaseLockExclusive(Mac);
 
     return status;
 }
@@ -497,7 +550,8 @@ MacDisable(
     Frontend = Mac->Frontend;
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
-    KeAcquireSpinLockAtDpcLevel(&Mac->Lock);
+
+    __MacAcquireLockExclusive(Mac);
 
     ASSERT(Mac->Enabled);
     Mac->Enabled = FALSE;
@@ -507,7 +561,7 @@ MacDisable(
                         Mac->Watch);
     Mac->Watch = NULL;
 
-    KeReleaseSpinLockFromDpcLevel(&Mac->Lock);
+    __MacReleaseLockExclusive(Mac);
 
     Trace("<====\n");
 }
@@ -521,10 +575,14 @@ MacDisconnect(
 
     Frontend = Mac->Frontend;
 
-    KeAcquireSpinLockAtDpcLevel(&Mac->Lock);
+    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+    __MacAcquireLockExclusive(Mac);
+
     ASSERT(Mac->Connected);
     Mac->Connected = FALSE;
-    KeReleaseSpinLockFromDpcLevel(&Mac->Lock);
+
+    __MacReleaseLockExclusive(Mac);
 
     XENBUS_DEBUG(Deregister,
                  &Mac->DebugInterface,
@@ -584,7 +642,7 @@ MacTeardown(
     RtlZeroMemory(&Mac->DebugInterface,
                   sizeof (XENBUS_DEBUG_INTERFACE));
 
-    RtlZeroMemory(&Mac->Lock, sizeof (KSPIN_LOCK));
+    Mac->Lock = 0;
 
     ASSERT(IsZeroMemory(Mac, sizeof (XENVIF_MAC)));
     __MacFree(Mac);
@@ -710,10 +768,14 @@ MacAddMulticastAddress(
 
     Multicast->Address = *Address;
 
-    KeAcquireSpinLock(&Mac->Lock, &Irql);
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+    __MacAcquireLockExclusive(Mac);
+
     InsertTailList(&Mac->MulticastList, &Multicast->ListEntry);
     Mac->MulticastCount++;
-    KeReleaseSpinLock(&Mac->Lock, Irql);
+
+    __MacReleaseLockExclusive(Mac);
+    KeLowerIrql(Irql);
 
     (VOID) MacDumpAddressTable(Mac);
 
@@ -748,7 +810,8 @@ MacRemoveMulticastAddress(
 
     Frontend = Mac->Frontend;
 
-    KeAcquireSpinLock(&Mac->Lock, &Irql);
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+    __MacAcquireLockExclusive(Mac);
 
     for (ListEntry = Mac->MulticastList.Flink;
          ListEntry != &Mac->MulticastList;
@@ -773,7 +836,8 @@ found:
     RemoveEntryList(&Multicast->ListEntry);
     __MacFree(Multicast);
 
-    KeReleaseSpinLock(&Mac->Lock, Irql);
+    __MacReleaseLockExclusive(Mac);
+    KeLowerIrql(Irql);
 
     (VOID) MacDumpAddressTable(Mac);
 
@@ -791,7 +855,8 @@ found:
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    KeReleaseSpinLock(&Mac->Lock, Irql);
+    __MacReleaseLockExclusive(Mac);
+    KeLowerIrql(Irql);
 
     return status;
 }
@@ -807,7 +872,8 @@ MacQueryMulticastAddresses(
     KIRQL                       Irql;
     NTSTATUS                    status;
 
-    KeAcquireSpinLock(&Mac->Lock, &Irql);
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+    __MacAcquireLockShared(Mac);
 
     status = STATUS_BUFFER_OVERFLOW;
     if (Address == NULL || *Count < Mac->MulticastCount)
@@ -827,14 +893,16 @@ MacQueryMulticastAddresses(
     }
     ASSERT3U(*Count, ==, Mac->MulticastCount);
 
-    KeReleaseSpinLock(&Mac->Lock, Irql);
+    __MacReleaseLockShared(Mac);
+    KeLowerIrql(Irql);
 
     return STATUS_SUCCESS;
 
 fail1:
     *Count = Mac->MulticastCount;
 
-    KeReleaseSpinLock(&Mac->Lock, Irql);
+    __MacReleaseLockExclusive(Mac);
+    KeLowerIrql(Irql);
 
     return status;
 }
@@ -862,21 +930,25 @@ MacSetFilterLevel(
     if (Type >= ETHERNET_ADDRESS_TYPE_COUNT)
         goto fail1;
 
-    KeAcquireSpinLock(&Mac->Lock, &Irql);
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+    __MacAcquireLockExclusive(Mac);
 
     status = STATUS_INVALID_PARAMETER;
     if (Level > XENVIF_MAC_FILTER_ALL || Level < XENVIF_MAC_FILTER_NONE)
         goto fail2;
 
     Mac->FilterLevel[Type] = Level;
-    KeReleaseSpinLock(&Mac->Lock, Irql);
+
+    __MacReleaseLockExclusive(Mac);
+    KeLowerIrql(Irql);
 
     return STATUS_SUCCESS;
 
 fail2:
     Error("fail2\n");
 
-    KeReleaseSpinLock(&Mac->Lock, Irql);
+    __MacReleaseLockExclusive(Mac);
+    KeLowerIrql(Irql);
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -891,13 +963,20 @@ MacQueryFilterLevel(
     OUT PXENVIF_MAC_FILTER_LEVEL    Level
     )
 {
+    KIRQL                           Irql;
     NTSTATUS                        status;
 
     status = STATUS_INVALID_PARAMETER;
     if (Type >= ETHERNET_ADDRESS_TYPE_COUNT)
         goto fail1;
 
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+    __MacAcquireLockShared(Mac);
+
     *Level = Mac->FilterLevel[Type];
+
+    __MacReleaseLockShared(Mac);
+    KeLowerIrql(Irql);
 
     return STATUS_SUCCESS;
 
@@ -915,12 +994,13 @@ MacApplyFilters(
 {
     ETHERNET_ADDRESS_TYPE   Type;
     BOOLEAN                 Allow;
+    KIRQL                   Irql;
 
     Type = GET_ETHERNET_ADDRESS_TYPE(DestinationAddress);
     Allow = FALSE;
 
-    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
-    KeAcquireSpinLockAtDpcLevel(&Mac->Lock);
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+    __MacAcquireLockShared(Mac);
 
     switch (Type) {
     case ETHERNET_ADDRESS_UNICAST:
@@ -1014,7 +1094,8 @@ MacApplyFilters(
         break;
     }
 
-    KeReleaseSpinLockFromDpcLevel(&Mac->Lock);
+    __MacReleaseLockShared(Mac);
+    KeLowerIrql(Irql);
 
     return Allow;
 }
