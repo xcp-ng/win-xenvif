@@ -1939,7 +1939,7 @@ fail2:
     Error("fail2\n");
 
 fail1:
-    Error("fail1 (%08x)\n");
+    Error("fail1 (%08x)\n", status);
 
     KeReleaseSpinLock(&Frontend->Lock, Irql);
 
