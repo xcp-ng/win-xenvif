@@ -1161,7 +1161,6 @@ __VifReceiverQueuePacket(
                       Hash,
                       More,
                       Cookie);
-
 }
 
 VOID
@@ -1180,10 +1179,6 @@ VifReceiverQueuePacket(
     IN  PVOID                           Cookie
     )
 {
-    KIRQL                               Irql;
-
-    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
-
     switch (Context->Version) {
     case 6:
         __VifReceiverQueuePacketVersion6(Context,
@@ -1234,8 +1229,6 @@ VifReceiverQueuePacket(
         ASSERT(FALSE);
         break;
     }
-
-    KeLowerIrql(Irql);
 }
 
 VOID

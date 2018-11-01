@@ -47,7 +47,6 @@
 #include "tcpip.h"
 #include "receiver.h"
 #include "transmitter.h"
-#include "poller.h"
 #include "link.h"
 #include "dbg_print.h"
 #include "assert.h"
@@ -81,12 +80,12 @@ struct _XENVIF_FRONTEND {
     USHORT                      BackendDomain;
     ULONG                       MaxQueues;
     ULONG                       NumQueues;
+    BOOLEAN                     Split;
     ULONG                       DisableToeplitz;
 
     PXENVIF_MAC                 Mac;
     PXENVIF_RECEIVER            Receiver;
     PXENVIF_TRANSMITTER         Transmitter;
-    PXENVIF_POLLER              Poller;
     PXENVIF_CONTROLLER          Controller;
 
     XENBUS_DEBUG_INTERFACE      DebugInterface;
@@ -339,7 +338,6 @@ FrontendGet ## _Function(                               \
 DEFINE_FRONTEND_GET_FUNCTION(Mac, PXENVIF_MAC)
 DEFINE_FRONTEND_GET_FUNCTION(Receiver, PXENVIF_RECEIVER)
 DEFINE_FRONTEND_GET_FUNCTION(Transmitter, PXENVIF_TRANSMITTER)
-DEFINE_FRONTEND_GET_FUNCTION(Poller, PXENVIF_POLLER)
 DEFINE_FRONTEND_GET_FUNCTION(Controller, PXENVIF_CONTROLLER)
 
 static BOOLEAN
@@ -1802,6 +1800,50 @@ FrontendGetNumQueues(
     return __FrontendGetNumQueues(Frontend);
 }
 
+static VOID
+FrontendSetSplit(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    PCHAR                   Buffer;
+    NTSTATUS                status;
+
+    status = XENBUS_STORE(Read,
+                          &Frontend->StoreInterface,
+                          NULL,
+                          __FrontendGetBackendPath(Frontend),
+                          "feature-split-event-channels",
+                          &Buffer);
+    if (NT_SUCCESS(status)) {
+        Frontend->Split = (BOOLEAN)strtol(Buffer, NULL, 2);
+
+        XENBUS_STORE(Free,
+                     &Frontend->StoreInterface,
+                     Buffer);
+    } else {
+        Frontend->Split = FALSE;
+    }
+
+    Info("%s: %s\n", __FrontendGetPath(Frontend),
+         (Frontend->Split) ? "TRUE" : "FALSE");
+}
+
+static FORCEINLINE BOOLEAN
+__FrontendIsSplit(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    return Frontend->Split;
+}
+
+BOOLEAN
+FrontendIsSplit(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    return __FrontendIsSplit(Frontend);
+}
+
 static FORCEINLINE NTSTATUS
 __FrontendUpdateHash(
     PXENVIF_FRONTEND        Frontend,
@@ -2166,22 +2208,19 @@ FrontendConnect(
         goto fail3;
 
     FrontendSetNumQueues(Frontend);
-
-    status = PollerConnect(__FrontendGetPoller(Frontend));
-    if (!NT_SUCCESS(status))
-        goto fail4;
+    FrontendSetSplit(Frontend);
 
     status = ReceiverConnect(__FrontendGetReceiver(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail4;
 
     status = TransmitterConnect(__FrontendGetTransmitter(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail5;
 
     status = ControllerConnect(__FrontendGetController(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail6;
 
     Attempt = 0;
     do {
@@ -2192,11 +2231,6 @@ FrontendConnect(
                               &Transaction);
         if (!NT_SUCCESS(status))
             break;
-
-        status = PollerStoreWrite(__FrontendGetPoller(Frontend),
-                                  Transaction);
-        if (!NT_SUCCESS(status))
-            goto abort;
 
         status = ReceiverStoreWrite(__FrontendGetReceiver(Frontend),
                                     Transaction);
@@ -2241,7 +2275,7 @@ abort:
     } while (status == STATUS_RETRY);
 
     if (!NT_SUCCESS(status))
-        goto fail8;
+        goto fail7;
 
     State = XenbusStateUnknown;
     while (State != XenbusStateConnected) {
@@ -2280,7 +2314,7 @@ abort:
 
     status = STATUS_UNSUCCESSFUL;
     if (State != XenbusStateConnected)
-        goto fail9;
+        goto fail8;
 
     ControllerEnable(__FrontendGetController(Frontend));
 
@@ -2289,34 +2323,30 @@ abort:
     Trace("<====\n");
     return STATUS_SUCCESS;
 
-fail9:
-    Error("fail9\n");
-
 fail8:
     Error("fail8\n");
-
-    ControllerDisconnect(__FrontendGetController(Frontend));
 
 fail7:
     Error("fail7\n");
 
-    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
+    ControllerDisconnect(__FrontendGetController(Frontend));
 
 fail6:
     Error("fail6\n");
 
-    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
+    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
 
 fail5:
     Error("fail5\n");
 
-    PollerDisconnect(__FrontendGetPoller(Frontend));
+    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
 
 fail4:
     Error("fail4\n");
 
     MacDisconnect(__FrontendGetMac(Frontend));
 
+    Frontend->Split = FALSE;
     Frontend->NumQueues = 0;
 
 fail3:
@@ -2351,9 +2381,9 @@ FrontendDisconnect(
     ControllerDisconnect(__FrontendGetController(Frontend));
     TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
     ReceiverDisconnect(__FrontendGetReceiver(Frontend));
-    PollerDisconnect(__FrontendGetPoller(Frontend));
     MacDisconnect(__FrontendGetMac(Frontend));
 
+    Frontend->Split = FALSE;
     Frontend->NumQueues = 0;
 
     XENBUS_DEBUG(Deregister,
@@ -2379,41 +2409,32 @@ FrontendEnable(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = PollerEnable(__FrontendGetPoller(Frontend));
+    status = ReceiverEnable(__FrontendGetReceiver(Frontend));
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    status = ReceiverEnable(__FrontendGetReceiver(Frontend));
+    status = TransmitterEnable(__FrontendGetTransmitter(Frontend));
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    status = TransmitterEnable(__FrontendGetTransmitter(Frontend));
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
     status = __FrontendUpdateHash(Frontend, &Frontend->Hash);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail4;
 
     (VOID) FrontendNotifyMulticastAddresses(Frontend, TRUE);
 
     Trace("<====\n");
     return STATUS_SUCCESS;
 
-fail5:
-    Error("fail5\n");
-
-    TransmitterDisable(__FrontendGetTransmitter(Frontend));
-
 fail4:
     Error("fail4\n");
 
-    ReceiverDisable(__FrontendGetReceiver(Frontend));
+    TransmitterDisable(__FrontendGetTransmitter(Frontend));
 
 fail3:
     Error("fail3\n");
 
-    PollerDisable(__FrontendGetPoller(Frontend));
+    ReceiverDisable(__FrontendGetReceiver(Frontend));
 
 fail2:
     Error("fail2\n");
@@ -2437,7 +2458,6 @@ FrontendDisable(
 
     TransmitterDisable(__FrontendGetTransmitter(Frontend));
     ReceiverDisable(__FrontendGetReceiver(Frontend));
-    PollerDisable(__FrontendGetPoller(Frontend));
     MacDisable(__FrontendGetMac(Frontend));
 
     Trace("<====\n");
@@ -2849,23 +2869,19 @@ FrontendInitialize(
     if (!NT_SUCCESS(status))
         goto fail8;
 
-    status = PollerInitialize(*Frontend, &(*Frontend)->Poller);
-    if (!NT_SUCCESS(status))
-        goto fail9;
-
     status = ControllerInitialize(*Frontend, &(*Frontend)->Controller);
     if (!NT_SUCCESS(status))
-        goto fail10;
+        goto fail9;
 
     KeInitializeEvent(&(*Frontend)->EjectEvent, NotificationEvent, FALSE);
 
     status = ThreadCreate(FrontendEject, *Frontend, &(*Frontend)->EjectThread);
     if (!NT_SUCCESS(status))
-        goto fail11;
+        goto fail10;
 
     status = ThreadCreate(FrontendMib, *Frontend, &(*Frontend)->MibThread);
     if (!NT_SUCCESS(status))
-        goto fail12;
+        goto fail11;
 
     (*Frontend)->StatisticsCount = KeQueryMaximumProcessorCountEx(ALL_PROCESSOR_GROUPS);
     (*Frontend)->Statistics = __FrontendAllocate(sizeof (XENVIF_FRONTEND_STATISTICS) *
@@ -2873,37 +2889,33 @@ FrontendInitialize(
 
     status = STATUS_NO_MEMORY;
     if ((*Frontend)->Statistics == NULL)
-        goto fail13;
+        goto fail12;
 
     Trace("<====\n");
 
     return STATUS_SUCCESS;
 
-fail13:
-    Error("fail13\n");
+fail12:
+    Error("fail12\n");
 
     ThreadAlert((*Frontend)->MibThread);
     ThreadJoin((*Frontend)->MibThread);
     (*Frontend)->MibThread = NULL;
 
-fail12:
-    Error("fail12\n");
+fail11:
+    Error("fail11\n");
 
     ThreadAlert((*Frontend)->EjectThread);
     ThreadJoin((*Frontend)->EjectThread);
     (*Frontend)->EjectThread = NULL;
 
-fail11:
-    Error("fail11\n");
+fail10:
+    Error("fail10\n");
 
     RtlZeroMemory(&(*Frontend)->EjectEvent, sizeof (KEVENT));
 
     ControllerTeardown(__FrontendGetController(*Frontend));
     (*Frontend)->Controller = NULL;
-
-fail10:
-    PollerTeardown(__FrontendGetPoller(*Frontend));
-    (*Frontend)->Poller = NULL;
 
 fail9:
     TransmitterTeardown(__FrontendGetTransmitter(*Frontend));
@@ -3011,9 +3023,6 @@ FrontendTeardown(
 
     ControllerTeardown(__FrontendGetController(Frontend));
     Frontend->Controller = NULL;
-
-    PollerTeardown(__FrontendGetPoller(Frontend));
-    Frontend->Poller = NULL;
 
     TransmitterTeardown(__FrontendGetTransmitter(Frontend));
     Frontend->Transmitter = NULL;

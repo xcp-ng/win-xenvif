@@ -123,6 +123,16 @@ FrontendGetNumQueues(
     IN  PXENVIF_FRONTEND    Frontend
     );
 
+extern BOOLEAN
+FrontendIsSplit(
+    IN  PXENVIF_FRONTEND    Frontend
+    );
+
+extern BOOLEAN
+FrontendIsSplit(
+    IN  PXENVIF_FRONTEND    Frontend
+    );
+
 extern PCHAR
 FrontendFormatPath(
     IN  PXENVIF_FRONTEND    Frontend,
@@ -153,13 +163,6 @@ FrontendGetReceiver(
 
 extern PXENVIF_TRANSMITTER
 FrontendGetTransmitter(
-    IN  PXENVIF_FRONTEND    Frontend
-    );
-
-#include "poller.h"
-
-extern PXENVIF_POLLER
-FrontendGetPoller(
     IN  PXENVIF_FRONTEND    Frontend
     );
 

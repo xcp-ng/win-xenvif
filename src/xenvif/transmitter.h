@@ -64,12 +64,6 @@ TransmitterEnable(
     IN  PXENVIF_TRANSMITTER Transmitter
     );
 
-extern BOOLEAN
-TransmitterPoll(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  ULONG                   Index
-    );
-
 extern VOID
 TransmitterDisable(
     IN  PXENVIF_TRANSMITTER Transmitter

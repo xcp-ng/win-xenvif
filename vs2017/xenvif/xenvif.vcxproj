@@ -81,7 +81,6 @@
     <ClCompile Include="../../src/xenvif/mac.c" />
     <ClCompile Include="../../src/xenvif/parse.c" />
     <ClCompile Include="../../src/xenvif/pdo.c" />
-    <ClCompile Include="../../src/xenvif/poller.c" />
     <ClCompile Include="../../src/xenvif/receiver.c" />
     <ClCompile Include="../../src/xenvif/registry.c" />
     <ClCompile Include="../../src/xenvif/settings.c" />

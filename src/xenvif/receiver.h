@@ -62,12 +62,6 @@ ReceiverEnable(
     IN  PXENVIF_RECEIVER    Receiver
     );
 
-extern BOOLEAN
-ReceiverPoll(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  ULONG               Index
-    );
-
 extern VOID
 ReceiverDisable(
     IN  PXENVIF_RECEIVER    Receiver
