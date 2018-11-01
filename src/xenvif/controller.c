@@ -469,9 +469,7 @@ ControllerConnect(
     if (Controller->Mdl == NULL)
         goto fail7;
 
-    ASSERT(Controller->Mdl->MdlFlags
-            & (MDL_MAPPED_TO_SYSTEM_VA
-                | MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Controller->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     Controller->Shared = Controller->Mdl->MappedSystemVa;
     ASSERT(Controller->Shared != NULL);
 
@@ -906,9 +904,7 @@ ControllerSetHashKey(
     if (Mdl == NULL)
         goto fail1;
 
-    ASSERT(Mdl->MdlFlags
-            & (MDL_MAPPED_TO_SYSTEM_VA
-                | MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     Buffer = Mdl->MappedSystemVa;
     ASSERT(Buffer != NULL);
 
@@ -1087,9 +1083,7 @@ ControllerSetHashMapping(
     if (Mdl == NULL)
         goto fail2;
 
-    ASSERT(Mdl->MdlFlags
-            & (MDL_MAPPED_TO_SYSTEM_VA
-                | MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     Buffer = Mdl->MappedSystemVa;
     ASSERT(Buffer != NULL);
 

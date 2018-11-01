@@ -172,9 +172,7 @@ __ReceiverPacketMdlInit(
     Packet->Mdl.Size = sizeof (MDL) + sizeof (PFN_NUMBER);
     Packet->Mdl.MdlFlags = Mdl->MdlFlags;
 
-    ASSERT(Mdl->MdlFlags &
-           (MDL_MAPPED_TO_SYSTEM_VA |
-            MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     Packet->Mdl.StartVa = Mdl->StartVa;
     Packet->Mdl.MappedSystemVa = Mdl->MappedSystemVa;
 
@@ -411,9 +409,7 @@ ReceiverRingProcessTag(
 
     PayloadLength = Packet->Length - Info->Length;
 
-    ASSERT(Packet->Mdl.MdlFlags &
-           (MDL_MAPPED_TO_SYSTEM_VA |
-            MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     BaseVa = Packet->Mdl.MappedSystemVa;
     ASSERT(BaseVa != NULL);
 
@@ -504,9 +500,7 @@ ReceiverRingProcessChecksum(
     if (Info->IpHeader.Length == 0)
         return;
 
-    ASSERT(Packet->Mdl.MdlFlags &
-           (MDL_MAPPED_TO_SYSTEM_VA |
-            MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     BaseVa = Packet->Mdl.MappedSystemVa;
     ASSERT(BaseVa != NULL);
 
@@ -663,9 +657,7 @@ ReceiverRingPullup(
         PUCHAR  SourceVa;
         ULONG   CopyLength;
 
-        ASSERT(Mdl->MdlFlags &
-               (MDL_MAPPED_TO_SYSTEM_VA |
-                MDL_SOURCE_IS_NONPAGED_POOL));
+        ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
         SourceVa = Mdl->MappedSystemVa;
         ASSERT(SourceVa != NULL);
 
@@ -711,9 +703,7 @@ __ReceiverRingPullupPacket(
     XENVIF_PACKET_PAYLOAD       Payload;
     ULONG                       Length;
 
-    ASSERT(Packet->Mdl.MdlFlags
-            & (MDL_MAPPED_TO_SYSTEM_VA
-                | MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     BaseVa = Packet->Mdl.MappedSystemVa;
     ASSERT(BaseVa != NULL);
 
@@ -757,9 +747,7 @@ __ReceiverRingBuildSegment(
 
     Info = &Packet->Info;
 
-    ASSERT(Packet->Mdl.MdlFlags &
-           (MDL_MAPPED_TO_SYSTEM_VA |
-            MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     InfoVa = Packet->Mdl.MappedSystemVa;
     ASSERT(InfoVa != NULL);
 
@@ -782,9 +770,7 @@ __ReceiverRingBuildSegment(
 
     Mdl = &Segment->Mdl;
 
-    ASSERT(Mdl->MdlFlags &
-           (MDL_MAPPED_TO_SYSTEM_VA |
-            MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     BaseVa = Mdl->MappedSystemVa;
     ASSERT(BaseVa != NULL);
 
@@ -866,9 +852,7 @@ __ReceiverRingBuildSegment(
 
         Mdl = Mdl->Next;
 
-        ASSERT(Mdl->MdlFlags &
-               (MDL_MAPPED_TO_SYSTEM_VA |
-                MDL_SOURCE_IS_NONPAGED_POOL));
+        ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
         BaseVa = Mdl->MappedSystemVa;
         ASSERT(BaseVa != NULL);
 
@@ -970,9 +954,7 @@ ReceiverRingProcessLargePacket(
 
     Packet->Mdl.Next = NULL;
 
-    ASSERT(Packet->Mdl.MdlFlags &
-           (MDL_MAPPED_TO_SYSTEM_VA |
-            MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     InfoVa = Packet->Mdl.MappedSystemVa;
     ASSERT(InfoVa != NULL);
 
@@ -1164,9 +1146,7 @@ ReceiverRingProcessStandardPacket(
         if (Mdl == NULL)
             goto fail2;
 
-        ASSERT(Mdl->MdlFlags &
-               (MDL_MAPPED_TO_SYSTEM_VA |
-                MDL_SOURCE_IS_NONPAGED_POOL));
+        ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
         BaseVa = Mdl->MappedSystemVa;
         ASSERT(BaseVa != NULL);
 
@@ -1269,9 +1249,7 @@ ReceiverRingProcessPacket(
     // Override offset to align
     Packet->Offset = Receiver->IpAlignOffset;
 
-    ASSERT(Packet->Mdl.MdlFlags &
-           (MDL_MAPPED_TO_SYSTEM_VA |
-            MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     BaseVa = Packet->Mdl.MappedSystemVa;
     ASSERT(BaseVa != NULL);
 
@@ -1406,9 +1384,7 @@ __ReceiverRingSwizzle(
                                    XENVIF_RECEIVER_PACKET,
                                    ListEntry);
 
-        ASSERT(Packet->Mdl.MdlFlags &
-               (MDL_MAPPED_TO_SYSTEM_VA |
-                MDL_SOURCE_IS_NONPAGED_POOL));
+        ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
         BaseVa = Packet->Mdl.MappedSystemVa;
         ASSERT(BaseVa != NULL);
 
@@ -2105,9 +2081,7 @@ ReceiverRingPoll(
 
                 ASSERT3U(rsp->id, ==, id);
 
-                ASSERT(Mdl->MdlFlags &
-                       (MDL_MAPPED_TO_SYSTEM_VA |
-                        MDL_SOURCE_IS_NONPAGED_POOL));
+                ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
                 BaseVa = Mdl->MappedSystemVa;
                 ASSERT(BaseVa != NULL);
 
@@ -2498,9 +2472,7 @@ __ReceiverRingConnect(
     if (Ring->Mdl == NULL)
         goto fail3;
 
-    ASSERT(Ring->Mdl->MdlFlags &
-           (MDL_MAPPED_TO_SYSTEM_VA |
-            MDL_SOURCE_IS_NONPAGED_POOL));
+    ASSERT(Ring->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     Ring->Shared = Ring->Mdl->MappedSystemVa;
     ASSERT(Ring->Shared != NULL);
 
