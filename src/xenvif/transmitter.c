@@ -201,7 +201,6 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     ULONG                           PacketsCompleted;
     PXENBUS_DEBUG_CALLBACK          DebugCallback;
     PXENVIF_THREAD                  WatchdogThread;
-    PXENVIF_THREAD                  CompletionThread;
 } XENVIF_TRANSMITTER_RING, *PXENVIF_TRANSMITTER_RING;
 
 struct _XENVIF_TRANSMITTER {
@@ -2780,6 +2779,7 @@ TransmitterRingPoll(
         KeMemoryBarrier();
 
         Ring->Front.rsp_cons = rsp_cons;
+        Ring->Shared->rsp_event = rsp_cons + 1;
     }
 
 done:
@@ -2805,8 +2805,6 @@ __TransmitterRingPushRequests(
 
 #pragma warning (push)
 #pragma warning (disable:4244)
-
-    Ring->Shared->rsp_event = Ring->Front.req_prod_pvt;
 
     // Make the requests visible to the backend
     RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&Ring->Front, Notify);
@@ -3263,79 +3261,6 @@ TransmitterRingWatchdog(
     return STATUS_SUCCESS;
 }
 
-#define XENVIF_TRANSMITTER_COMPLETION_PERIOD  5
-
-static NTSTATUS
-TransmitterRingCompletion(
-    IN  PXENVIF_THREAD          Self,
-    IN  PVOID                   Context
-    )
-{
-    PXENVIF_TRANSMITTER_RING    Ring = Context;
-    PROCESSOR_NUMBER            ProcNumber;
-    GROUP_AFFINITY              Affinity;
-    LARGE_INTEGER               Timeout;
-    NTSTATUS                    status;
-
-    Trace("====>\n");
-
-    if (RtlIsNtDdiVersionAvailable(NTDDI_WIN7) ) {
-        //
-        // Affinitize this thread to the same CPU as the event channel
-        // and DPC.
-        //
-        // The following functions don't work before Windows 7
-        //
-        status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
-        ASSERT(NT_SUCCESS(status));
-
-        Affinity.Group = ProcNumber.Group;
-        Affinity.Mask = (KAFFINITY)1 << ProcNumber.Number;
-        KeSetSystemGroupAffinityThread(&Affinity, NULL);
-    }
-
-    Timeout.QuadPart = TIME_RELATIVE(TIME_S(XENVIF_TRANSMITTER_COMPLETION_PERIOD));
-
-    for (;;) {
-        PKEVENT Event;
-        KIRQL   Irql;
-
-        Event = ThreadGetEvent(Self);
-
-        (VOID) KeWaitForSingleObject(Event,
-                                     Executive,
-                                     KernelMode,
-                                     FALSE,
-                                     &Timeout);
-        KeClearEvent(Event);
-
-        if (ThreadIsAlerted(Self))
-            break;
-
-        KeRaiseIrql(DISPATCH_LEVEL, &Irql);
-        __TransmitterRingAcquireLock(Ring);
-
-        if (Ring->Enabled) {
-            PXENVIF_TRANSMITTER Transmitter;
-            PXENVIF_FRONTEND    Frontend;
-
-            Transmitter = Ring->Transmitter;
-            Frontend = Transmitter->Frontend;
-
-            PollerTrigger(FrontendGetPoller(Frontend),
-                          Ring->Index,
-                          XENVIF_POLLER_EVENT_TRANSMIT);
-        }
-
-        __TransmitterRingReleaseLock(Ring);
-        KeLowerIrql(Irql);
-    }
-
-    Trace("<====\n");
-
-    return STATUS_SUCCESS;
-}
-
 static FORCEINLINE NTSTATUS
 __TransmitterRingInitialize(
     IN  PXENVIF_TRANSMITTER         Transmitter,
@@ -3498,20 +3423,7 @@ __TransmitterRingInitialize(
     if (!NT_SUCCESS(status))
         goto fail14;
 
-    status = ThreadCreate(TransmitterRingCompletion,
-                          *Ring,
-                          &(*Ring)->CompletionThread);
-    if (!NT_SUCCESS(status))
-        goto fail15;
-
     return STATUS_SUCCESS;
-
-fail15:
-    Error("fail15\n");
-
-    ThreadAlert((*Ring)->WatchdogThread);
-    ThreadJoin((*Ring)->WatchdogThread);
-    (*Ring)->WatchdogThread = NULL;
 
 fail14:
     Error("fail14\n");
@@ -3965,10 +3877,6 @@ __TransmitterRingTeardown(
     Ring->PacketsUnprepared = 0;
     Ring->PacketsPrepared = 0;
     Ring->PacketsQueued = 0;
-
-    ThreadAlert(Ring->CompletionThread);
-    ThreadJoin(Ring->CompletionThread);
-    Ring->CompletionThread = NULL;
 
     ThreadAlert(Ring->WatchdogThread);
     ThreadJoin(Ring->WatchdogThread);
