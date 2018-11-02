@@ -2448,168 +2448,6 @@ __TransmitterRingCompletePacket(
     IN  PXENVIF_TRANSMITTER_PACKET  Packet
     )
 {
-    PXENVIF_TRANSMITTER             Transmitter;
-    PXENVIF_FRONTEND                Frontend;
-    PXENVIF_PACKET_PAYLOAD          Payload;
-    PXENVIF_PACKET_INFO             Info;
-    PUCHAR                          BaseVa;
-    PETHERNET_HEADER                EthernetHeader;
-    PETHERNET_ADDRESS               DestinationAddress;
-    ETHERNET_ADDRESS_TYPE           Type;
-
-    Transmitter = Ring->Transmitter;
-    Frontend = Transmitter->Frontend;
-
-    ASSERT(Packet->Completion.Status != 0);
-
-    if (Packet->Completion.Status != XENVIF_TRANSMITTER_PACKET_OK) {
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_PACKETS_DROPPED,
-                                   1);
-
-        if (Packet->Completion.Status == XENVIF_TRANSMITTER_PACKET_ERROR)
-            FrontendIncrementStatistic(Frontend,
-                                       XENVIF_TRANSMITTER_BACKEND_ERRORS,
-                                       1);
-
-        goto done;
-    }
-
-    BaseVa = Packet->Header;
-    Info = &Packet->Info;
-    Payload = &Packet->Payload;
-
-    ASSERT(Info->EthernetHeader.Length != 0);
-    EthernetHeader = (PETHERNET_HEADER)(BaseVa + Info->EthernetHeader.Offset);
-
-    DestinationAddress = &EthernetHeader->DestinationAddress;
-
-    Type = GET_ETHERNET_ADDRESS_TYPE(DestinationAddress);
-
-    switch (Type) {
-    case ETHERNET_ADDRESS_UNICAST:
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_UNICAST_PACKETS,
-                                   1);
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_UNICAST_OCTETS,
-                                   Packet->Length);
-        break;
-
-    case ETHERNET_ADDRESS_MULTICAST:
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_MULTICAST_PACKETS,
-                                   1);
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_MULTICAST_OCTETS,
-                                   Packet->Length);
-        break;
-
-    case ETHERNET_ADDRESS_BROADCAST:
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_BROADCAST_PACKETS,
-                                   1);
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_BROADCAST_OCTETS,
-                                   Packet->Length);
-        break;
-
-    default:
-        ASSERT(FALSE);
-        break;
-    }
-
-    if (ETHERNET_HEADER_IS_TAGGED(EthernetHeader))
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_TAGGED_PACKETS,
-                                   1);
-
-    if (Info->LLCSnapHeader.Length != 0)
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_LLC_SNAP_PACKETS,
-                                   1);
-
-    if (Info->IpHeader.Length != 0) {
-        PIP_HEADER  IpHeader = (PIP_HEADER)(BaseVa + Info->IpHeader.Offset);
-
-        if (IpHeader->Version == 4) {
-            FrontendIncrementStatistic(Frontend,
-                                       XENVIF_TRANSMITTER_IPV4_PACKETS,
-                                       1);
-        } else {
-            ASSERT3U(IpHeader->Version, ==, 6);
-
-            FrontendIncrementStatistic(Frontend,
-                                       XENVIF_TRANSMITTER_IPV6_PACKETS,
-                                       1);
-        }
-    }
-
-    if (Info->TcpHeader.Length != 0)
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_TCP_PACKETS,
-                                   1);
-
-    if (Info->UdpHeader.Length != 0)
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_UDP_PACKETS,
-                                   1);
-
-    if (Packet->MaximumSegmentSize != 0)
-        FrontendIncrementStatistic(Frontend,
-                                   XENVIF_TRANSMITTER_GSO_PACKETS,
-                                   1);
-
-   if (Packet->Flags.IpChecksumSucceeded != 0)
-       FrontendIncrementStatistic(Frontend,
-                                  XENVIF_TRANSMITTER_IPV4_CHECKSUM_SUCCEEDED,
-                                  1);
-
-   if (Packet->Flags.IpChecksumFailed != 0)
-       FrontendIncrementStatistic(Frontend,
-                                  XENVIF_TRANSMITTER_IPV4_CHECKSUM_FAILED,
-                                  1);
-
-   if (Packet->Flags.IpChecksumNotValidated != 0)
-       FrontendIncrementStatistic(Frontend,
-                                  XENVIF_TRANSMITTER_IPV4_CHECKSUM_NOT_VALIDATED,
-                                  1);
-
-   if (Packet->Flags.TcpChecksumSucceeded != 0)
-       FrontendIncrementStatistic(Frontend,
-                                  XENVIF_TRANSMITTER_TCP_CHECKSUM_SUCCEEDED,
-                                  1);
-
-   if (Packet->Flags.TcpChecksumFailed != 0)
-       FrontendIncrementStatistic(Frontend,
-                                  XENVIF_TRANSMITTER_TCP_CHECKSUM_FAILED,
-                                  1);
-
-   if (Packet->Flags.TcpChecksumNotValidated != 0)
-       FrontendIncrementStatistic(Frontend,
-                                  XENVIF_TRANSMITTER_TCP_CHECKSUM_NOT_VALIDATED,
-                                  1);
-
-   if (Packet->Flags.UdpChecksumSucceeded != 0)
-       FrontendIncrementStatistic(Frontend,
-                                  XENVIF_TRANSMITTER_UDP_CHECKSUM_SUCCEEDED,
-                                  1);
-
-   if (Packet->Flags.UdpChecksumFailed != 0)
-       FrontendIncrementStatistic(Frontend,
-                                  XENVIF_TRANSMITTER_UDP_CHECKSUM_FAILED,
-                                  1);
-
-   if (Packet->Flags.UdpChecksumNotValidated != 0)
-       FrontendIncrementStatistic(Frontend,
-                                  XENVIF_TRANSMITTER_UDP_CHECKSUM_NOT_VALIDATED,
-                                  1);
-
-    Packet->Completion.Type = Type;
-    Packet->Completion.PacketLength = (USHORT)Packet->Length;
-    Packet->Completion.PayloadLength = (USHORT)Payload->Length;
-
-done:
     InsertTailList(&Ring->PacketComplete, &Packet->ListEntry);
     Ring->PacketsCompleted++;
 }
@@ -3048,6 +2886,172 @@ TransmitterRingSchedule(
 }
 
 static FORCEINLINE VOID
+__TransmitterSetCompletionInfo(
+    IN  PXENVIF_TRANSMITTER         Transmitter,
+    IN  PXENVIF_TRANSMITTER_PACKET  Packet
+    )
+{
+    PXENVIF_FRONTEND                Frontend;
+    PXENVIF_PACKET_PAYLOAD          Payload;
+    PXENVIF_PACKET_INFO             Info;
+    PUCHAR                          BaseVa;
+    PETHERNET_HEADER                EthernetHeader;
+    PETHERNET_ADDRESS               DestinationAddress;
+    ETHERNET_ADDRESS_TYPE           Type;
+
+    Frontend = Transmitter->Frontend;
+
+    ASSERT(Packet->Completion.Status != 0);
+
+    if (Packet->Completion.Status != XENVIF_TRANSMITTER_PACKET_OK) {
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_PACKETS_DROPPED,
+                                   1);
+
+        if (Packet->Completion.Status == XENVIF_TRANSMITTER_PACKET_ERROR)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_TRANSMITTER_BACKEND_ERRORS,
+                                       1);
+
+        return;
+    }
+
+    BaseVa = Packet->Header;
+    Info = &Packet->Info;
+    Payload = &Packet->Payload;
+
+    ASSERT(Info->EthernetHeader.Length != 0);
+    EthernetHeader = (PETHERNET_HEADER)(BaseVa + Info->EthernetHeader.Offset);
+
+    DestinationAddress = &EthernetHeader->DestinationAddress;
+
+    Type = GET_ETHERNET_ADDRESS_TYPE(DestinationAddress);
+
+    switch (Type) {
+    case ETHERNET_ADDRESS_UNICAST:
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_UNICAST_PACKETS,
+                                   1);
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_UNICAST_OCTETS,
+                                   Packet->Length);
+        break;
+
+    case ETHERNET_ADDRESS_MULTICAST:
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_MULTICAST_PACKETS,
+                                   1);
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_MULTICAST_OCTETS,
+                                   Packet->Length);
+        break;
+
+    case ETHERNET_ADDRESS_BROADCAST:
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_BROADCAST_PACKETS,
+                                   1);
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_BROADCAST_OCTETS,
+                                   Packet->Length);
+        break;
+
+    default:
+        ASSERT(FALSE);
+        break;
+    }
+
+    if (ETHERNET_HEADER_IS_TAGGED(EthernetHeader))
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_TAGGED_PACKETS,
+                                   1);
+
+    if (Info->LLCSnapHeader.Length != 0)
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_LLC_SNAP_PACKETS,
+                                   1);
+
+    if (Info->IpHeader.Length != 0) {
+        PIP_HEADER  IpHeader = (PIP_HEADER)(BaseVa + Info->IpHeader.Offset);
+
+        if (IpHeader->Version == 4) {
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_TRANSMITTER_IPV4_PACKETS,
+                                       1);
+        } else {
+            ASSERT3U(IpHeader->Version, ==, 6);
+
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_TRANSMITTER_IPV6_PACKETS,
+                                       1);
+        }
+    }
+
+    if (Info->TcpHeader.Length != 0)
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_TCP_PACKETS,
+                                   1);
+
+    if (Info->UdpHeader.Length != 0)
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_UDP_PACKETS,
+                                   1);
+
+    if (Packet->MaximumSegmentSize != 0)
+        FrontendIncrementStatistic(Frontend,
+                                   XENVIF_TRANSMITTER_GSO_PACKETS,
+                                   1);
+
+   if (Packet->Flags.IpChecksumSucceeded != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_IPV4_CHECKSUM_SUCCEEDED,
+                                  1);
+
+   if (Packet->Flags.IpChecksumFailed != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_IPV4_CHECKSUM_FAILED,
+                                  1);
+
+   if (Packet->Flags.IpChecksumNotValidated != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_IPV4_CHECKSUM_NOT_VALIDATED,
+                                  1);
+
+   if (Packet->Flags.TcpChecksumSucceeded != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_TCP_CHECKSUM_SUCCEEDED,
+                                  1);
+
+   if (Packet->Flags.TcpChecksumFailed != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_TCP_CHECKSUM_FAILED,
+                                  1);
+
+   if (Packet->Flags.TcpChecksumNotValidated != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_TCP_CHECKSUM_NOT_VALIDATED,
+                                  1);
+
+   if (Packet->Flags.UdpChecksumSucceeded != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_UDP_CHECKSUM_SUCCEEDED,
+                                  1);
+
+   if (Packet->Flags.UdpChecksumFailed != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_UDP_CHECKSUM_FAILED,
+                                  1);
+
+   if (Packet->Flags.UdpChecksumNotValidated != 0)
+       FrontendIncrementStatistic(Frontend,
+                                  XENVIF_TRANSMITTER_UDP_CHECKSUM_NOT_VALIDATED,
+                                  1);
+
+    Packet->Completion.Type = Type;
+    Packet->Completion.PacketLength = (USHORT)Packet->Length;
+    Packet->Completion.PayloadLength = (USHORT)Payload->Length;
+}
+
+static FORCEINLINE VOID
 __TransmitterReturnPackets(
     IN  PXENVIF_TRANSMITTER Transmitter,
     IN  PLIST_ENTRY         List
@@ -3071,6 +3075,8 @@ __TransmitterReturnPackets(
         Packet = CONTAINING_RECORD(ListEntry,
                                    XENVIF_TRANSMITTER_PACKET,
                                    ListEntry);
+
+        __TransmitterSetCompletionInfo(Transmitter, Packet);
 
         VifTransmitterReturnPacket(Context,
                                    Packet->Cookie,
@@ -3206,8 +3212,7 @@ __TransmitterRingReleaseLock(
 
         Transmitter = Ring->Transmitter;
 
-        __TransmitterReturnPackets(Transmitter,
-                                   &List);
+        __TransmitterReturnPackets(Transmitter, &List);
     }
 }
 
