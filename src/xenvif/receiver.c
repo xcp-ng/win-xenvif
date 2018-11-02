@@ -1975,23 +1975,19 @@ __ReceiverRingQueuePacket(
     } while (InterlockedCompareExchangePointer(&Ring->PacketQueue, (PVOID)New, (PVOID)Old) != Old);
 }
 
-static DECLSPEC_NOINLINE BOOLEAN
+static DECLSPEC_NOINLINE VOID
 ReceiverRingPoll(
     IN  PXENVIF_RECEIVER_RING   Ring
     )
 {
-#define XENVIF_RECEIVER_BATCH(_Ring) (RING_SIZE(&(_Ring)->Front) / 4)
-
     PXENVIF_RECEIVER            Receiver;
     PXENVIF_FRONTEND            Frontend;
-    BOOLEAN                     Retry;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
-    Retry = FALSE;
 
     if (!Ring->Enabled)
-        goto done;
+        return;
 
     for (;;) {
         BOOLEAN                 Error;
@@ -2016,9 +2012,6 @@ ReceiverRingPoll(
         TailMdl = NULL;
         EOP = TRUE;
 
-        if (Retry)
-            break;
-
         KeMemoryBarrier();
 
         rsp_prod = Ring->Shared->rsp_prod;
@@ -2036,7 +2029,7 @@ ReceiverRingPoll(
             break;
         }
 
-        while (rsp_cons != rsp_prod && !Retry) {
+        while (rsp_cons != rsp_prod) {
             netif_rx_response_t         *rsp;
             uint16_t                    id;
             PXENVIF_RECEIVER_FRAGMENT   Fragment;
@@ -2193,9 +2186,6 @@ ReceiverRingPoll(
                     __ReceiverRingQueuePacket(Ring, Packet);
                 }
 
-                if (rsp_cons - Ring->Front.rsp_cons > XENVIF_RECEIVER_BATCH(Ring))
-                    Retry = TRUE;
-
                 Error = FALSE;
                 Info = 0;
                 MaximumSegmentSize = 0;
@@ -2226,11 +2216,6 @@ ReceiverRingPoll(
     if (Ring->PacketQueue != NULL &&
         KeInsertQueueDpc(&Ring->QueueDpc, NULL, NULL))
         Ring->QueueDpcs++;
-
-done:
-    return Retry;
-
-#undef  XENVIF_RECEIVER_BATCH
 }
 
 static FORCEINLINE VOID
@@ -2274,16 +2259,12 @@ ReceiverRingPollDpc(
     ASSERT(Ring != NULL);
 
     for (;;) {
-        BOOLEAN Retry;
-
         __ReceiverRingAcquireLock(Ring);
-        Retry = ReceiverRingPoll(Ring);
+        ReceiverRingPoll(Ring);
         __ReceiverRingReleaseLock(Ring);
 
-        if (!Retry) {
-            __ReceiverRingUnmask(Ring);
-            break;
-        }
+        __ReceiverRingUnmask(Ring);
+        break;
     }
 }
 

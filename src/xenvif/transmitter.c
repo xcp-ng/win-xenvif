@@ -2614,31 +2614,24 @@ done:
     Ring->PacketsCompleted++;
 }
 
-static DECLSPEC_NOINLINE BOOLEAN
+static DECLSPEC_NOINLINE VOID
 TransmitterRingPoll(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
 {
-#define XENVIF_TRANSMITTER_BATCH(_Ring) (RING_SIZE(&(_Ring)->Front) / 4)
-
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
-    BOOLEAN                         Retry;
 
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
-    Retry = FALSE;
 
     if (!Ring->Enabled)
-        goto done;
+        return;
 
     for (;;) {
         RING_IDX    rsp_prod;
         RING_IDX    rsp_cons;
         ULONG       Extra;
-
-        if (Retry)
-            break;
 
         KeMemoryBarrier();
 
@@ -2658,7 +2651,7 @@ TransmitterRingPoll(
         }
 
         Extra = 0;
-        while (rsp_cons != rsp_prod && !Retry) {
+        while (rsp_cons != rsp_prod) {
             netif_tx_response_t             *rsp;
             uint16_t                        id;
             PXENVIF_TRANSMITTER_FRAGMENT    Fragment;
@@ -2785,9 +2778,6 @@ TransmitterRingPoll(
                 Packet->Completion.Status = XENVIF_TRANSMITTER_PACKET_OK;
 
             __TransmitterRingCompletePacket(Ring, Packet);
-
-            if (rsp_cons - Ring->Front.rsp_cons > XENVIF_TRANSMITTER_BATCH(Ring))
-                Retry = TRUE;
         }
         ASSERT3U(Extra, ==, 0);
 
@@ -2795,11 +2785,6 @@ TransmitterRingPoll(
 
         Ring->Front.rsp_cons = rsp_cons;
     }
-
-done:
-    return Retry;
-
-#undef XENVIF_TRANSMITTER_BATCH
 }
 
 static FORCEINLINE VOID
@@ -3270,16 +3255,12 @@ TransmitterRingPollDpc(
     ASSERT(Ring != NULL);
 
     for (;;) {
-        BOOLEAN Retry;
-
         __TransmitterRingAcquireLock(Ring);
-        Retry = TransmitterRingPoll(Ring);
+        TransmitterRingPoll(Ring);
         __TransmitterRingReleaseLock(Ring);
 
-        if (!Retry) {
-            __TransmitterRingUnmask(Ring);
-            break;
-        }
+        __TransmitterRingUnmask(Ring);
+        break;
     }
 }
 
