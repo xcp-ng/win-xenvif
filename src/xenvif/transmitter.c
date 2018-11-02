@@ -182,8 +182,6 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     PXENBUS_EVTCHN_CHANNEL          Channel;
     KDPC                            Dpc;
     ULONG                           Dpcs;
-    KTIMER                          Timer;
-    KDPC                            TimerDpc;
     ULONG                           Events;
     BOOLEAN                         Connected;
     BOOLEAN                         Enabled;
@@ -3250,37 +3248,6 @@ __TransmitterRingUnmask(
                   TRUE);
 }
 
-static FORCEINLINE BOOLEAN
-__TransmitterRingDpcTimeout(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
-    )
-{
-    KDPC_WATCHDOG_INFORMATION       Watchdog;
-    NTSTATUS                        status;
-
-    UNREFERENCED_PARAMETER(Ring);
-
-    RtlZeroMemory(&Watchdog, sizeof (Watchdog));
-
-    status = KeQueryDpcWatchdogInformation(&Watchdog);
-    ASSERT(NT_SUCCESS(status));
-
-    if (Watchdog.DpcTimeLimit == 0 ||
-        Watchdog.DpcWatchdogLimit == 0)
-        return FALSE;
-
-    if (Watchdog.DpcTimeCount > (Watchdog.DpcTimeLimit / 2) &&
-        Watchdog.DpcWatchdogCount > (Watchdog.DpcWatchdogLimit / 2))
-        return FALSE;
-
-    return TRUE;
-}
-
-#define TIME_US(_us)        ((_us) * 10)
-#define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
-#define TIME_S(_s)          (TIME_MS((_s) * 1000))
-#define TIME_RELATIVE(_t)   (-(_t))
-
 __drv_functionClass(KDEFERRED_ROUTINE)
 __drv_maxIRQL(DISPATCH_LEVEL)
 __drv_minIRQL(DISPATCH_LEVEL)
@@ -3311,15 +3278,6 @@ TransmitterRingDpc(
 
         if (!Retry) {
             __TransmitterRingUnmask(Ring);
-            break;
-        }
-
-        if (__TransmitterRingDpcTimeout(Ring)) {
-            LARGE_INTEGER   Delay;
-
-            Delay.QuadPart = TIME_RELATIVE(TIME_US(100));
-
-            KeSetTimer(&Ring->Timer, Delay, &Ring->TimerDpc);
             break;
         }
     }
@@ -3353,6 +3311,11 @@ TransmitterRingEvtchnCallback(
 
     return TRUE;
 }
+
+#define TIME_US(_us)        ((_us) * 10)
+#define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
+#define TIME_S(_s)          (TIME_MS((_s) * 1000))
+#define TIME_RELATIVE(_t)   (-(_t))
 
 #define XENVIF_TRANSMITTER_WATCHDOG_PERIOD  30
 
@@ -3467,8 +3430,6 @@ __TransmitterRingInitialize(
     InitializeListHead(&(*Ring)->PacketComplete);
 
     KeInitializeDpc(&(*Ring)->Dpc, TransmitterRingDpc, *Ring);
-    KeInitializeTimer(&(*Ring)->Timer);
-    KeInitializeDpc(&(*Ring)->TimerDpc, TransmitterRingDpc, *Ring);
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
@@ -3789,7 +3750,6 @@ __TransmitterRingConnect(
         ASSERT(NT_SUCCESS(status));
 
         KeSetTargetProcessorDpcEx(&Ring->Dpc, &ProcNumber);
-        KeSetTargetProcessorDpcEx(&Ring->TimerDpc, &ProcNumber);
 
         (VOID) XENBUS_EVTCHN(Bind,
                              &Transmitter->EvtchnInterface,
@@ -4046,12 +4006,6 @@ __TransmitterRingDisable(
 
     __TransmitterRingReleaseLock(Ring);
 
-    //
-    // No new timers can be scheduled once Enabled goes to FALSE.
-    // Cancel any existing ones.
-    //
-    (VOID) KeCancelTimer(&Ring->Timer);
-
     Info("%s[%u]: <====\n",
          FrontendGetPath(Frontend),
          Ring->Index);
@@ -4127,8 +4081,6 @@ __TransmitterRingTeardown(
 
     Ring->Dpcs = 0;
 
-    RtlZeroMemory(&Ring->TimerDpc, sizeof (KDPC));
-    RtlZeroMemory(&Ring->Timer, sizeof (KTIMER));
     RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
 
     ASSERT3U(Ring->PacketsCompleted, ==, Ring->PacketsSent);
