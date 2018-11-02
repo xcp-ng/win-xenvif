@@ -62,7 +62,8 @@ struct _XENVIF_MAC {
     XENBUS_DEBUG_INTERFACE  DebugInterface;
     PXENBUS_DEBUG_CALLBACK  DebugCallback;
     XENBUS_STORE_INTERFACE  StoreInterface;
-    PXENBUS_STORE_WATCH     Watch;
+    PXENBUS_STORE_WATCH     DisconnectWatch;
+    PXENBUS_STORE_WATCH     SpeedWatch;
 };
 
 #define XENVIF_MAC_TAG  'CAM'
@@ -518,9 +519,18 @@ MacEnable(
                           FrontendGetPath(Frontend),
                           "disconnect",
                           ThreadGetEvent(Thread),
-                          &Mac->Watch);
+                          &Mac->DisconnectWatch);
     if (!NT_SUCCESS(status))
         goto fail1;
+
+    status = XENBUS_STORE(WatchAdd,
+                          &Mac->StoreInterface,
+                          FrontendGetPath(Frontend),
+                          "speed",
+                          ThreadGetEvent(Thread),
+                          &Mac->SpeedWatch);
+    if (!NT_SUCCESS(status))
+        goto fail2;
 
     ASSERT(!Mac->Enabled);
     Mac->Enabled = TRUE;
@@ -529,6 +539,14 @@ MacEnable(
 
     Trace("<====\n");
     return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+    (VOID) XENBUS_STORE(WatchRemove,
+                        &Mac->StoreInterface,
+                        Mac->DisconnectWatch);
+    Mac->DisconnectWatch = NULL;
 
 fail1:
     Error("fail1 (%08x)\n");
@@ -558,8 +576,13 @@ MacDisable(
 
     (VOID) XENBUS_STORE(WatchRemove,
                         &Mac->StoreInterface,
-                        Mac->Watch);
-    Mac->Watch = NULL;
+                        Mac->SpeedWatch);
+    Mac->SpeedWatch = NULL;
+
+    (VOID) XENBUS_STORE(WatchRemove,
+                        &Mac->StoreInterface,
+                        Mac->DisconnectWatch);
+    Mac->DisconnectWatch = NULL;
 
     __MacReleaseLockExclusive(Mac);
 
@@ -648,14 +671,15 @@ MacTeardown(
     __MacFree(Mac);
 }
 
-static FORCEINLINE ULONG
+static FORCEINLINE ULONG64
 __MacGetSpeed(
     IN  PXENVIF_MAC Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
     PCHAR               Buffer;
-    ULONG               Speed;
+    ULONG64             Speed;
+    PCHAR               Unit;
     NTSTATUS            status;
 
     Frontend = Mac->Frontend;
@@ -668,12 +692,41 @@ __MacGetSpeed(
                           &Buffer);
     if (!NT_SUCCESS(status)) {
         Speed = 1;
+        Unit = "G";
     } else {
-        Speed = (ULONG)strtol(Buffer, NULL, 10);
+        Speed = _strtoui64(Buffer, &Unit, 10);
+        if (*Unit == '\0')
+            Unit = "G";
 
         XENBUS_STORE(Free,
                      &Mac->StoreInterface,
                      Buffer);
+    }
+
+    if (*(Unit + 1) != '\0') {
+        Warning("INVALID SPEED: %s\n", Buffer);
+        return 0;
+    }
+
+    switch (*Unit) {
+    case 'g':
+    case 'G':
+        Speed *= 1000000000ull;
+        break;
+
+    case 'm':
+    case 'M':
+        Speed *= 1000000ull;
+        break;
+
+    case 'k':
+    case 'K':
+        Speed *= 1000ull;
+        break;
+
+    default:
+        Warning("INVALID SPEED UNIT: %c\n", *Unit);
+        return 0;
     }
 
     return Speed;
@@ -718,9 +771,13 @@ MacQueryState(
     OUT PNET_IF_MEDIA_DUPLEX_STATE  MediaDuplexState OPTIONAL
     )
 {
-    if (MediaConnectState != NULL || MediaDuplexState != NULL) {
-        BOOLEAN Disconnect = __MacGetDisconnect(Mac);
+    ULONG64 Speed = __MacGetSpeed(Mac);
+    BOOLEAN Disconnect = __MacGetDisconnect(Mac);
 
+    if (Speed == 0)
+        Disconnect = TRUE;
+
+    if (MediaConnectState != NULL || MediaDuplexState != NULL) {
         if (MediaConnectState != NULL)
             *MediaConnectState = (Disconnect) ?
                                  MediaConnectStateDisconnected :
@@ -733,7 +790,7 @@ MacQueryState(
     }
 
     if (LinkSpeed != NULL)
-        *LinkSpeed = (ULONG64)__MacGetSpeed(Mac) * 1000000000ull;
+        *LinkSpeed = Speed;
 }
 
 VOID
