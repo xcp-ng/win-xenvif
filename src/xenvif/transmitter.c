@@ -180,8 +180,8 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     netif_tx_sring_t                *Shared;
     PXENBUS_GNTTAB_ENTRY            Entry;
     PXENBUS_EVTCHN_CHANNEL          Channel;
-    KDPC                            Dpc;
-    ULONG                           Dpcs;
+    KDPC                            PollDpc;
+    ULONG                           PollDpcs;
     ULONG                           Events;
     BOOLEAN                         Connected;
     BOOLEAN                         Enabled;
@@ -773,9 +773,9 @@ TransmitterRingDebugCallback(
         // Dump event channel
         XENBUS_DEBUG(Printf,
                      &Transmitter->DebugInterface,
-                     "Events = %lu Dpcs = %lu\n",
+                     "Events = %lu PollDpcs = %lu\n",
                      Ring->Events,
-                     Ring->Dpcs);
+                     Ring->PollDpcs);
     }
 }
 
@@ -3254,7 +3254,7 @@ __drv_minIRQL(DISPATCH_LEVEL)
 __drv_requiresIRQL(DISPATCH_LEVEL)
 __drv_sameIRQL
 static VOID
-TransmitterRingDpc(
+TransmitterRingPollDpc(
     IN  PKDPC                   Dpc,
     IN  PVOID                   Context,
     IN  PVOID                   Argument1,
@@ -3306,8 +3306,8 @@ TransmitterRingEvtchnCallback(
 
     Ring->Events++;
 
-    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
-        Ring->Dpcs++;
+    if (KeInsertQueueDpc(&Ring->PollDpc, NULL, NULL))
+        Ring->PollDpcs++;
 
     return TRUE;
 }
@@ -3429,7 +3429,7 @@ __TransmitterRingInitialize(
     InitializeListHead(&(*Ring)->RequestQueue);
     InitializeListHead(&(*Ring)->PacketComplete);
 
-    KeInitializeDpc(&(*Ring)->Dpc, TransmitterRingDpc, *Ring);
+    KeInitializeDpc(&(*Ring)->PollDpc, TransmitterRingPollDpc, *Ring);
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
@@ -3632,7 +3632,7 @@ fail4:
 fail3:
     Error("fail3\n");
 
-    RtlZeroMemory(&(*Ring)->Dpc, sizeof (KDPC));
+    RtlZeroMemory(&(*Ring)->PollDpc, sizeof (KDPC));
 
     RtlZeroMemory(&(*Ring)->PacketComplete, sizeof (LIST_ENTRY));
     RtlZeroMemory(&(*Ring)->RequestQueue, sizeof (LIST_ENTRY));
@@ -3749,7 +3749,7 @@ __TransmitterRingConnect(
         status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
         ASSERT(NT_SUCCESS(status));
 
-        KeSetTargetProcessorDpcEx(&Ring->Dpc, &ProcNumber);
+        KeSetTargetProcessorDpcEx(&Ring->PollDpc, &ProcNumber);
 
         (VOID) XENBUS_EVTCHN(Bind,
                              &Transmitter->EvtchnInterface,
@@ -3907,7 +3907,7 @@ __TransmitterRingEnable(
     ASSERT(!Ring->Enabled);
     Ring->Enabled = TRUE;
 
-    KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
+    KeInsertQueueDpc(&Ring->PollDpc, NULL, NULL);
 
     __TransmitterRingReleaseLock(Ring);
 
@@ -4034,7 +4034,7 @@ __TransmitterRingDisconnect(
         Ring->Events = 0;
     }
 
-    Ring->Dpcs = 0;
+    Ring->PollDpcs = 0;
 
     ASSERT3U(Ring->ResponsesProcessed, ==, Ring->RequestsPushed);
     ASSERT3U(Ring->RequestsPushed, ==, Ring->RequestsPosted);
@@ -4079,9 +4079,9 @@ __TransmitterRingTeardown(
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
-    Ring->Dpcs = 0;
+    Ring->PollDpcs = 0;
 
-    RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
+    RtlZeroMemory(&Ring->PollDpc, sizeof (KDPC));
 
     ASSERT3U(Ring->PacketsCompleted, ==, Ring->PacketsSent);
     ASSERT3U(Ring->PacketsSent, ==, Ring->PacketsPrepared - Ring->PacketsUnprepared);
@@ -5276,8 +5276,8 @@ TransmitterNotify(
 
     Ring = Transmitter->Ring[Index];
 
-    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
-        Ring->Dpcs++;
+    if (KeInsertQueueDpc(&Ring->PollDpc, NULL, NULL))
+        Ring->PollDpcs++;
 }
 
 VOID

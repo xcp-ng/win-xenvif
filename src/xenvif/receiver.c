@@ -89,8 +89,8 @@ typedef struct _XENVIF_RECEIVER_RING {
     netif_rx_sring_t            *Shared;
     PXENBUS_GNTTAB_ENTRY        Entry;
     PXENBUS_EVTCHN_CHANNEL      Channel;
-    KDPC                        Dpc;
-    ULONG                       Dpcs;
+    KDPC                        PollDpc;
+    ULONG                       PollDpcs;
     ULONG                       Events;
     PXENVIF_RECEIVER_FRAGMENT   Pending[XENVIF_RECEIVER_MAXIMUM_FRAGMENT_ID + 1];
     ULONG                       RequestsPosted;
@@ -103,7 +103,10 @@ typedef struct _XENVIF_RECEIVER_RING {
     ULONG                       BackfillSize;
     PXENBUS_DEBUG_CALLBACK      DebugCallback;
     PXENVIF_THREAD              WatchdogThread;
-    LIST_ENTRY                  PacketList;
+    PLIST_ENTRY                 PacketQueue;
+    KDPC                        QueueDpc;
+    ULONG                       QueueDpcs;
+    LIST_ENTRY                  PacketComplete;
     XENVIF_RECEIVER_HASH        Hash;
 } XENVIF_RECEIVER_RING, *PXENVIF_RECEIVER_RING;
 
@@ -911,10 +914,22 @@ fail1:
 }
 
 static VOID
+ReceiverRingCompletePacket(
+    IN  PXENVIF_RECEIVER_RING   Ring,
+    IN  PXENVIF_RECEIVER_PACKET Packet
+    )
+{
+    ReceiverRingProcessTag(Ring, Packet);
+    ReceiverRingProcessChecksum(Ring, Packet);
+
+    ASSERT(IsZeroMemory(&Packet->ListEntry, sizeof (LIST_ENTRY)));
+    InsertTailList(&Ring->PacketComplete, &Packet->ListEntry);
+}
+
+static VOID
 ReceiverRingProcessLargePacket(
     IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet,
-    OUT PLIST_ENTRY             List
+    IN  PXENVIF_RECEIVER_PACKET Packet
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -1002,8 +1017,7 @@ ReceiverRingProcessLargePacket(
         ASSERT3U(Length, >=, SegmentSize);
         Length -= SegmentSize;
 
-        ASSERT(IsZeroMemory(&Segment->ListEntry, sizeof (LIST_ENTRY)));
-        InsertTailList(List, &Segment->ListEntry);
+        ReceiverRingCompletePacket(Ring, Segment);
 
         if (Offload) {
             ASSERT(Ring->OffloadOptions.NeedLargePacketSplit != 0);
@@ -1052,8 +1066,7 @@ ReceiverRingProcessLargePacket(
         if (Receiver->AlwaysPullup != 0)
             __ReceiverRingPullupPacket(Ring, Packet);
 
-        ASSERT(IsZeroMemory(&Packet->ListEntry, sizeof (LIST_ENTRY)));
-        InsertTailList(List, &Packet->ListEntry);
+        ReceiverRingCompletePacket(Ring, Packet);
     } else {
         __ReceiverRingPutPacket(Ring, Packet, TRUE);
     }
@@ -1090,8 +1103,7 @@ fail1:
 static VOID
 ReceiverRingProcessStandardPacket(
     IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet,
-    OUT PLIST_ENTRY             List
+    IN  PXENVIF_RECEIVER_PACKET Packet
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -1161,9 +1173,7 @@ ReceiverRingProcessStandardPacket(
         Packet->Mdl.Next = Mdl;
     }
 
-    ASSERT(IsZeroMemory(&Packet->ListEntry, sizeof (LIST_ENTRY)));
-    InsertTailList(List, &Packet->ListEntry);
-
+    ReceiverRingCompletePacket(Ring, Packet);
     return;
 
 fail2:
@@ -1196,8 +1206,7 @@ fail1:
 static VOID
 ReceiverRingProcessPacket(
     IN  PXENVIF_RECEIVER_RING       Ring,
-    IN  PXENVIF_RECEIVER_PACKET     Packet,
-    OUT PLIST_ENTRY                 List
+    IN  PXENVIF_RECEIVER_PACKET     Packet
     )
 {
     PXENVIF_RECEIVER                Receiver;
@@ -1283,9 +1292,9 @@ ReceiverRingProcessPacket(
         goto fail3;
 
     if (Packet->MaximumSegmentSize != 0)
-        ReceiverRingProcessLargePacket(Ring, Packet, List);
+        ReceiverRingProcessLargePacket(Ring, Packet);
     else
-        ReceiverRingProcessStandardPacket(Ring, Packet, List);
+        ReceiverRingProcessStandardPacket(Ring, Packet);
 
     return;
 
@@ -1318,63 +1327,8 @@ fail1:
                                1);
 }
 
-static VOID
-ReceiverRingProcessPackets(
-    IN      PXENVIF_RECEIVER_RING   Ring,
-    OUT     PLIST_ENTRY             List,
-    OUT     PULONG                  Count
-    )
-{
-    PLIST_ENTRY                     ListEntry;
-
-    while (!IsListEmpty(&Ring->PacketList)) {
-        PXENVIF_RECEIVER_PACKET Packet;
-
-        ListEntry = RemoveHeadList(&Ring->PacketList);
-        ASSERT3P(ListEntry, !=, &Ring->PacketList);
-
-        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
-
-        Packet = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_PACKET, ListEntry);
-        ReceiverRingProcessPacket(Ring, Packet, List);
-    }
-
-    for (ListEntry = List->Flink;
-         ListEntry != List;
-         ListEntry = ListEntry->Flink) {
-        PXENVIF_RECEIVER_PACKET Packet;
-
-        Packet = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_PACKET, ListEntry);
-
-        ReceiverRingProcessTag(Ring, Packet);
-        ReceiverRingProcessChecksum(Ring, Packet);
-
-        (*Count)++;
-    }
-}
-
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
-__ReceiverRingAcquireLock(
-    IN  PXENVIF_RECEIVER_RING   Ring
-    )
-{
-    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
-
-    KeAcquireSpinLockAtDpcLevel(&Ring->Lock);
-}
-
-static DECLSPEC_NOINLINE VOID
-ReceiverRingAcquireLock(
-    IN  PXENVIF_RECEIVER_RING   Ring
-    )
-{
-    __ReceiverRingAcquireLock(Ring);
-}
-
-static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
-__ReceiverRingReleaseLock(
+__ReceiverRingSwizzle(
     IN  PXENVIF_RECEIVER_RING   Ring
     )
 {
@@ -1382,33 +1336,44 @@ __ReceiverRingReleaseLock(
     PXENVIF_FRONTEND            Frontend;
     PXENVIF_VIF_CONTEXT         Context;
     LIST_ENTRY                  List;
-    ULONG                       Count;
-    BOOLEAN                     More;
-
-    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+    PLIST_ENTRY                 ListEntry;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
     Context = PdoGetVifContext(FrontendGetPdo(Frontend));
 
     InitializeListHead(&List);
-    Count = 0;
 
-    ReceiverRingProcessPackets(Ring, &List, &Count);
-    ASSERT(EQUIV(IsListEmpty(&List), Count == 0));
-    ASSERT(IsListEmpty(&Ring->PacketList));
+    ListEntry = InterlockedExchangePointer(&Ring->PacketQueue, NULL);
 
-    // We need to bump Loaned before dropping the lock to avoid VifDisable()
-    // returning prematurely.
-    __InterlockedAdd(&Receiver->Loaned, Count);
+    // Packets are held in the queue in reverse order so that the most
+    // recent is always head of the list. This is necessary to allow
+    // addition to the list to be done atomically.
 
-#pragma prefast(disable:26110)
-    KeReleaseSpinLockFromDpcLevel(&Ring->Lock);
+    while (ListEntry != NULL) {
+        PLIST_ENTRY NextEntry;
 
-    More = !IsListEmpty(&List) ? TRUE : FALSE;
+        NextEntry = ListEntry->Blink;
+        ListEntry->Flink = ListEntry->Blink = ListEntry;
 
-    while (More) {
-        PLIST_ENTRY             ListEntry;
+        InsertHeadList(&List, ListEntry);
+
+        ListEntry = NextEntry;
+    }
+
+    while (!IsListEmpty(&List)) {
+        PXENVIF_RECEIVER_PACKET Packet;
+
+        ListEntry = RemoveHeadList(&List);
+        ASSERT3P(ListEntry, !=, &List);
+
+        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
+
+        Packet = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_PACKET, ListEntry);
+        ReceiverRingProcessPacket(Ring, Packet);
+    }
+
+    while (!IsListEmpty(&Ring->PacketComplete)) {
         PXENVIF_RECEIVER_PACKET Packet;
         PXENVIF_PACKET_INFO     Info;
         PUCHAR                  BaseVa;
@@ -1416,13 +1381,10 @@ __ReceiverRingReleaseLock(
         PETHERNET_ADDRESS       DestinationAddress;
         ETHERNET_ADDRESS_TYPE   Type;
 
-        ListEntry = RemoveHeadList(&List);
-        ASSERT3P(ListEntry, !=, &List);
+        ListEntry = RemoveHeadList(&Ring->PacketComplete);
+        ASSERT3P(ListEntry, !=, &Ring->PacketComplete);
 
         RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
-
-        ASSERT(More);
-        More = !IsListEmpty(&List) ? TRUE : FALSE;
 
         Packet = CONTAINING_RECORD(ListEntry,
                                    XENVIF_RECEIVER_PACKET,
@@ -1512,55 +1474,57 @@ __ReceiverRingReleaseLock(
                                        XENVIF_RECEIVER_UDP_PACKETS,
                                        1);
 
-       if (Packet->MaximumSegmentSize != 0)
+        if (Packet->MaximumSegmentSize != 0)
             FrontendIncrementStatistic(Frontend,
                                        XENVIF_RECEIVER_GSO_PACKETS,
                                        1);
 
-       if (Packet->Flags.IpChecksumSucceeded != 0)
-           FrontendIncrementStatistic(Frontend,
-                                      XENVIF_RECEIVER_IPV4_CHECKSUM_SUCCEEDED,
-                                      1);
+        if (Packet->Flags.IpChecksumSucceeded != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_IPV4_CHECKSUM_SUCCEEDED,
+                                       1);
 
-       if (Packet->Flags.IpChecksumFailed != 0)
-           FrontendIncrementStatistic(Frontend,
-                                      XENVIF_RECEIVER_IPV4_CHECKSUM_FAILED,
-                                      1);
+        if (Packet->Flags.IpChecksumFailed != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_IPV4_CHECKSUM_FAILED,
+                                       1);
 
-       if (Packet->Flags.IpChecksumNotValidated != 0)
-           FrontendIncrementStatistic(Frontend,
-                                      XENVIF_RECEIVER_IPV4_CHECKSUM_NOT_VALIDATED,
-                                      1);
+        if (Packet->Flags.IpChecksumNotValidated != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_IPV4_CHECKSUM_NOT_VALIDATED,
+                                       1);
 
-       if (Packet->Flags.TcpChecksumSucceeded != 0)
-           FrontendIncrementStatistic(Frontend,
-                                      XENVIF_RECEIVER_TCP_CHECKSUM_SUCCEEDED,
-                                      1);
+        if (Packet->Flags.TcpChecksumSucceeded != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_TCP_CHECKSUM_SUCCEEDED,
+                                       1);
 
-       if (Packet->Flags.TcpChecksumFailed != 0)
-           FrontendIncrementStatistic(Frontend,
-                                      XENVIF_RECEIVER_TCP_CHECKSUM_FAILED,
-                                      1);
+        if (Packet->Flags.TcpChecksumFailed != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_TCP_CHECKSUM_FAILED,
+                                       1);
 
-       if (Packet->Flags.TcpChecksumNotValidated != 0)
-           FrontendIncrementStatistic(Frontend,
-                                      XENVIF_RECEIVER_TCP_CHECKSUM_NOT_VALIDATED,
-                                      1);
+        if (Packet->Flags.TcpChecksumNotValidated != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_TCP_CHECKSUM_NOT_VALIDATED,
+                                       1);
 
-       if (Packet->Flags.UdpChecksumSucceeded != 0)
-           FrontendIncrementStatistic(Frontend,
-                                      XENVIF_RECEIVER_UDP_CHECKSUM_SUCCEEDED,
-                                      1);
+        if (Packet->Flags.UdpChecksumSucceeded != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_UDP_CHECKSUM_SUCCEEDED,
+                                       1);
 
-       if (Packet->Flags.UdpChecksumFailed != 0)
-           FrontendIncrementStatistic(Frontend,
-                                      XENVIF_RECEIVER_UDP_CHECKSUM_FAILED,
-                                      1);
+        if (Packet->Flags.UdpChecksumFailed != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_UDP_CHECKSUM_FAILED,
+                                       1);
 
-       if (Packet->Flags.UdpChecksumNotValidated != 0)
-           FrontendIncrementStatistic(Frontend,
-                                      XENVIF_RECEIVER_UDP_CHECKSUM_NOT_VALIDATED,
-                                      1);
+        if (Packet->Flags.UdpChecksumNotValidated != 0)
+            FrontendIncrementStatistic(Frontend,
+                                       XENVIF_RECEIVER_UDP_CHECKSUM_NOT_VALIDATED,
+                                       1);
+
+        (VOID) InterlockedIncrement(&Receiver->Loaned);
 
         VifReceiverQueuePacket(Context,
                                Ring->Index,
@@ -1572,13 +1536,40 @@ __ReceiverRingReleaseLock(
                                Packet->TagControlInformation,
                                &Packet->Info,
                                &Packet->Hash,
-                               More,
+                               !IsListEmpty(&Ring->PacketComplete) ? TRUE : FALSE,
                                Packet);
-
-        --Count;
     }
+}
 
-    ASSERT3U(Count, ==, 0);
+static FORCEINLINE VOID
+__drv_requiresIRQL(DISPATCH_LEVEL)
+__ReceiverRingAcquireLock(
+    IN  PXENVIF_RECEIVER_RING   Ring
+    )
+{
+    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+    KeAcquireSpinLockAtDpcLevel(&Ring->Lock);
+}
+
+static DECLSPEC_NOINLINE VOID
+ReceiverRingAcquireLock(
+    IN  PXENVIF_RECEIVER_RING   Ring
+    )
+{
+    __ReceiverRingAcquireLock(Ring);
+}
+
+static FORCEINLINE VOID
+__drv_requiresIRQL(DISPATCH_LEVEL)
+__ReceiverRingReleaseLock(
+    IN  PXENVIF_RECEIVER_RING   Ring
+    )
+{
+    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+
+#pragma prefast(disable:26110)
+    KeReleaseSpinLockFromDpcLevel(&Ring->Lock);
 }
 
 static DECLSPEC_NOINLINE VOID
@@ -1587,6 +1578,29 @@ ReceiverRingReleaseLock(
     )
 {
     __ReceiverRingReleaseLock(Ring);
+}
+
+__drv_functionClass(KDEFERRED_ROUTINE)
+__drv_maxIRQL(DISPATCH_LEVEL)
+__drv_minIRQL(PASSIVE_LEVEL)
+__drv_sameIRQL
+static VOID
+ReceiverRingQueueDpc(
+    IN  PKDPC               Dpc,
+    IN  PVOID               Context,
+    IN  PVOID               Argument1,
+    IN  PVOID               Argument2
+    )
+{
+    PXENVIF_RECEIVER_RING   Ring = Context;
+
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(Argument1);
+    UNREFERENCED_PARAMETER(Argument2);
+
+    ASSERT(Ring != NULL);
+
+    __ReceiverRingSwizzle(Ring);
 }
 
 static FORCEINLINE VOID
@@ -1902,6 +1916,11 @@ ReceiverRingDebugCallback(
                  (Ring->Enabled) ? "ENABLED" : "DISABLED",
                  (__ReceiverRingIsStopped(Ring)) ? "STOPPED" : "RUNNING");
 
+    XENBUS_DEBUG(Printf,
+                 &Receiver->DebugInterface,
+                 "QueueDpcs = %lu\n",
+                 Ring->QueueDpcs);
+
     // Dump front ring
     XENBUS_DEBUG(Printf,
                  &Receiver->DebugInterface,
@@ -1930,10 +1949,30 @@ ReceiverRingDebugCallback(
     // Dump event channel
     XENBUS_DEBUG(Printf,
                  &Receiver->DebugInterface,
-                 "[%s]: Events = %lu Dpcs = %lu\n",
+                 "[%s]: Events = %lu PollDpcs = %lu\n",
                  FrontendIsSplit(Frontend) ? "RX" : "COMBINED",
                  Ring->Events,
-                 Ring->Dpcs);
+                 Ring->PollDpcs);
+}
+
+static FORCEINLINE VOID
+__ReceiverRingQueuePacket(
+    IN  PXENVIF_RECEIVER_RING   Ring,
+    IN  PXENVIF_RECEIVER_PACKET Packet
+    )
+{
+    PLIST_ENTRY                 ListEntry;
+    PLIST_ENTRY                 Old;
+    PLIST_ENTRY                 New;
+
+    ListEntry = &Packet->ListEntry;
+
+    do {
+        Old = Ring->PacketQueue;
+
+        ListEntry->Blink = Ring->PacketQueue;
+        New = ListEntry;
+    } while (InterlockedCompareExchangePointer(&Ring->PacketQueue, (PVOID)New, (PVOID)Old) != Old);
 }
 
 static DECLSPEC_NOINLINE BOOLEAN
@@ -2151,7 +2190,7 @@ ReceiverRingPoll(
                     Packet->Flags.Value = flags;
 
                     ASSERT(IsZeroMemory(&Packet->ListEntry, sizeof (LIST_ENTRY)));
-                    InsertTailList(&Ring->PacketList, &Packet->ListEntry);
+                    __ReceiverRingQueuePacket(Ring, Packet);
                 }
 
                 if (rsp_cons - Ring->Front.rsp_cons > XENVIF_RECEIVER_BATCH(Ring))
@@ -2184,6 +2223,10 @@ ReceiverRingPoll(
     if (!__ReceiverRingIsStopped(Ring))
         ReceiverRingFill(Ring);
 
+    if (Ring->PacketQueue != NULL &&
+        KeInsertQueueDpc(&Ring->QueueDpc, NULL, NULL))
+        Ring->QueueDpcs++;
+
 done:
     return Retry;
 
@@ -2215,7 +2258,7 @@ __drv_minIRQL(DISPATCH_LEVEL)
 __drv_requiresIRQL(DISPATCH_LEVEL)
 __drv_sameIRQL
 static VOID
-ReceiverRingDpc(
+ReceiverRingPollDpc(
     IN  PKDPC               Dpc,
     IN  PVOID               Context,
     IN  PVOID               Argument1,
@@ -2262,8 +2305,8 @@ ReceiverRingEvtchnCallback(
 
     Ring->Events++;
 
-    if (KeInsertQueueDpc(&Ring->Dpc, NULL, NULL))
-        Ring->Dpcs++;
+    if (KeInsertQueueDpc(&Ring->PollDpc, NULL, NULL))
+        Ring->PollDpcs++;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -2398,9 +2441,9 @@ __ReceiverRingInitialize(
     if ((*Ring)->Path == NULL)
         goto fail2;
 
-    InitializeListHead(&(*Ring)->PacketList);
+    InitializeListHead(&(*Ring)->PacketComplete);
 
-    KeInitializeDpc(&(*Ring)->Dpc, ReceiverRingDpc, *Ring);
+    KeInitializeDpc(&(*Ring)->PollDpc, ReceiverRingPollDpc, *Ring);
 
     status = RtlStringCbPrintfA(Name,
                                 sizeof (Name),
@@ -2458,6 +2501,8 @@ __ReceiverRingInitialize(
     if (!NT_SUCCESS(status))
         goto fail7;
 
+    KeInitializeThreadedDpc(&(*Ring)->QueueDpc, ReceiverRingQueueDpc, *Ring);
+
     return STATUS_SUCCESS;
 
 fail7:
@@ -2485,9 +2530,9 @@ fail4:
 fail3:
     Error("fail3\n");
 
-    RtlZeroMemory(&(*Ring)->Dpc, sizeof (KDPC));
+    RtlZeroMemory(&(*Ring)->PollDpc, sizeof (KDPC));
 
-    RtlZeroMemory(&(*Ring)->PacketList, sizeof (LIST_ENTRY));
+    RtlZeroMemory(&(*Ring)->PacketComplete, sizeof (LIST_ENTRY));
 
     FrontendFreePath(Frontend, (*Ring)->Path);
     (*Ring)->Path = NULL;
@@ -2599,7 +2644,7 @@ __ReceiverRingConnect(
     status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
     ASSERT(NT_SUCCESS(status));
 
-    KeSetTargetProcessorDpcEx(&Ring->Dpc, &ProcNumber);
+    KeSetTargetProcessorDpcEx(&Ring->PollDpc, &ProcNumber);
 
     (VOID) XENBUS_EVTCHN(Bind,
                          &Receiver->EvtchnInterface,
@@ -2623,6 +2668,11 @@ __ReceiverRingConnect(
                           &Ring->DebugCallback);
     if (!NT_SUCCESS(status))
         goto fail7;
+
+    status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
+    ASSERT(NT_SUCCESS(status));
+
+    KeSetTargetProcessorDpcEx(&Ring->QueueDpc, &ProcNumber);
 
     return STATUS_SUCCESS;
 
@@ -2762,7 +2812,7 @@ __ReceiverRingEnable(
 
     Ring->Enabled = TRUE;
 
-    (VOID) KeInsertQueueDpc(&Ring->Dpc, NULL, NULL);
+    (VOID) KeInsertQueueDpc(&Ring->PollDpc, NULL, NULL);
 
     __ReceiverRingReleaseLock(Ring);
 
@@ -2802,6 +2852,9 @@ __ReceiverRingDisable(
     Ring->Enabled = FALSE;
     Ring->Stopped = FALSE;
 
+    if (KeInsertQueueDpc(&Ring->QueueDpc, NULL, NULL))
+        Ring->QueueDpcs++;
+
     __ReceiverRingReleaseLock(Ring);
 
     Info("%s[%u]: <====\n",
@@ -2820,6 +2873,8 @@ __ReceiverRingDisconnect(
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
+    Ring->QueueDpcs = 0;
+
     __ReceiverRingEmpty(Ring);
 
     ASSERT(Ring->Connected);
@@ -2831,7 +2886,7 @@ __ReceiverRingDisconnect(
     Ring->Channel = NULL;
 
     Ring->Events = 0;
-    Ring->Dpcs = 0;
+    Ring->PollDpcs = 0;
 
     ASSERT3U(Ring->ResponsesProcessed, ==, Ring->RequestsPushed);
     ASSERT3U(Ring->RequestsPushed, ==, Ring->RequestsPosted);
@@ -2877,10 +2932,13 @@ __ReceiverRingTeardown(
     Frontend = Receiver->Frontend;
 
     RtlZeroMemory(&Ring->Hash, sizeof (XENVIF_RECEIVER_HASH));
-    RtlZeroMemory(&Ring->Dpc, sizeof (KDPC));
+    RtlZeroMemory(&Ring->PollDpc, sizeof (KDPC));
 
     Ring->BackfillSize = 0;
     Ring->OffloadOptions.Value = 0;
+
+    KeFlushQueuedDpcs();
+    RtlZeroMemory(&Ring->QueueDpc, sizeof (KDPC));
 
     ThreadAlert(Ring->WatchdogThread);
     ThreadJoin(Ring->WatchdogThread);
@@ -2896,8 +2954,8 @@ __ReceiverRingTeardown(
                  Ring->PacketCache);
     Ring->PacketCache = NULL;
 
-    ASSERT(IsListEmpty(&Ring->PacketList));
-    RtlZeroMemory(&Ring->PacketList, sizeof (LIST_ENTRY));
+    ASSERT(IsListEmpty(&Ring->PacketComplete));
+    RtlZeroMemory(&Ring->PacketComplete, sizeof (LIST_ENTRY));
 
     FrontendFreePath(Frontend, Ring->Path);
     Ring->Path = NULL;
@@ -3673,16 +3731,13 @@ ReceiverWaitForPackets(
     LARGE_INTEGER           Timeout;
 
     ASSERT3U(KeGetCurrentIrql(), <, DISPATCH_LEVEL);
+    KeFlushQueuedDpcs();
 
     Frontend = Receiver->Frontend;
 
     Trace("%s: ====>\n", FrontendGetPath(Frontend));
 
     Returned = Receiver->Returned;
-
-    // Make sure Loaned is not sampled before Returned
-    KeMemoryBarrier();
-
     Loaned = Receiver->Loaned;
     ASSERT3S(Loaned - Returned, >=, 0);
 
