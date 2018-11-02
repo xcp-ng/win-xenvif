@@ -35,6 +35,7 @@
 #include <ethernet.h>
 
 #include "pdo.h"
+#include "registry.h"
 #include "frontend.h"
 #include "mac.h"
 #include "thread.h"
@@ -52,6 +53,7 @@ struct _XENVIF_MAC {
     EX_SPIN_LOCK            Lock;
     BOOLEAN                 Connected;
     BOOLEAN                 Enabled;
+    ULONG                   Speed;
     ULONG                   MaximumFrameSize;
     ETHERNET_ADDRESS        PermanentAddress;
     ETHERNET_ADDRESS        CurrentAddress;
@@ -207,6 +209,8 @@ MacInitialize(
     OUT PXENVIF_MAC         *Mac
     )
 {
+    HANDLE                  ParametersKey;
+    ULONG                   MacSpeed;
     NTSTATUS                status;
 
     *Mac = __MacAllocate(sizeof (XENVIF_MAC));
@@ -214,6 +218,18 @@ MacInitialize(
     status = STATUS_NO_MEMORY;
     if (*Mac == NULL)
         goto fail1;
+
+    ParametersKey = DriverGetParametersKey();
+
+    (*Mac)->Speed = 100;
+
+    if (ParametersKey != NULL) {
+        status = RegistryQueryDwordValue(ParametersKey,
+                                         "MacSpeed",
+                                        &MacSpeed);
+        if (NT_SUCCESS(status))
+            (*Mac)->Speed = MacSpeed;
+    }
 
     InitializeListHead(&(*Mac)->MulticastList);
 
@@ -667,6 +683,8 @@ MacTeardown(
 
     Mac->Lock = 0;
 
+    Mac->Speed = 0;
+
     ASSERT(IsZeroMemory(Mac, sizeof (XENVIF_MAC)));
     __MacFree(Mac);
 }
@@ -691,7 +709,7 @@ __MacGetSpeed(
                           "speed",
                           &Buffer);
     if (!NT_SUCCESS(status)) {
-        Speed = 1;
+        Speed = Mac->Speed;
         Unit = "G";
     } else {
         Speed = _strtoui64(Buffer, &Unit, 10);
