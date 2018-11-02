@@ -2614,19 +2614,22 @@ done:
     Ring->PacketsCompleted++;
 }
 
-static DECLSPEC_NOINLINE VOID
+static DECLSPEC_NOINLINE ULONG
 TransmitterRingPoll(
     IN  PXENVIF_TRANSMITTER_RING    Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
+    ULONG                           Count;
 
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
 
+    Count = 0;
+
     if (!Ring->Enabled)
-        return;
+        goto done;
 
     for (;;) {
         RING_IDX    rsp_prod;
@@ -2660,6 +2663,7 @@ TransmitterRingPoll(
             rsp = RING_GET_RESPONSE(&Ring->Front, rsp_cons);
             rsp_cons++;
             Ring->ResponsesProcessed++;
+            Count++;
 
             Ring->Stopped = FALSE;
 
@@ -2785,6 +2789,9 @@ TransmitterRingPoll(
 
         Ring->Front.rsp_cons = rsp_cons;
     }
+
+done:
+    return Count;
 }
 
 static FORCEINLINE VOID
@@ -2941,7 +2948,7 @@ TransmitterRingSchedule(
 
         if (Ring->Stopped) {
             if (!Polled) {
-                (VOID) TransmitterRingPoll(Ring);
+                TransmitterRingPoll(Ring);
                 Polled = TRUE;
             }
 
@@ -3212,9 +3219,10 @@ TransmitterRingReleaseLock(
     __TransmitterRingReleaseLock(Ring);
 }
 
-static FORCEINLINE VOID
+static FORCEINLINE BOOLEAN
 __TransmitterRingUnmask(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    IN  PXENVIF_TRANSMITTER_RING    Ring,
+    IN  BOOLEAN                     Force
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -3224,13 +3232,13 @@ __TransmitterRingUnmask(
     Frontend = Transmitter->Frontend;
 
     if (!Ring->Connected || !FrontendIsSplit(Frontend))
-        return;
+        return TRUE;
 
-    XENBUS_EVTCHN(Unmask,
-                  &Transmitter->EvtchnInterface,
-                  Ring->Channel,
-                  FALSE,
-                  TRUE);
+    return !XENBUS_EVTCHN(Unmask,
+                          &Transmitter->EvtchnInterface,
+                          Ring->Channel,
+                          FALSE,
+                          Force);
 }
 
 __drv_functionClass(KDEFERRED_ROUTINE)
@@ -3247,6 +3255,7 @@ TransmitterRingPollDpc(
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Context;
+    ULONG                       Count;
 
     UNREFERENCED_PARAMETER(Dpc);
     UNREFERENCED_PARAMETER(Argument1);
@@ -3254,13 +3263,16 @@ TransmitterRingPollDpc(
 
     ASSERT(Ring != NULL);
 
+    Count = 0;
+
     for (;;) {
         __TransmitterRingAcquireLock(Ring);
-        TransmitterRingPoll(Ring);
+        Count += TransmitterRingPoll(Ring);
         __TransmitterRingReleaseLock(Ring);
 
-        __TransmitterRingUnmask(Ring);
-        break;
+        if (__TransmitterRingUnmask(Ring,
+                                    (Count > XENVIF_TRANSMITTER_RING_SIZE)))
+            break;
     }
 }
 

@@ -1975,19 +1975,22 @@ __ReceiverRingQueuePacket(
     } while (InterlockedCompareExchangePointer(&Ring->PacketQueue, (PVOID)New, (PVOID)Old) != Old);
 }
 
-static DECLSPEC_NOINLINE VOID
+static DECLSPEC_NOINLINE ULONG
 ReceiverRingPoll(
     IN  PXENVIF_RECEIVER_RING   Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
     PXENVIF_FRONTEND            Frontend;
+    ULONG                       Count;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
+    Count = 0;
+
     if (!Ring->Enabled)
-        return;
+        goto done;
 
     for (;;) {
         BOOLEAN                 Error;
@@ -2044,6 +2047,7 @@ ReceiverRingPoll(
 
             rsp_cons++;
             Ring->ResponsesProcessed++;
+            Count++;
 
             ASSERT3U(id, <=, XENVIF_RECEIVER_MAXIMUM_FRAGMENT_ID);
             Fragment = Ring->Pending[id];
@@ -2216,25 +2220,29 @@ ReceiverRingPoll(
     if (Ring->PacketQueue != NULL &&
         KeInsertQueueDpc(&Ring->QueueDpc, NULL, NULL))
         Ring->QueueDpcs++;
+
+done:
+    return Count;
 }
 
-static FORCEINLINE VOID
+static FORCEINLINE BOOLEAN
 __ReceiverRingUnmask(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    IN  PXENVIF_RECEIVER_RING   Ring,
+    IN  BOOLEAN                 Force
     )
 {
     PXENVIF_RECEIVER            Receiver;
 
     if (!Ring->Connected)
-        return;
+        return TRUE;
 
     Receiver = Ring->Receiver;
 
-    XENBUS_EVTCHN(Unmask,
-                  &Receiver->EvtchnInterface,
-                  Ring->Channel,
-                  FALSE,
-                  TRUE);
+    return !XENBUS_EVTCHN(Unmask,
+                          &Receiver->EvtchnInterface,
+                          Ring->Channel,
+                          FALSE,
+                          Force);
 }
 
 __drv_functionClass(KDEFERRED_ROUTINE)
@@ -2251,6 +2259,7 @@ ReceiverRingPollDpc(
     )
 {
     PXENVIF_RECEIVER_RING   Ring = Context;
+    ULONG                   Count;
 
     UNREFERENCED_PARAMETER(Dpc);
     UNREFERENCED_PARAMETER(Argument1);
@@ -2258,13 +2267,16 @@ ReceiverRingPollDpc(
 
     ASSERT(Ring != NULL);
 
+    Count = 0;
+
     for (;;) {
         __ReceiverRingAcquireLock(Ring);
-        ReceiverRingPoll(Ring);
+        Count += ReceiverRingPoll(Ring);
         __ReceiverRingReleaseLock(Ring);
 
-        __ReceiverRingUnmask(Ring);
-        break;
+        if (__ReceiverRingUnmask(Ring,
+                                 (Count > XENVIF_RECEIVER_RING_SIZE)))
+            break;
     }
 }
 
