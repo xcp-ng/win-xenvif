@@ -685,7 +685,7 @@ ReceiverRingPullup(
             Next = Mdl->Next;
             Mdl->Next = NULL;
 
-            __ReceiverRingPutMdl(Ring, Mdl, TRUE);
+            __ReceiverRingPutMdl(Ring, Mdl, FALSE);
 
             Mdl = Next;
         }
@@ -759,7 +759,7 @@ __ReceiverRingBuildSegment(
 
     InfoVa += Packet->Offset;
 
-    Segment = __ReceiverRingGetPacket(Ring, TRUE);
+    Segment = __ReceiverRingGetPacket(Ring, FALSE);
 
     status = STATUS_NO_MEMORY;
     if (Segment == NULL)
@@ -850,7 +850,7 @@ __ReceiverRingBuildSegment(
     for (;;) {
         ULONG   Length;
 
-        Mdl->Next = __ReceiverRingGetMdl(Ring, TRUE);
+        Mdl->Next = __ReceiverRingGetMdl(Ring, FALSE);
             
         status = STATUS_NO_MEMORY;
         if (Mdl->Next == NULL)
@@ -900,12 +900,12 @@ fail2:
         Next = Mdl->Next;
         Mdl->Next = NULL;
 
-        __ReceiverRingPutMdl(Ring, Mdl, TRUE);
+        __ReceiverRingPutMdl(Ring, Mdl, FALSE);
 
         Mdl = Next;
     }
 
-    __ReceiverRingPutPacket(Ring, Segment, TRUE);
+    __ReceiverRingPutPacket(Ring, Segment, FALSE);
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -1068,7 +1068,7 @@ ReceiverRingProcessLargePacket(
 
         ReceiverRingCompletePacket(Ring, Packet);
     } else {
-        __ReceiverRingPutPacket(Ring, Packet, TRUE);
+        __ReceiverRingPutPacket(Ring, Packet, FALSE);
     }
 
     return;
@@ -1087,13 +1087,13 @@ fail1:
             Next = Mdl->Next;
             Mdl->Next = NULL;
 
-            __ReceiverRingPutMdl(Ring, Mdl, TRUE);
+            __ReceiverRingPutMdl(Ring, Mdl, FALSE);
 
             Mdl = Next;
         }
     }
 
-    __ReceiverRingPutPacket(Ring, Packet, TRUE);
+    __ReceiverRingPutPacket(Ring, Packet, FALSE);
 
     FrontendIncrementStatistic(Frontend,
                                XENVIF_RECEIVER_PACKETS_DROPPED,
@@ -1146,7 +1146,7 @@ ReceiverRingProcessStandardPacket(
         // of headroom (i.e. ByteOffset) so that it can pre-pend the header to the data
         // if something up the stack can't cope with the split.
 
-        Mdl = __ReceiverRingGetMdl(Ring, TRUE);
+        Mdl = __ReceiverRingGetMdl(Ring, FALSE);
 
         status = STATUS_NO_MEMORY;
         if (Mdl == NULL)
@@ -1189,14 +1189,14 @@ fail1:
             Next = Mdl->Next;
             Mdl->Next = NULL;
 
-            __ReceiverRingPutMdl(Ring, Mdl, TRUE);
+            __ReceiverRingPutMdl(Ring, Mdl, FALSE);
 
             Mdl = Next;
         }
     }
 
     Packet->Mdl.Next = NULL;
-    __ReceiverRingPutPacket(Ring, Packet, TRUE);
+    __ReceiverRingPutPacket(Ring, Packet, FALSE);
 
     FrontendIncrementStatistic(Frontend,
                                XENVIF_RECEIVER_PACKETS_DROPPED,
@@ -1236,7 +1236,7 @@ ReceiverRingProcessPacket(
     // Get a new packet structure that will just contain the header after
     // parsing. We need to preserve metadata from the original.
 
-    New = __ReceiverRingGetPacket(Ring, TRUE);
+    New = __ReceiverRingGetPacket(Ring, FALSE);
 
     status = STATUS_NO_MEMORY;
     if (New == NULL) {
@@ -1302,7 +1302,7 @@ fail3:
     Packet->Mdl.Next = NULL;
 
 fail2:
-    __ReceiverRingPutPacket(Ring, Packet, TRUE);
+    __ReceiverRingPutPacket(Ring, Packet, FALSE);
 
 fail1:
     if (Payload.Length != 0) {
@@ -1316,7 +1316,7 @@ fail1:
             Next = Mdl->Next;
             Mdl->Next = NULL;
 
-            __ReceiverRingPutMdl(Ring, Mdl, TRUE);
+            __ReceiverRingPutMdl(Ring, Mdl, FALSE);
 
             Mdl = Next;
         }
