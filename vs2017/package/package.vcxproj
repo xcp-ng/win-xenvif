@@ -31,6 +31,12 @@
     <IntDir>..\$(ProjectName)\$(ConfigurationName)\$(Platform)\</IntDir>
     <OutDir>..\$(ConfigurationName)\$(Platform)\</OutDir>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Platform)'=='Win32'">
+    <ArchiveDir>..\..\$(SolutionName)\x86</ArchiveDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Platform)'=='x64'">
+    <ArchiveDir>..\..\$(SolutionName)\x64</ArchiveDir>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\xenvif\xenvif.vcxproj">
       <Project>{C3F96D4C-E441-47F7-A44C-D2D0543C1D18}</Project>
@@ -38,6 +44,7 @@
     <ProjectReference Include="..\xenvif_coinst\xenvif_coinst.vcxproj">
       <Project>{2BFAC7E6-3420-47A5-A092-BDC5C9D78A44}</Project>
     </ProjectReference>
+    <FilesToPackage Include="..\xenvif.inf" />
   </ItemGroup>
   <ItemGroup Condition="Exists('$(DPINST_REDIST)')">
     <FilesToPackage Include="$(DPINST_REDIST)\x86\dpinst.exe" Condition="'$(Platform)'=='Win32'" />
@@ -46,4 +53,13 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <ItemGroup>
+    <PackageFiles Include="$(OutDir)\$(ProjectName)\*" />
+  </ItemGroup>
+  <Target Name="Archive" AfterTargets="TestSign">
+    <Copy
+      SourceFiles="@(PackageFiles)"
+      DestinationFiles="@(PackageFiles->'$(ArchiveDir)\%(FileName)%(Extension)')"
+    />
+  </Target>
 </Project>
