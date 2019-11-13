@@ -295,7 +295,7 @@ __MacReleaseLockShared(
     ExReleaseSpinLockSharedFromDpcLevel(&Mac->Lock);
 }
 
-static NTSTATUS
+NTSTATUS
 MacDumpAddressTable(
     IN  PXENVIF_MAC     Mac
     )
@@ -852,8 +852,6 @@ MacAddMulticastAddress(
     __MacReleaseLockExclusive(Mac);
     KeLowerIrql(Irql);
 
-    (VOID) MacDumpAddressTable(Mac);
-
     Trace("%s: %02X:%02X:%02X:%02X:%02X:%02X\n",
           FrontendGetPrefix(Frontend),
           Address->Byte[0],
@@ -913,8 +911,6 @@ found:
 
     __MacReleaseLockExclusive(Mac);
     KeLowerIrql(Irql);
-
-    (VOID) MacDumpAddressTable(Mac);
 
     Trace("%s: %02X:%02X:%02X:%02X:%02X:%02X\n",
           FrontendGetPrefix(Frontend),

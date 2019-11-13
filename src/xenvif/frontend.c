@@ -989,6 +989,7 @@ FrontendSetMulticastAddresses(
     ULONG                   MulticastCount;
     ULONG                   MulticastIndex;
     ULONG                   Index;
+    BOOLEAN                 Change;
     NTSTATUS                status;
 
     Transmitter = FrontendGetTransmitter(Frontend);
@@ -1015,6 +1016,7 @@ FrontendSetMulticastAddresses(
     } else
         MulticastAddress = NULL;
 
+    Change = FALSE;
     for (Index = 0; Index < Count; Index++) {
         BOOLEAN Found;
 
@@ -1042,6 +1044,7 @@ FrontendSetMulticastAddresses(
             (VOID) TransmitterQueueMulticastControl(Transmitter,
                                                     &Address[Index],
                                                     TRUE);
+            Change = TRUE;
         }
     }
 
@@ -1058,10 +1061,14 @@ FrontendSetMulticastAddresses(
                                                 FALSE);
         (VOID) MacRemoveMulticastAddress(Mac,
                                          &MulticastAddress[MulticastIndex]);
+        Change = TRUE;
     }
 
     if (MulticastAddress != NULL)
         __FrontendFree(MulticastAddress);
+
+    if (Change)
+        (VOID) MacDumpAddressTable(Mac);
 
     KeLowerIrql(Irql);
 

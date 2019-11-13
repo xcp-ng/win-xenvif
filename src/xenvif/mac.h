@@ -96,6 +96,11 @@ MacQueryBroadcastAddress(
     );
 
 extern NTSTATUS
+MacDumpAddressTable(
+    IN  PXENVIF_MAC     Mac
+    );
+
+extern NTSTATUS
 MacAddMulticastAddress(
     IN      PXENVIF_MAC         Mac,
     OUT     PETHERNET_ADDRESS   Address
