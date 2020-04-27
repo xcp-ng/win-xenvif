@@ -706,7 +706,7 @@ FrontendDumpAddressTable(
         switch (Frontend->AddressTable[Index].si_family) {
         case AF_INET: {
             IPV4_ADDRESS    Address;
-            CHAR            Node[sizeof ("ipv4/XXXXXXXX")];
+            CHAR            Node[sizeof ("ipv4/XXXXXXXXXX")];
 
             RtlCopyMemory(Address.Byte,
                           &Frontend->AddressTable[Index].Ipv4.sin_addr.s_addr,
@@ -717,6 +717,8 @@ FrontendDumpAddressTable(
                                         "ipv4/%u",
                                         IpVersion4Count);
             ASSERT(NT_SUCCESS(status));
+            if (!NT_SUCCESS(status))
+                continue;
 
             status = XENBUS_STORE(Printf,
                                   &Frontend->StoreInterface,
@@ -736,7 +738,7 @@ FrontendDumpAddressTable(
         }
         case AF_INET6: {
             IPV6_ADDRESS    Address;
-            CHAR            Node[sizeof ("ipv6/XXXXXXXX")];
+            CHAR            Node[sizeof ("ipv6/XXXXXXXXXX")];
 
             RtlCopyMemory(Address.Byte,
                           &Frontend->AddressTable[Index].Ipv6.sin6_addr.s6_addr,
@@ -747,6 +749,8 @@ FrontendDumpAddressTable(
                                         "ipv6/%u",
                                         IpVersion6Count);
             ASSERT(NT_SUCCESS(status));
+            if (!NT_SUCCESS(status))
+                continue;
 
             status = XENBUS_STORE(Printf,
                                   &Frontend->StoreInterface,

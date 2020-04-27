@@ -357,13 +357,15 @@ MacDumpAddressTable(
                         "mac");
 
     for (Index = 0; Index < Count; Index++) {
-        CHAR    Node[sizeof ("mac/XX")];
+        CHAR    Node[sizeof ("mac/XXXXXXXXXX")];
 
         status = RtlStringCbPrintfA(Node,
                                     sizeof (Node),
                                     "mac/%u",
                                     Index);
         ASSERT(NT_SUCCESS(status));
+        if (!NT_SUCCESS(status))
+            continue;
 
         (VOID) XENBUS_STORE(Printf,
                             &Mac->StoreInterface,

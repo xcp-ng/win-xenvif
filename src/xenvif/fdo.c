@@ -801,7 +801,7 @@ __FdoEnumerate(
 
         if (Device->Length != 0) {
             ULONG   Number;
-            CHAR    Prefix[sizeof ("device/vif/XX")];
+            CHAR    Prefix[sizeof ("device/vif/XXXXXXXXXX")];
             PCHAR   Address;
 
             Number = strtol(Device->Buffer, NULL, 10);
@@ -811,6 +811,8 @@ __FdoEnumerate(
                                         "device/vif/%u",
                                         Number);
             ASSERT(NT_SUCCESS(status));
+            if (!NT_SUCCESS(status))
+                continue;
 
             status = XENBUS_STORE(Read,
                                   &Fdo->StoreInterface,
