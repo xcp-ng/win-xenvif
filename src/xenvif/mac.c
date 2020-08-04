@@ -394,7 +394,7 @@ fail2:
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    __MacReleaseLockExclusive(Mac);
+    __MacReleaseLockShared(Mac);
     KeLowerIrql(Irql);
 
     return status;
@@ -974,7 +974,7 @@ MacQueryMulticastAddresses(
 fail1:
     *Count = Mac->MulticastCount;
 
-    __MacReleaseLockExclusive(Mac);
+    __MacReleaseLockShared(Mac);
     KeLowerIrql(Irql);
 
     return status;
