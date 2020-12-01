@@ -283,7 +283,7 @@ FrontendFormatPath(
     NTSTATUS                status;
 
     Length = (ULONG)(strlen(__FrontendGetPath(Frontend)) +
-                     strlen("/queue-XX") +
+                     strlen("/queue-XXX") +
                      1) * sizeof (CHAR);
 
     Path = __FrontendAllocate(Length);
