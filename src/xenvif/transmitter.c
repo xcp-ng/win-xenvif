@@ -3692,6 +3692,7 @@ __TransmitterRingConnect(
                            &Transmitter->GnttabInterface,
                            Name,
                            0,
+                           0,
                            TransmitterRingAcquireLock,
                            TransmitterRingReleaseLock,
                            Ring,

@@ -456,6 +456,7 @@ ControllerConnect(
                            &Controller->GnttabInterface,
                            Name,
                            0,
+                           0,
                            ControllerAcquireLock,
                            ControllerReleaseLock,
                            Controller,

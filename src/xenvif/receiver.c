@@ -2581,6 +2581,7 @@ __ReceiverRingConnect(
                            &Receiver->GnttabInterface,
                            Name,
                            0,
+                           0,
                            ReceiverRingAcquireLock,
                            ReceiverRingReleaseLock,
                            Ring,
