@@ -261,6 +261,7 @@ __FrontendGetMaxQueues(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
+    ASSERT(Frontend->MaxQueues != 0);
     return Frontend->MaxQueues;
 }
 
@@ -1764,7 +1765,7 @@ FrontendDebugCallback(
     }
 }
 
-static VOID
+static NTSTATUS
 FrontendSetNumQueues(
     IN  PXENVIF_FRONTEND    Frontend
     )
@@ -1789,10 +1790,19 @@ FrontendSetNumQueues(
         BackendMaxQueues = 1;
     }
 
+    status = STATUS_INVALID_PARAMETER;
+    if (BackendMaxQueues == 0)
+        goto fail1;
+
     Frontend->NumQueues = __min(__FrontendGetMaxQueues(Frontend),
                                 BackendMaxQueues);
 
     Info("%s: %u\n", __FrontendGetPath(Frontend), Frontend->NumQueues);
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 %08x\n", status);
+    return status;
 }
 
 static FORCEINLINE ULONG
@@ -1800,6 +1810,7 @@ __FrontendGetNumQueues(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
+    ASSERT(Frontend->NumQueues != 0);
     return Frontend->NumQueues;
 }
 
@@ -1953,7 +1964,6 @@ FrontendSetHashAlgorithm(
     case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
         // Don't allow toeplitz hashing to be configured for a single
         // queue, or if it has been explicitly disabled
-        ASSERT(__FrontendGetNumQueues(Frontend) != 0);
         status = (__FrontendGetNumQueues(Frontend) == 1 ||
                   Frontend->DisableToeplitz != 0) ?
                  STATUS_NOT_SUPPORTED :
@@ -2218,20 +2228,23 @@ FrontendConnect(
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    FrontendSetNumQueues(Frontend);
+    status = FrontendSetNumQueues(Frontend);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
     FrontendSetSplit(Frontend);
 
     status = ReceiverConnect(__FrontendGetReceiver(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     status = TransmitterConnect(__FrontendGetTransmitter(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     status = ControllerConnect(__FrontendGetController(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail7;
 
     Attempt = 0;
     do {
@@ -2286,7 +2299,7 @@ abort:
     } while (status == STATUS_RETRY);
 
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail8;
 
     State = XenbusStateUnknown;
     while (State != XenbusStateConnected) {
@@ -2325,7 +2338,7 @@ abort:
 
     status = STATUS_UNSUCCESSFUL;
     if (State != XenbusStateConnected)
-        goto fail8;
+        goto fail9;
 
     ControllerEnable(__FrontendGetController(Frontend));
 
@@ -2334,23 +2347,26 @@ abort:
     Trace("<====\n");
     return STATUS_SUCCESS;
 
+fail9:
+    Error("fail9\n");
+
 fail8:
     Error("fail8\n");
+
+    ControllerDisconnect(__FrontendGetController(Frontend));
 
 fail7:
     Error("fail7\n");
 
-    ControllerDisconnect(__FrontendGetController(Frontend));
+    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
 
 fail6:
     Error("fail6\n");
 
-    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
+    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
 
 fail5:
     Error("fail5\n");
-
-    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
 
 fail4:
     Error("fail4\n");
