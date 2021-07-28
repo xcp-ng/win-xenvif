@@ -5137,6 +5137,8 @@ TransmitterQueuePacket(
     PXENVIF_TRANSMITTER_RING        Ring;
     NTSTATUS                        status;
 
+    ASSERT(Mdl != NULL);
+
     Frontend = Transmitter->Frontend;
 
     Packet = __TransmitterGetPacket(Transmitter);
