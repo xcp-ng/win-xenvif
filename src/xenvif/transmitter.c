@@ -3988,21 +3988,25 @@ __TransmitterRingDisable(
     ASSERT3U(Ring->RequestsPushed, ==, Ring->RequestsPosted);
     while (Ring->ResponsesProcessed != Ring->RequestsPushed) {
         Attempt++;
-        ASSERT(Attempt < 100);
+
+        KeStallExecutionProcessor(1000);    // 1ms
 
         // Try to move things along
         __TransmitterRingSend(Ring);
         (VOID) TransmitterRingPoll(Ring);
 
-        if (State != XenbusStateConnected)
-            __TransmitterRingFakeResponses(Ring);
+        if ((Attempt >= 100) || (State != XenbusStateConnected))
+            break;
 
         // We are waiting for a watch event at DISPATCH_LEVEL so
         // it is our responsibility to poll the store ring.
         XENBUS_STORE(Poll,
                      &Transmitter->StoreInterface);
-
-        KeStallExecutionProcessor(1000);    // 1ms
+    }
+    if (Ring->ResponsesProcessed != Ring->RequestsPushed)
+    {
+        __TransmitterRingFakeResponses(Ring);
+        (VOID) TransmitterRingPoll(Ring);
     }
 
     Ring->Enabled = FALSE;
