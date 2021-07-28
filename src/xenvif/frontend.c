@@ -1346,6 +1346,7 @@ FrontendWaitForBackendXenbusStateChange(
     LARGE_INTEGER               Timeout;
     XenbusState                 Old = *State;
     NTSTATUS                    status;
+    const ULONGLONG             TotalTimeout = 120000;
 
     Trace("%s: ====> %s\n",
           __FrontendGetBackendPath(Frontend),
@@ -1369,7 +1370,7 @@ FrontendWaitForBackendXenbusStateChange(
 
     Timeout.QuadPart = 0;
 
-    while (*State == Old && TimeDelta < 120000) {
+    while (*State == Old && TimeDelta < TotalTimeout) {
         PCHAR           Buffer;
         LARGE_INTEGER   Now;
 
@@ -1416,6 +1417,9 @@ FrontendWaitForBackendXenbusStateChange(
 
         TimeDelta = (Now.QuadPart - Start.QuadPart) / 10000ull;
     }
+
+    if (TimeDelta >= TotalTimeout)
+        Error("%s timed out waiting for backend state change\n", __FrontendGetBackendPath(Frontend));
 
     if (Watch != NULL)
         (VOID) XENBUS_STORE(WatchRemove,
