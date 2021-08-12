@@ -715,6 +715,8 @@ __MacGetSpeed(
         Unit = "G";
     } else {
         Speed = _strtoui64(Buffer, &Unit, 10);
+        if (Speed == _UI64_MAX)
+            Speed = Mac->Speed;
         if (*Unit == '\0')
             Unit = "G";
 

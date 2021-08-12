@@ -1879,13 +1879,11 @@ FdoQueryDeviceRelations(
 
     Size = FIELD_OFFSET(DEVICE_RELATIONS, Objects) + (sizeof (PDEVICE_OBJECT) * __max(Count, 1));
 
-    Relations = ExAllocatePoolWithTag(PagedPool, Size, 'FIV');
+    Relations = __AllocatePoolWithTag(PagedPool, Size, 'FIV');
 
     status = STATUS_NO_MEMORY;
     if (Relations == NULL)
         goto fail1;
-
-    RtlZeroMemory(Relations, Size);
 
     for (ListEntry = Fdo->Dx->ListEntry.Flink;
          ListEntry != &Fdo->Dx->ListEntry;
