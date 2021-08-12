@@ -1618,14 +1618,14 @@ __FrontendQueryStatistic(
 {
     ULONG                       Index;
 
-    ASSERT(Name < XENVIF_VIF_STATISTIC_COUNT);
+    ASSERT3U(Name, <, XENVIF_VIF_STATISTIC_COUNT);
 
     *Value = 0;
     for (Index = 0; Index < Frontend->StatisticsCount; Index++) {
         PXENVIF_FRONTEND_STATISTICS Statistics;
 
         Statistics = &Frontend->Statistics[Index];
-        *Value += Statistics->Value[Name];
+        *Value += Statistics->Value[(ULONG)Name];
     }
 }
 
@@ -1650,7 +1650,7 @@ FrontendIncrementStatistic(
     PXENVIF_FRONTEND_STATISTICS Statistics;
     KIRQL                       Irql;
 
-    ASSERT(Name < XENVIF_VIF_STATISTIC_COUNT);
+    ASSERT3U(Name, <, XENVIF_VIF_STATISTIC_COUNT);
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 
@@ -1659,7 +1659,7 @@ FrontendIncrementStatistic(
     ASSERT3U(Index, <, Frontend->StatisticsCount);
     Statistics = &Frontend->Statistics[Index];
 
-    Statistics->Value[Name] += Delta;
+    Statistics->Value[(ULONG)Name] += Delta;
 
     KeLowerIrql(Irql);
 }

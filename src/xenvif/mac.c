@@ -1000,7 +1000,7 @@ MacSetFilterLevel(
     NTSTATUS                    status;
 
     status = STATUS_INVALID_PARAMETER;
-    if (Type >= ETHERNET_ADDRESS_TYPE_COUNT)
+    if ((ULONG)Type >= ETHERNET_ADDRESS_TYPE_COUNT)
         goto fail1;
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
@@ -1010,7 +1010,7 @@ MacSetFilterLevel(
     if (Level > XENVIF_MAC_FILTER_ALL || Level < XENVIF_MAC_FILTER_NONE)
         goto fail2;
 
-    Mac->FilterLevel[Type] = Level;
+    Mac->FilterLevel[(ULONG)Type] = Level;
 
     __MacReleaseLockExclusive(Mac);
     KeLowerIrql(Irql);
@@ -1040,13 +1040,13 @@ MacQueryFilterLevel(
     NTSTATUS                        status;
 
     status = STATUS_INVALID_PARAMETER;
-    if (Type >= ETHERNET_ADDRESS_TYPE_COUNT)
+    if ((ULONG)Type >= ETHERNET_ADDRESS_TYPE_COUNT)
         goto fail1;
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
     __MacAcquireLockShared(Mac);
 
-    *Level = Mac->FilterLevel[Type];
+    *Level = Mac->FilterLevel[(ULONG)Type];
 
     __MacReleaseLockShared(Mac);
     KeLowerIrql(Irql);
