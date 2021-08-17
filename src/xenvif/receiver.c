@@ -2887,6 +2887,14 @@ __ReceiverRingDisconnect(
     ASSERT3U(Ring->ResponsesProcessed, ==, Ring->RequestsPushed);
     ASSERT3U(Ring->RequestsPushed, ==, Ring->RequestsPosted);
 
+    // The above assertions will have no effect in free builds so
+    // trigger some logging instead.
+    if ((Ring->ResponsesProcessed != Ring->RequestsPushed) ||
+        (Ring->RequestsPushed != Ring->RequestsPosted))
+        XENBUS_DEBUG(Trigger,
+                     &Receiver->DebugInterface,
+                     Ring->DebugCallback);
+
     Ring->ResponsesProcessed = 0;
     Ring->RequestsPushed = 0;
     Ring->RequestsPosted = 0;

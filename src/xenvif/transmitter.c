@@ -4005,6 +4005,10 @@ __TransmitterRingDisable(
     }
     if (Ring->ResponsesProcessed != Ring->RequestsPushed)
     {
+        XENBUS_DEBUG(Trigger,
+                     &Transmitter->DebugInterface,
+                     Ring->DebugCallback);
+
         __TransmitterRingFakeResponses(Ring);
         (VOID) TransmitterRingPoll(Ring);
     }
