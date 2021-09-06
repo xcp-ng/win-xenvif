@@ -76,19 +76,17 @@ __Bug(
 
 #if DBG
 
-#define __NT_ASSERT(_EXP)                                       \
-        ((!(_EXP)) ?                                            \
+#define __ASSERT_FAIL(_EXP)                                     \
         (Error("ASSERTION FAILED: " #_EXP "\n"),                \
          __annotation(L"Debug", L"AssertFail", L#_EXP),         \
-         DbgRaiseAssertionFailure(), FALSE) :                   \
-        TRUE)
+         DbgRaiseAssertionFailure())
 
-#define __ASSERT(_EXP)  __NT_ASSERT(_EXP)
-
-#define ASSERT(_EXP)                    \
-        do {                            \
-            __ASSERT(_EXP);             \
-            __analysis_assume(_EXP);    \
+#define ASSERT(_EXP)                     \
+        do {                             \
+            if (!(_EXP)) {               \
+                __ASSERT_FAIL(_EXP);     \
+                __analysis_assume(_EXP); \
+            }                            \
         } while (FALSE)
 
 #define ASSERT3U(_X, _OP, _Y)                       \
@@ -98,7 +96,8 @@ __Bug(
             if (!(_Lval _OP _Rval)) {               \
                 Error("%s = %llu\n", #_X, _Lval);   \
                 Error("%s = %llu\n", #_Y, _Rval);   \
-                ASSERT((_X) _OP (_Y));              \
+                __ASSERT_FAIL(_X _OP _Y);           \
+                __analysis_assume(_Lval _OP _Rval); \
             }                                       \
         } while (FALSE)
 
@@ -109,7 +108,8 @@ __Bug(
             if (!(_Lval _OP _Rval)) {               \
                 Error("%s = %lld\n", #_X, _Lval);   \
                 Error("%s = %lld\n", #_Y, _Rval);   \
-                ASSERT((_X) _OP (_Y));              \
+                __ASSERT_FAIL(_X _OP _Y);           \
+                __analysis_assume(_Lval _OP _Rval); \
             }                                       \
         } while (FALSE)
 
@@ -120,7 +120,8 @@ __Bug(
             if (!(_Lval _OP _Rval)) {               \
                 Error("%s = %p\n", #_X, _Lval);     \
                 Error("%s = %p\n", #_Y, _Rval);     \
-                ASSERT((_X) _OP (_Y));              \
+                __ASSERT_FAIL(_X _OP _Y);           \
+                __analysis_assume(_Lval _OP _Rval); \
             }                                       \
         } while (FALSE)
 
@@ -134,14 +135,29 @@ __Bug(
             __analysis_assume(_EXP);    \
         } while (FALSE)
 
-#define ASSERT3U(_X, _OP, _Y)           \
-        ASSERT((_X) _OP (_Y))
+#define ASSERT3U(_X, _OP, _Y)                       \
+        do {                                        \
+            ULONGLONG   _Lval = (ULONGLONG)(_X);    \
+            ULONGLONG   _Rval = (ULONGLONG)(_Y);    \
+                                                    \
+            __analysis_assume(_Lval _OP _Rval);     \
+        } while (FALSE)
 
-#define ASSERT3S(_X, _OP, _Y)           \
-        ASSERT((_X) _OP (_Y))
+#define ASSERT3S(_X, _OP, _Y)                       \
+        do {                                        \
+            LONGLONG    _Lval = (LONGLONG)(_X);     \
+            LONGLONG    _Rval = (LONGLONG)(_Y);     \
+                                                    \
+            __analysis_assume(_Lval _OP _Rval);     \
+        } while (FALSE)
 
-#define ASSERT3P(_X, _OP, _Y)           \
-        ASSERT((_X) _OP (_Y))
+#define ASSERT3P(_X, _OP, _Y)                       \
+        do {                                        \
+            PVOID   _Lval = (PVOID)(_X);            \
+            PVOID   _Rval = (PVOID)(_Y);            \
+                                                    \
+            __analysis_assume(_Lval _OP _Rval);     \
+        } while (FALSE)
 
 #endif  // DBG
 
