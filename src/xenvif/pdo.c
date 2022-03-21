@@ -1303,7 +1303,7 @@ PdoStartDevice(
     if (Pdo->HasAlias) {
         PdoUnplugRequest(Pdo, TRUE);
 
-        status = STATUS_UNSUCCESSFUL;
+        status = STATUS_PNP_REBOOT_REQUIRED;
         goto fail9;
     }
 
