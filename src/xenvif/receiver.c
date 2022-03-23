@@ -106,6 +106,7 @@ typedef struct _XENVIF_RECEIVER_RING {
     PLIST_ENTRY                 PacketQueue;
     KDPC                        QueueDpc;
     ULONG                       QueueDpcs;
+    PROCESSOR_NUMBER            TargetProcessor;
     LIST_ENTRY                  PacketComplete;
     XENVIF_RECEIVER_HASH        Hash;
 } XENVIF_RECEIVER_RING, *PXENVIF_RECEIVER_RING;
@@ -2498,6 +2499,9 @@ __ReceiverRingInitialize(
 
     KeInitializeThreadedDpc(&(*Ring)->QueueDpc, ReceiverRingQueueDpc, *Ring);
 
+    status = KeGetProcessorNumberFromIndex((*Ring)->Index, &(*Ring)->TargetProcessor);
+    ASSERT(NT_SUCCESS(status));
+
     return STATUS_SUCCESS;
 
 fail7:
@@ -2550,6 +2554,29 @@ fail1:
     return status;
 }
 
+static FORCEINLINE VOID
+__ReceiverRingSetAffinity(
+    IN  PXENVIF_RECEIVER_RING   Ring,
+    IN  PPROCESSOR_NUMBER       Processor
+    )
+{
+    PXENVIF_RECEIVER            Receiver;
+    PXENVIF_FRONTEND            Frontend;
+
+    Receiver = Ring->Receiver;
+    Frontend = Receiver->Frontend;
+
+    __ReceiverRingAcquireLock(Ring);
+
+    Ring->TargetProcessor = *Processor;
+
+    /* Don't rebind event channel at this point */
+    KeSetTargetProcessorDpcEx(&Ring->PollDpc, &Ring->TargetProcessor);
+    KeSetTargetProcessorDpcEx(&Ring->QueueDpc, &Ring->TargetProcessor);
+
+    __ReceiverRingReleaseLock(Ring);
+}
+
 static FORCEINLINE NTSTATUS
 __ReceiverRingConnect(
     IN  PXENVIF_RECEIVER_RING   Ring
@@ -2560,7 +2587,6 @@ __ReceiverRingConnect(
     PFN_NUMBER                  Pfn;
     CHAR                        Name[MAXNAMELEN];
     ULONG                       Index;
-    PROCESSOR_NUMBER            ProcNumber;
     NTSTATUS                    status;
 
     Receiver = Ring->Receiver;
@@ -2637,16 +2663,17 @@ __ReceiverRingConnect(
     if (Ring->Channel == NULL)
         goto fail6;
 
-    status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
-    ASSERT(NT_SUCCESS(status));
+    status = XENBUS_EVTCHN(Bind,
+                           &Receiver->EvtchnInterface,
+                           Ring->Channel,
+                           Ring->TargetProcessor.Group,
+                           Ring->TargetProcessor.Number);
+    if (!NT_SUCCESS(status))
+        /* Ring affinity not yet changed from initial CPU number, so just warn */
+        Warning("Could not set initial receiver ring affinity: 0x%x for ring %u\n", status, Ring->Index);
 
-    KeSetTargetProcessorDpcEx(&Ring->PollDpc, &ProcNumber);
-
-    (VOID) XENBUS_EVTCHN(Bind,
-                         &Receiver->EvtchnInterface,
-                         Ring->Channel,
-                         ProcNumber.Group,
-                         ProcNumber.Number);
+    KeSetTargetProcessorDpcEx(&Ring->PollDpc, &Ring->TargetProcessor);
+    KeSetTargetProcessorDpcEx(&Ring->QueueDpc, &Ring->TargetProcessor);
 
     (VOID) XENBUS_EVTCHN(Unmask,
                          &Receiver->EvtchnInterface,
@@ -2664,11 +2691,6 @@ __ReceiverRingConnect(
                           &Ring->DebugCallback);
     if (!NT_SUCCESS(status))
         goto fail7;
-
-    status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
-    ASSERT(NT_SUCCESS(status));
-
-    KeSetTargetProcessorDpcEx(&Ring->QueueDpc, &ProcNumber);
 
     return STATUS_SUCCESS;
 
@@ -3917,6 +3939,49 @@ fail1:
     return status;
 }
 
+static FORCEINLINE NTSTATUS
+__ReceiverSetQueueAffinities(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  PPROCESSOR_NUMBER   QueueAffinities,
+    IN  ULONG               Count
+    )
+{
+    PXENVIF_FRONTEND        Frontend;
+    ULONG                   Index;
+    NTSTATUS                status;
+    KIRQL                   Irql;
+
+    Frontend = Receiver->Frontend;
+
+    status = STATUS_INVALID_PARAMETER;
+
+    if (QueueAffinities == NULL)
+        goto fail1;
+
+    if (Count > FrontendGetNumQueues(Frontend))
+        goto fail2;
+
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+
+    for (Index = 0; Index < Count; Index++) {
+        PXENVIF_RECEIVER_RING   Ring = Receiver->Ring[Index];
+
+        __ReceiverRingSetAffinity(Ring, &QueueAffinities[Index]);
+    }
+
+    KeLowerIrql(Irql);
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
 NTSTATUS
 ReceiverUpdateHashMapping(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3926,7 +3991,10 @@ ReceiverUpdateHashMapping(
 {
     PXENVIF_FRONTEND        Frontend;
     PULONG                  QueueMapping;
+    PPROCESSOR_NUMBER       QueueAffinities;
     ULONG                   NumQueues;
+    ULONG                   QueuesDetermined;
+    ULONG                   QueueIndex;
     ULONG                   Index;
     NTSTATUS                status;
 
@@ -3939,25 +4007,60 @@ ReceiverUpdateHashMapping(
         goto fail1;
 
     NumQueues = FrontendGetNumQueues(Frontend);
+    QueuesDetermined = 0;
+
+    QueueAffinities = __ReceiverAllocate(sizeof(PROCESSOR_NUMBER) * NumQueues);
+    if (QueueAffinities == NULL)
+        goto fail2;
 
     status = STATUS_INVALID_PARAMETER;
+    /* N^2-ish, but performed infrequently */
     for (Index = 0; Index < Size; Index++) {
-        QueueMapping[Index] = KeGetProcessorIndexFromNumber(&ProcessorMapping[Index]);
+        BOOLEAN MapEntryDone = FALSE;
 
-        if (QueueMapping[Index] >= NumQueues)
-            goto fail2;
+        /* Does the existing queue meet the affinity requirement for the mapping? */
+        for (QueueIndex = 0; QueueIndex < QueuesDetermined; QueueIndex++) {
+            if ((QueueAffinities[QueueIndex].Group == ProcessorMapping[Index].Group) &&
+                (QueueAffinities[QueueIndex].Number == ProcessorMapping[Index].Number)) {
+                QueueMapping[Index] = QueueIndex;
+                MapEntryDone = TRUE;
+            }
+        }
+        if (!MapEntryDone) {
+            /* New queue "allocation", with new affinity, if possible */
+            if (QueuesDetermined >= NumQueues)
+                goto fail3;
+
+            QueueIndex = QueuesDetermined;
+            QueueAffinities[QueueIndex] = ProcessorMapping[Index];
+            QueueMapping[Index] = QueueIndex;
+            QueuesDetermined++;
+        }
     }
 
     status = FrontendSetHashMapping(Frontend, QueueMapping, Size);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
+
+    status = __ReceiverSetQueueAffinities(Receiver, QueueAffinities, QueuesDetermined);
+    if (!NT_SUCCESS(status))
+        goto fail5;
 
     __ReceiverFree(QueueMapping);
+    __ReceiverFree(QueueAffinities);
 
     return STATUS_SUCCESS;
 
+fail5:
+    Error("fail5\n");
+
+fail4:
+    Error("fail4\n");
+
 fail3:
     Error("fail3\n");
+
+    __ReceiverFree(QueueAffinities);
 
 fail2:
     Error("fail2\n");
