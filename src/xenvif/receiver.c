@@ -2963,6 +2963,8 @@ __ReceiverRingTeardown(
     Ring->BackfillSize = 0;
     Ring->OffloadOptions.Value = 0;
 
+    RtlZeroMemory(&Ring->TargetProcessor, sizeof (PROCESSOR_NUMBER));
+
     KeFlushQueuedDpcs();
     RtlZeroMemory(&Ring->QueueDpc, sizeof (KDPC));
 
