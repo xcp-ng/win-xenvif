@@ -109,6 +109,8 @@ typedef struct _XENVIF_RECEIVER_RING {
     PROCESSOR_NUMBER            TargetProcessor;
     LIST_ENTRY                  PacketComplete;
     XENVIF_RECEIVER_HASH        Hash;
+    BOOLEAN                     Paused;
+    BOOLEAN                     Flush;
 } XENVIF_RECEIVER_RING, *PXENVIF_RECEIVER_RING;
 
 typedef struct _XENVIF_RECEIVER_PACKET {
@@ -1338,6 +1340,7 @@ __ReceiverRingSwizzle(
     PXENVIF_VIF_CONTEXT         Context;
     LIST_ENTRY                  List;
     PLIST_ENTRY                 ListEntry;
+    BOOLEAN                     Pause;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -1345,36 +1348,42 @@ __ReceiverRingSwizzle(
 
     InitializeListHead(&List);
 
-    ListEntry = InterlockedExchangePointer(&Ring->PacketQueue, NULL);
+    KeMemoryBarrier();
 
-    // Packets are held in the queue in reverse order so that the most
-    // recent is always head of the list. This is necessary to allow
-    // addition to the list to be done atomically.
+    // Only process the PacketQueue if the ring is not paused or it is being flushed
+    if (!Ring->Paused || Ring->Flush) {
+        ListEntry = InterlockedExchangePointer(&Ring->PacketQueue, NULL);
 
-    while (ListEntry != NULL) {
-        PLIST_ENTRY NextEntry;
+        // Packets are held in the queue in reverse order so that the most
+        // recent is always head of the list. This is necessary to allow
+        // addition to the list to be done atomically.
 
-        NextEntry = ListEntry->Blink;
-        ListEntry->Flink = ListEntry->Blink = ListEntry;
+        while (ListEntry != NULL) {
+            PLIST_ENTRY NextEntry;
 
-        InsertHeadList(&List, ListEntry);
+            NextEntry = ListEntry->Blink;
+            ListEntry->Flink = ListEntry->Blink = ListEntry;
 
-        ListEntry = NextEntry;
+            InsertHeadList(&List, ListEntry);
+
+            ListEntry = NextEntry;
+        }
+
+        while (!IsListEmpty(&List)) {
+            PXENVIF_RECEIVER_PACKET Packet;
+
+            ListEntry = RemoveHeadList(&List);
+            ASSERT3P(ListEntry, !=, &List);
+
+            RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
+
+            Packet = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_PACKET, ListEntry);
+            ReceiverRingProcessPacket(Ring, Packet);
+        }
     }
 
-    while (!IsListEmpty(&List)) {
-        PXENVIF_RECEIVER_PACKET Packet;
-
-        ListEntry = RemoveHeadList(&List);
-        ASSERT3P(ListEntry, !=, &List);
-
-        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
-
-        Packet = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_PACKET, ListEntry);
-        ReceiverRingProcessPacket(Ring, Packet);
-    }
-
-    while (!IsListEmpty(&Ring->PacketComplete)) {
+    Pause = FALSE;
+    while (!IsListEmpty(&Ring->PacketComplete) && !Pause) {
         PXENVIF_RECEIVER_PACKET Packet;
         PXENVIF_PACKET_INFO     Info;
         PUCHAR                  BaseVa;
@@ -1538,7 +1547,27 @@ __ReceiverRingSwizzle(
                                &Packet->Info,
                                &Packet->Hash,
                                !IsListEmpty(&Ring->PacketComplete) ? TRUE : FALSE,
-                               Packet);
+                               Packet,
+                               &Pause);
+
+        // If we are flushing then we can't pause
+        if (Ring->Flush)
+            Pause = FALSE;
+    }
+
+    if (Pause) {
+        Ring->Paused = TRUE;
+
+        if (KeInsertQueueDpc(&Ring->QueueDpc, NULL, NULL))
+            Ring->QueueDpcs++;
+    } else {
+        BOOLEAN Paused = Ring->Paused;
+
+        Ring->Paused = FALSE;
+
+        // PollDpc is cleared before Flush is set
+        if (Paused && !Ring->Flush && KeInsertQueueDpc(&Ring->PollDpc, NULL, NULL))
+            Ring->PollDpcs++;
     }
 }
 
@@ -1990,7 +2019,7 @@ ReceiverRingPoll(
 
     Count = 0;
 
-    if (!Ring->Enabled)
+    if (!Ring->Enabled || Ring->Paused)
         goto done;
 
     for (;;) {
@@ -2965,7 +2994,13 @@ __ReceiverRingTeardown(
 
     RtlZeroMemory(&Ring->TargetProcessor, sizeof (PROCESSOR_NUMBER));
 
+    Ring->Flush = TRUE;
+    KeMemoryBarrier();
+
+    KeInsertQueueDpc(&Ring->QueueDpc, NULL, NULL);
     KeFlushQueuedDpcs();
+    Ring->Flush = FALSE;
+
     RtlZeroMemory(&Ring->QueueDpc, sizeof (KDPC));
 
     ThreadAlert(Ring->WatchdogThread);

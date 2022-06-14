@@ -38,10 +38,11 @@
 // ST - XENBUS_STORE_INTERFACE
 // SU - XENBUS_SUSPEND_INTERFACE
 
-//                    REVISION   C   V   ST  SU
+//                    REVISION   C   V    ST  SU
 #define DEFINE_REVISION_TABLE                       \
-    DEFINE_REVISION(0x09000000,  1,  8,  2,  1),    \
-    DEFINE_REVISION(0x09000001,  2,  8,  2,  1),    \
-    DEFINE_REVISION(0x09000002,  2,  9,  2,  1)
+    DEFINE_REVISION(0x09000000,  1,  8,   2,  1),   \
+    DEFINE_REVISION(0x09000001,  2,  8,   2,  1),   \
+    DEFINE_REVISION(0x09000002,  2,  9,   2,  1),   \
+    DEFINE_REVISION(0x09000003,  2,  10,  2,  1)
 
 #endif  // _REVISION_H
