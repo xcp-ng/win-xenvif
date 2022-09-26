@@ -1180,6 +1180,49 @@ fail1:
     return status;
 }
 
+static NTSTATUS
+PdoGetInterfaceLuid(
+    IN  PXENVIF_PDO Pdo,
+    IN  HANDLE      Key,
+    OUT PNET_LUID   Luid
+    )
+{
+    ULONG           Value;
+    NTSTATUS        status;
+
+    UNREFERENCED_PARAMETER(Pdo);
+
+    Luid->Value = 0ull;
+
+    status = RegistryQueryDwordValue(Key,
+                                     "*IfType",
+                                     &Value);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    Luid->Info.IfType = Value;
+
+    status = RegistryQueryDwordValue(Key,
+                                     "NetLuidIndex",
+                                     &Value);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    Luid->Info.NetLuidIndex = Value;
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    Luid->Value = 0ull;
+
+    return status;
+}
+
 static VOID
 PdoUnplugRequest(
     IN  PXENVIF_PDO Pdo,
@@ -1216,7 +1259,6 @@ PdoStartDevice(
     PIO_STACK_LOCATION  StackLocation;
     HANDLE              SoftwareKey;
     HANDLE              HardwareKey;
-    ULONG               HasSettings;
     GUID                Guid;
     NTSTATUS            status;
 
@@ -1307,39 +1349,45 @@ PdoStartDevice(
         goto fail9;
     }
 
-    status = RegistryQueryDwordValue(SoftwareKey,
-                                     "HasSettings",
-                                     &HasSettings);
-    if (!NT_SUCCESS(status))
-        HasSettings = 0;
 
-    if (HasSettings == 0) {
-        //
-        // If there is a stack bound then restore any settings that
-        // may have been saved from an aliasing emulated device.
-        //
-        status = PdoGetInterfaceGuid(Pdo, SoftwareKey, &Guid);
+    //
+    // If there is a stack bound then restore any settings that
+    // may have been saved from an aliasing device.
+    //
+    status = PdoGetInterfaceGuid(Pdo, SoftwareKey, &Guid);
+    if (NT_SUCCESS(status)) {
+        NET_LUID        Luid;
+        PWCHAR          Alias;
+        PWCHAR          Description;
+
+        RtlZeroMemory(&Luid, sizeof(NET_LUID));
+        Alias = NULL;
+        Description = NULL;
+
+        status = PdoGetInterfaceLuid(Pdo, SoftwareKey, &Luid);
         if (NT_SUCCESS(status)) {
             for (Index = 0; Index < Table->NumEntries; Index++) {
                 PMIB_IF_ROW2    Row = &Table->Table[Index];
 
-                if (!IsEqualGUID(&Row->InterfaceGuid, &Guid))
+                Trace("%s: CHECKING %ws (%ws)\n",
+                    __PdoGetName(Pdo),
+                    Row->Alias,
+                    Row->Description);
+
+                if (Row->InterfaceLuid.Value != Luid.Value)
                     continue;
 
-                (VOID) SettingsRestore(__PdoGetName(Pdo),
-                                       Row->Alias,
-                                       Row->Description,
-                                       &Row->InterfaceGuid,
-                                       &Row->InterfaceLuid);
+                Alias = Row->Alias;
+                Description = Row->Description;
                 break;
             }
-
-            HasSettings = 1;
-
-            (VOID) RegistryUpdateDwordValue(SoftwareKey,
-                                            "HasSettings",
-                                             HasSettings);
         }
+
+        (VOID) SettingsRestore(__PdoGetName(Pdo),
+                               Alias,
+                               Description,
+                               &Guid,
+                               &Luid);
     }
 
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
