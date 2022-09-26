@@ -36,6 +36,7 @@
 #include <strsafe.h>
 #include <malloc.h>
 #include <assert.h>
+#include <iphlpapi.h>
 
 #include <version.h>
 #include <revision.h>
@@ -56,12 +57,18 @@ __user_code;
 #define UNPLUG_KEY \
         SERVICE_KEY(XEN) ## "\\Unplug"
 
+#define SETTINGS_KEY \
+        SERVICE_KEY(XENVIF) ## "\\Settings"
+
 #define CONTROL_KEY "SYSTEM\\CurrentControlSet\\Control"
 
 #define CLASS_KEY   \
         CONTROL_KEY ## "\\Class"
 
 #define ENUM_KEY    "SYSTEM\\CurrentControlSet\\Enum"
+
+#define NETWORK_CLASS_GUID \
+        "{4d36e972-e325-11ce-bfc1-08002be10318}"
 
 static VOID
 #pragma prefast(suppress:6262) // Function uses '1036' bytes of stack: exceeds /analyze:stacksize'1024'
@@ -1025,6 +1032,335 @@ fail1:
     return FALSE;
 }
 
+static BOOLEAN
+CreateSettingsKey(
+    IN  PTCHAR  KeyName,
+    OUT PHKEY   Key
+    )
+{
+    HKEY        SettingsKey;
+    HRESULT     Error;
+
+    Error = RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                         SETTINGS_KEY,
+                         0,
+                         KEY_ALL_ACCESS,
+                         &SettingsKey);
+    if (Error != ERROR_SUCCESS) {
+        SetLastError(Error);
+        goto fail1;
+    }
+
+    Error = RegCreateKeyEx(SettingsKey,
+                           KeyName,
+                           0,
+                           NULL,
+                           REG_OPTION_NON_VOLATILE,
+                           KEY_ALL_ACCESS,
+                           NULL,
+                           Key,
+                           NULL);
+    if (Error != ERROR_SUCCESS) {
+        SetLastError(Error);
+        goto fail2;
+    }
+
+    RegCloseKey(SettingsKey);
+
+    return TRUE;
+
+fail2:
+    Log("fail2");
+
+    RegCloseKey(SettingsKey);
+
+fail1:
+    Error = GetLastError();
+
+    {
+        PTCHAR  Message;
+
+        Message = GetErrorMessage(Error);
+        Log("fail1 (%s)", Message);
+        LocalFree(Message);
+    }
+
+    return FALSE;
+}
+
+static BOOLEAN
+CopyNetworkID(
+    IN  PTCHAR  VifIndex,
+    IN  HKEY    DriverKey
+    )
+{
+    BOOLEAN     Success;
+    HRESULT     Error;
+    TCHAR       NetCfgInstanceId[MAX_PATH];
+    DWORD       NetCfgInstanceIdLength;
+    DWORD       Value;
+    DWORD       ValueLength;
+    NET_LUID    NetLuid;
+    HKEY        SettingsKey;
+
+    NetCfgInstanceIdLength = sizeof(NetCfgInstanceId);
+    Error = RegQueryValueEx(DriverKey,
+                            "NetCfgInstanceId",
+                            NULL,
+                            NULL,
+                            (LPBYTE)NetCfgInstanceId,
+                            &NetCfgInstanceIdLength);
+    if (Error != ERROR_SUCCESS) {
+        SetLastError(Error);
+        goto fail1;
+    }
+
+    NetLuid.Value = 0ull;
+
+    ValueLength = sizeof(DWORD);
+    Error = RegQueryValueEx(DriverKey,
+                            "NetLuidIndex",
+                            NULL,
+                            NULL,
+                            (LPBYTE)&Value,
+                            &ValueLength);
+    if (Error != ERROR_SUCCESS) {
+        SetLastError(Error);
+        goto fail2;
+    }
+
+    NetLuid.Info.NetLuidIndex = Value;
+
+    ValueLength = sizeof(DWORD);
+    Error = RegQueryValueEx(DriverKey,
+                            "*IfType",
+                            NULL,
+                            NULL,
+                            (LPBYTE)&Value,
+                            &ValueLength);
+    if (Error != ERROR_SUCCESS) {
+        SetLastError(Error);
+        goto fail3;
+    }
+
+    NetLuid.Info.IfType = Value;
+
+    Log("VIF/%s was %s", VifIndex, NetCfgInstanceId);
+
+    Success = CreateSettingsKey(VifIndex, &SettingsKey);
+    if (!Success)
+        goto fail4;
+
+    Error = RegSetValueEx(SettingsKey,
+                          "NetCfgInstanceId",
+                          0,
+                          REG_SZ,
+                          (const BYTE*)NetCfgInstanceId,
+                          NetCfgInstanceIdLength);
+    if (Error != ERROR_SUCCESS) {
+        SetLastError(Error);
+        goto fail5;
+    }
+
+    Error = RegSetValueEx(SettingsKey,
+                          "NetLuid",
+                          0,
+                          REG_BINARY,
+                          (const BYTE*)&NetLuid,
+                          sizeof(NET_LUID));
+    if (Error != ERROR_SUCCESS) {
+        SetLastError(Error);
+        goto fail6;
+    }
+
+    Value = 1;
+    Error = RegSetValueEx(SettingsKey,
+                          "HasSettings",
+                          0,
+                          REG_DWORD,
+                          (const BYTE*)&Value,
+                          sizeof(DWORD));
+    if (Error != ERROR_SUCCESS) {
+        SetLastError(Error);
+        goto fail7;
+    }
+
+    RegCloseKey(SettingsKey);
+
+    return TRUE;
+
+fail7:
+    Log("fail7");
+
+fail6:
+    Log("fail6");
+
+fail5:
+    Log("fail5");
+
+    RegCloseKey(SettingsKey);
+
+fail4:
+    Log("fail4");
+
+fail3:
+    Log("fail3");
+
+fail2:
+    Log("fail2");
+
+fail1:
+    Error = GetLastError();
+
+    {
+        PTCHAR  Message;
+
+        Message = GetErrorMessage(Error);
+        Log("fail1 (%s)", Message);
+        LocalFree(Message);
+    }
+
+    return FALSE;
+}
+
+static BOOLEAN
+CopyNetworkIDs(
+    VOID
+    )
+{
+    BOOLEAN     Success;
+    HRESULT     Error;
+    HKEY        ClassKey;
+    DWORD       SubKeys;
+    DWORD       MaxSubKeyLength;
+    DWORD       Index;
+    DWORD       SubKeyLength;
+    PTCHAR      SubKeyName;
+
+    Log("====>");
+
+    Success = OpenDriverKey(NETWORK_CLASS_GUID, &ClassKey);
+    if (!Success)
+        goto fail1;
+
+    Error = RegQueryInfoKey(ClassKey,
+                            NULL,
+                            NULL,
+                            NULL,
+                            &SubKeys,
+                            &MaxSubKeyLength,
+                            NULL,
+                            NULL,
+                            NULL,
+                            NULL,
+                            NULL,
+                            NULL);
+    if (Error != ERROR_SUCCESS) {
+        SetLastError(Error);
+        goto fail2;
+    }
+
+    SubKeyLength = MaxSubKeyLength + sizeof (TCHAR);
+
+    SubKeyName = malloc(SubKeyLength);
+    if (SubKeyName == NULL)
+        goto fail3;
+
+    for (Index = 0; Index < SubKeys; ++Index) {
+        HKEY        DriverKey;
+        TCHAR       DeviceInstanceID[MAX_PATH];
+        PTCHAR      VifIndex;
+        DWORD       Length;
+
+        SubKeyLength = MaxSubKeyLength + sizeof (TCHAR);
+        memset(SubKeyName, 0, SubKeyLength);
+
+        Error = RegEnumKeyEx(ClassKey,
+                             Index,
+                             (LPTSTR)SubKeyName,
+                             &SubKeyLength,
+                             NULL,
+                             NULL,
+                             NULL,
+                             NULL);
+        if (Error != ERROR_SUCCESS) {
+            SetLastError(Error);
+            goto fail4;
+        }
+
+        Error = RegOpenKeyEx(ClassKey,
+                             SubKeyName,
+                             0,
+                             KEY_READ,
+                             &DriverKey);
+        if (Error != ERROR_SUCCESS) {
+            SetLastError(Error);
+            continue;
+        }
+
+        Length = sizeof(DeviceInstanceID);
+        Error = RegQueryValueEx(DriverKey,
+                                "DeviceInstanceID",
+                                NULL,
+                                NULL,
+                                (LPBYTE)DeviceInstanceID,
+                                &Length);
+        if (Error != ERROR_SUCCESS) {
+            SetLastError(Error);
+            goto loop1;
+        }
+
+        if (_strnicmp("XENVIF", DeviceInstanceID, strlen("XENVIF")) != 0)
+            goto loop2;
+
+        VifIndex = strrchr(DeviceInstanceID, '\\');
+        if (VifIndex == NULL)
+            goto loop3;
+
+        ++VifIndex;
+
+        CopyNetworkID(VifIndex, DriverKey);
+
+    loop3:
+    loop2:
+    loop1:
+        RegCloseKey(DriverKey);
+    }
+
+    free(SubKeyName);
+    RegCloseKey(ClassKey);
+
+    Log("<====");
+
+    return TRUE;
+
+fail4:
+    Log("fail4");
+
+    free(SubKeyName);
+
+fail3:
+    Log("fail3");
+
+fail2:
+    Log("fail2");
+
+    RegCloseKey(ClassKey);
+
+fail1:
+    Error = GetLastError();
+
+    {
+        PTCHAR  Message;
+
+        Message = GetErrorMessage(Error);
+        Log("fail1 (%s)", Message);
+        LocalFree(Message);
+    }
+
+    return FALSE;
+}
+
 static HRESULT
 DifInstallPreProcess(
     IN  HDEVINFO                    DeviceInfoSet,
@@ -1055,9 +1391,16 @@ DifInstallPreProcess(
     if (!Success)
         goto fail3;
 
+    Success = CopyNetworkIDs();
+    if (!Success)
+        goto fail4;
+
     Log("<====");
 
     return NO_ERROR;
+
+fail4:
+    Log("fail4");
 
 fail3:
     Log("fail3");
