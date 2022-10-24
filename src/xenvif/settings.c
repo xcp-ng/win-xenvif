@@ -550,10 +550,10 @@ SettingsSave(
 
     SettingsKey = DriverGetSettingsKey();
 
-    status = RegistryOpenSubKey(SettingsKey,
-                                SubKeyName,
-                                KEY_ALL_ACCESS,
-                                &SubKey);
+    status = RegistryCreateSubKey(SettingsKey,
+                                  SubKeyName,
+                                  REG_OPTION_NON_VOLATILE,
+                                  &SubKey);
     if (!NT_SUCCESS(status))
         goto fail2;
 
@@ -593,7 +593,7 @@ fail2:
     RtlFreeAnsiString(&Ansi);
 
 fail1:
-    Error("fail1\n", status);
+    Error("fail1 (%08x)\n", status);
 
     return status;
 }
@@ -688,7 +688,7 @@ fail2:
     RegistryCloseKey(SubKey);
 
 fail1:
-    Error("fail1\n", status);
+    Error("fail1 (%08x)\n", status);
 
     return status;
 }
