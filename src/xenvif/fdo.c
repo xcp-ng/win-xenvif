@@ -3173,8 +3173,8 @@ FdoCreate(
 fail14:
     Error("fail14\n");
 
-    RtlZeroMemory(&Fdo->UnplugInterface,
-                  sizeof (XENBUS_UNPLUG_INTERFACE));
+    RtlZeroMemory(&Fdo->GnttabInterface,
+                  sizeof (XENBUS_GNTTAB_INTERFACE));
 
 fail13:
     Error("fail13\n");
