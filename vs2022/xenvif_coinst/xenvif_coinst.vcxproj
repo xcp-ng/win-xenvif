@@ -37,6 +37,9 @@
       <AdditionalDependencies>setupapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <CETCompat>true</CETCompat>
     </Link>
+    <ResourceCompile>
+      <AdditionalIncludeDirectories>..\..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
     <DriverSign>
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
@@ -60,6 +63,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\src\coinst\xenvif_coinst.def" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\..\src\coinst\xenvif_coinst.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
