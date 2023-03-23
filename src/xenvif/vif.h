@@ -93,4 +93,3 @@ VifGetMacThread(
     );
 
 #endif  // _XENVIF_VIF_H
-

@@ -73,4 +73,3 @@ ThreadJoin(
     );
 
 #endif  // _XENVIF_THREAD_H
-
