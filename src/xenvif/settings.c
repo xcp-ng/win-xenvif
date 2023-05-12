@@ -622,12 +622,8 @@ SettingsRestore(
                                 SubKeyName,
                                 KEY_READ,
                                 &SubKey);
-    if (!NT_SUCCESS(status)) {
-        if (status == STATUS_OBJECT_NAME_NOT_FOUND)
-            goto done;
-
+    if (!NT_SUCCESS(status))
         goto fail1;
-    }
 
     status = RegistryQuerySzValue(SubKey,
                                   "NetCfgInstanceId",
@@ -658,6 +654,10 @@ SettingsRestore(
                      NetLuid,
                      &Ansi,
                      InterfaceLuid);
+    } else {
+        Info("%s: SettingsCopy not required for %ws\n",
+             SubKeyName,
+             Description);
     }
 
     RtlFreeAnsiString(&Ansi);
@@ -669,7 +669,6 @@ SettingsRestore(
 
     RegistryCloseKey(SubKey);
 
-done:
     return STATUS_SUCCESS;
 
 fail4:
