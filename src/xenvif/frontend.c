@@ -1548,8 +1548,12 @@ FrontendPrepare(
             break;
 
         case XenbusStateClosed:
-            FrontendSetXenbusState(Frontend,
-                                   XenbusStateInitialising);
+            if (FrontendIsBackendOnline(Frontend))
+                FrontendSetXenbusState(Frontend,
+                                       XenbusStateInitialising);
+            else
+                FrontendSetOffline(Frontend);
+
             break;
 
         case XenbusStateConnected:
