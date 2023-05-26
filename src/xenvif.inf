@@ -88,6 +88,7 @@ HKR,,"BootFlags",0x00010003,0x81
 [XenVif_Parameters]
 HKR,"Parameters",,0x00000010
 HKR,"Parameters","RequestKey",0x00000000,%RequestKey%
+HKR,"Parameters","FrontendMaxQueues",0x00010001,0x00000008
 
 [XenVif_Inst.CoInstallers]
 CopyFiles=CoInst_CopyFiles
