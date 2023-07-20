@@ -5,3 +5,23 @@
 
 # Output
 /xenvif
+*.log
+*.lastbuildstate
+*.db
+*.recipe
+*.sarif
+*.obj
+*.vsidx
+*.tlog
+*.pdb
+*.vcxproj.FileListAbsolute.txt
+*.lastcodeanalysissucceeded
+.vs/
+vs2019/xenvif_coinst/Windows*/
+vs2019/xenvif/Windows*/
+vs2019/Windows*/
+vs2019/version/.revision
+include/version.h
+vs2019/xenvif.inf
+src/xenvif/RCa24836
+.build_number

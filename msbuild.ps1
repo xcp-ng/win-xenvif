@@ -28,7 +28,7 @@ Function Run-MSBuild {
 	if ($Inputs) {
 		$c += [string]::Format(" /p:Inputs=""{0}"" ", $Inputs)
 	}
-	$c += Join-Path -Path $SolutionPath -ChildPath $Name
+	$c += '"' + (Join-Path -Path $SolutionPath -ChildPath $Name) + '"'
 
 	Invoke-Expression $c
 	if ($LASTEXITCODE -ne 0) {
@@ -77,13 +77,7 @@ $solutionpath = Resolve-Path $SolutionDir
 
 Set-ExecutionPolicy -Scope CurrentUser -Force Bypass
 
-if ($Type -eq "free") {
-	Run-MSBuild $solutionpath "xenvif.sln" $configuration["free"] $platform[$Arch]
-}
-elseif ($Type -eq "checked") {
-	Run-MSBuild $solutionpath "xenvif.sln" $configuration["checked"] $platform[$Arch]
-}
-elseif ($Type -eq "sdv") {
+if ($Type -eq "sdv") {
 	$archivepath = "xenvif"
 
 	if (-Not (Test-Path -Path $archivepath)) {
@@ -93,4 +87,7 @@ elseif ($Type -eq "sdv") {
 	Run-MSBuildSDV $solutionpath "xenvif" $configuration["sdv"] $platform[$Arch]
 
 	Copy-Item -Path (Join-Path -Path $SolutionPath -ChildPath "*DVL*") -Destination $archivepath
+}
+else {
+	Run-MSBuild $solutionpath "xenvif.sln" $configuration[$Type] $platform[$Arch]
 }

@@ -1,12 +1,10 @@
 #
 # Generate version.h and xenbus.inf
 #
-param(
-	[string]$Platform = "Win32",
-	[string]$SolutionDir = "vs2017",
-	[string]$IncludeDir = "include",
-	[string]$SourceDir = "src"
-)
+$Platform = $Env:Platform
+$SolutionDir = $Env:SolutionDir
+$IncludeDir = $Env:IncludeDir
+$SourceDir = $Env:SourceDir
 
 # Copy $InFileName -> $OutFileName replacing $Token$_.Key$Token with $_.Value from
 # $Replacements

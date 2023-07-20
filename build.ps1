@@ -5,8 +5,15 @@
 param(
 	[Parameter(Mandatory = $true)]
 	[string]$Type,
+	[Parameter(Mandatory = $true)]
+	[string]$ConfigurationBase,
 	[switch]$Sdv
 )
+
+#common
+$visualstudioversion = $Env:VisualStudioVersion
+$solutiondir = @{ "14.0" = "vs2015"; "15.0" = "vs2017"; "16.0" = "vs2019"; "17.0" = "vs2022"; }
+$SolutionDir = $solutiondir[$visualstudioversion]
 
 #
 # Script Body
@@ -15,16 +22,13 @@ param(
 Function Build {
 	param(
 		[string]$Arch,
-		[string]$Type
+		[string]$Type,
+		[string]$ConfigurationBase
 	)
 
-	$visualstudioversion = $Env:VisualStudioVersion
-	$solutiondir = @{ "14.0" = "vs2015"; "15.0" = "vs2017"; "16.0" = "vs2019" }
-	$configurationbase = @{ "14.0" = "Windows 8"; "15.0" = "Windows 8"; "16.0" = "Windows 8"; }
-
 	$params = @{
-		SolutionDir = $solutiondir[$visualstudioversion];
-		ConfigurationBase = $configurationbase[$visualstudioversion];
+		SolutionDir = $SolutionDir;
+		ConfigurationBase = $ConfigurationBase;
 		Arch = $Arch;
 		Type = $Type
 		}
@@ -33,21 +37,6 @@ Function Build {
 		Write-Host -ForegroundColor Red "ERROR: Build failed, code:" $LASTEXITCODE
 		Exit $LASTEXITCODE
 	}
-}
-
-Function SdvBuild {
-	$visualstudioversion = $Env:VisualStudioVersion
-	$solutiondir = @{ "14.0" = "vs2015"; "15.0" = "vs2017"; "16.0" = "vs2019"; }
-	$configurationbase = @{ "14.0" = "Windows 10"; "15.0" = "Windows 10"; "16.0" = "Windows 10"; }
-	$arch = "x64"
-
-	$params = @{
-		SolutionDir = $solutiondir[$visualstudioversion];
-		ConfigurationBase = $configurationbase[$visualstudioversion];
-		Arch = $arch;
-		Type = "sdv"
-		}
-	& ".\msbuild.ps1" @params
 }
 
 if ($Type -ne "free" -and $Type -ne "checked") {
@@ -82,9 +71,9 @@ Set-Item -Path Env:MAJOR_VERSION -Value '9'
 Set-Item -Path Env:MINOR_VERSION -Value '1'
 Set-Item -Path Env:MICRO_VERSION -Value '0'
 
-Build "x86" $Type
-Build "x64" $Type
-
-if ($Sdv) {
-	SdvBuild
+if ($ConfigurationBase -eq "Windows 8") {
+	Build "x86" $Type $ConfigurationBase
+	Build "x64" $Type $ConfigurationBase
+} elseif ($ConfigurationBase -eq "Windows 10") {
+	Build "x64" $Type $ConfigurationBase
 }
