@@ -74,6 +74,6 @@ Set-Item -Path Env:MICRO_VERSION -Value '0'
 if ($ConfigurationBase -eq "Windows 8") {
 	Build "x86" $Type $ConfigurationBase
 	Build "x64" $Type $ConfigurationBase
-} elseif ($ConfigurationBase -eq "Windows 10") {
+} else {
 	Build "x64" $Type $ConfigurationBase
 }
