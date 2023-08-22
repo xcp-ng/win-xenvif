@@ -33,6 +33,7 @@
 #define _XENVIF_UTIL_H
 
 #include <ntddk.h>
+#include <intrin.h>
 
 #include "assert.h"
 
@@ -87,7 +88,7 @@ __CpuId(
     OUT PULONG  EDX OPTIONAL
     )
 {
-    ULONG       Value[4] = {0};
+    int  Value[4] = {0};
 
     __cpuid(Value, Leaf);
 

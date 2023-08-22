@@ -5,7 +5,6 @@
     <ProjectGuid>{65FA97EA-A569-4FC1-BFE7-D68E109143F7}</ProjectGuid>
   </PropertyGroup>
   <PropertyGroup>
-    <Script>..\..\scripts\genfiles.ps1</Script>
     <SolutionDir>..</SolutionDir>
     <IncludeDir>..\..\include</IncludeDir>
     <SourceDir>..\..\src</SourceDir>

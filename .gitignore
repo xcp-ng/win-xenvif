@@ -25,3 +25,4 @@ include/version.h
 vs2019/xenvif.inf
 src/xenvif/RCa24836
 .build_number
+src/xenvif/RCa29932
