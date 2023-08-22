@@ -266,6 +266,8 @@ __ReceiverRingGetPacket(
                           &Receiver->CacheInterface,
                           Ring->PacketCache,
                           Locked);
+    if (Packet == NULL)
+        return NULL;
 
     ASSERT(IsZeroMemory(&Packet->Info, sizeof (XENVIF_PACKET_INFO)));
     ASSERT3P(Packet->Ring, ==, Ring);
@@ -1788,11 +1790,11 @@ __ReceiverRingPreparePacket(
 fail2:
     Error("fail2\n");
 
+    __ReceiverRingPutFragment(Ring, Fragment);
+
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    __ReceiverRingPutFragment(Ring, Fragment);
-    
     return NULL;
 }
 
