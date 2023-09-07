@@ -34,6 +34,9 @@
       <ModuleDefinitionFile>../../src/coinst/xenvif_coinst.def</ModuleDefinitionFile>
       <AdditionalDependencies>setupapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+	    <DriverSign>
+      <AdditionalOptions>/fdws %(AdditionalOptions)</AdditionalOptions>
+    </DriverSign>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
     <ClCompile>
