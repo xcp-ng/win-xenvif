@@ -1613,7 +1613,7 @@ __FrontendQueryStatistic(
 {
     ULONG                       Index;
 
-    ASSERT(Name < XENVIF_VIF_STATISTIC_COUNT);
+    ASSERT(Name >= 0 && Name < XENVIF_VIF_STATISTIC_COUNT);
 
     *Value = 0;
     for (Index = 0; Index < Frontend->StatisticsCount; Index++) {
@@ -1645,7 +1645,7 @@ FrontendIncrementStatistic(
     PXENVIF_FRONTEND_STATISTICS Statistics;
     KIRQL                       Irql;
 
-    ASSERT(Name < XENVIF_VIF_STATISTIC_COUNT);
+    ASSERT(Name >= 0 && Name < XENVIF_VIF_STATISTIC_COUNT);
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 

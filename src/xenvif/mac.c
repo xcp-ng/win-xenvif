@@ -999,6 +999,8 @@ MacSetFilterLevel(
     KIRQL                       Irql;
     NTSTATUS                    status;
 
+    ASSERT(Type >= 0);
+
     status = STATUS_INVALID_PARAMETER;
     if (Type >= ETHERNET_ADDRESS_TYPE_COUNT)
         goto fail1;
@@ -1038,6 +1040,8 @@ MacQueryFilterLevel(
 {
     KIRQL                           Irql;
     NTSTATUS                        status;
+
+    ASSERT(Type >= 0);
 
     status = STATUS_INVALID_PARAMETER;
     if (Type >= ETHERNET_ADDRESS_TYPE_COUNT)
