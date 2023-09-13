@@ -38,20 +38,16 @@ Provider=%Vendor%
 CatalogFile=xenvif.cat
 DriverVer=@INF_DATE@,@MAJOR_VERSION@.@MINOR_VERSION@.@MICRO_VERSION@.@BUILD_NUMBER@
 DriverPackageDisplayName=%DiskDesc%
+PnpLockdown=1
 
 [DestinationDirs] 
 DefaultDestDir=12 
-CoInst_CopyFiles=11
 
 [SourceDisksNames]
 0=%DiskDesc%
 
 [SourceDisksFiles]
 xenvif.sys=0,,
-xenvif_coinst.dll=0,,
-
-[CoInst_CopyFiles]
-xenvif_coinst_@MAJOR_VERSION@_@MINOR_VERSION@_@MICRO_VERSION@_@BUILD_NUMBER@.dll,xenvif_coinst.dll
 
 [Manufacturer] 
 %Vendor%=Inst,NT@INF_ARCH@
@@ -80,7 +76,7 @@ StartType=%SERVICE_DEMAND_START%
 ErrorControl=%SERVICE_ERROR_NORMAL% 
 ServiceBinary=%12%\xenvif.sys 
 LoadOrderGroup="NDIS"
-AddReg = XenVif_BootFlags, XenVif_Parameters
+AddReg = XenVif_BootFlags, XenVif_Parameters, XenVif_Unplug
 
 [XenVif_BootFlags]
 HKR,,"BootFlags",0x00010003,0x81
@@ -90,12 +86,8 @@ HKR,"Parameters",,0x00000010
 HKR,"Parameters","RequestKey",0x00000000,%RequestKey%
 HKR,"Parameters","FrontendMaxQueues",0x00010001,0x00000008
 
-[XenVif_Inst.CoInstallers]
-CopyFiles=CoInst_CopyFiles
-AddReg=CoInst_AddReg
-
-[CoInst_AddReg]
-HKR,,CoInstallers32,0x00010000,"xenvif_coinst_@MAJOR_VERSION@_@MINOR_VERSION@_@MICRO_VERSION@_@BUILD_NUMBER@.dll,Entry"
+[XenVif_Unplug]
+HKLM,%UnplugKey%,"NICS",0x00010001,0
 
 [Strings] 
 
@@ -103,6 +95,7 @@ Vendor="@VENDOR_NAME@"
 DiskDesc="@PRODUCT_NAME@ PV Network Class Package"
 XenVifName="@PRODUCT_NAME@ PV Network Class"
 RequestKey="SYSTEM\CurrentControlSet\Services\xenbus_monitor\Request"
+UnplugKey="SYSTEM\CurrentControlSet\Services\XEN\Unplug"
 
 SERVICE_BOOT_START=0x0 
 SERVICE_SYSTEM_START=0x1 
