@@ -41,9 +41,6 @@
     <ProjectReference Include="..\xenvif\xenvif.vcxproj">
       <Project>{C3F96D4C-E441-47F7-A44C-D2D0543C1D18}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\xenvif_coinst\xenvif_coinst.vcxproj">
-      <Project>{2BFAC7E6-3420-47A5-A092-BDC5C9D78A44}</Project>
-    </ProjectReference>
     <FilesToPackage Include="..\xenvif.inf" />
   </ItemGroup>
   <ItemGroup Condition="Exists('$(DPINST_REDIST)')">
