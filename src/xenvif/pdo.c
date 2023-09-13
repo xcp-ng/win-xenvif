@@ -1247,6 +1247,27 @@ PdoUnplugRequest(
     XENBUS_UNPLUG(Release, &Pdo->UnplugInterface);
 }
 
+static BOOLEAN
+PdoUnplugRequested(
+    IN  PXENVIF_PDO Pdo
+    )
+{
+    BOOLEAN         State;
+    NTSTATUS        status;
+
+    status = XENBUS_UNPLUG(Acquire, &Pdo->UnplugInterface);
+    if (!NT_SUCCESS(status))
+        return FALSE;
+
+    State = XENBUS_UNPLUG(IsRequested,
+                          &Pdo->UnplugInterface,
+                          XENBUS_UNPLUG_DEVICE_TYPE_NICS);
+
+    XENBUS_UNPLUG(Release, &Pdo->UnplugInterface);
+
+    return State;
+}
+
 static DECLSPEC_NOINLINE NTSTATUS
 PdoStartDevice(
     IN  PXENVIF_PDO     Pdo,
@@ -1343,7 +1364,7 @@ PdoStartDevice(
         break;
     }
 
-    if (Pdo->HasAlias) {
+    if (Pdo->HasAlias || !PdoUnplugRequested(Pdo)) {
         PdoUnplugRequest(Pdo, TRUE);
 
         status = STATUS_PNP_REBOOT_REQUIRED;
