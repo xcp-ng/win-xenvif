@@ -5,24 +5,15 @@
 
 # Output
 /xenvif
-*.log
-*.lastbuildstate
-*.db
-*.recipe
-*.sarif
-*.obj
-*.vsidx
-*.tlog
-*.pdb
-*.vcxproj.FileListAbsolute.txt
-*.lastcodeanalysissucceeded
-.vs/
-vs2019/xenvif_coinst/Windows*/
-vs2019/xenvif/Windows*/
-vs2019/Windows*/
-vs2019/version/.revision
-include/version.h
-vs2019/xenvif.inf
-src/xenvif/RCa24836
 .build_number
-src/xenvif/RCa29932
+include/version.h
+vs20??/.vs/
+vs20??/*/Windows10Debug/
+vs20??/*/Windows10Release/
+vs20??/*/x64/
+vs20??/*/x86/
+vs20??/Windows10Debug/
+vs20??/Windows10Release/
+vs20??/version/.revision
+vs20??/version/version.log
+vs20??/*.inf

@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, 
@@ -261,6 +262,7 @@ __FrontendGetMaxQueues(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
+    ASSERT(Frontend->MaxQueues != 0);
     return Frontend->MaxQueues;
 }
 
@@ -283,7 +285,7 @@ FrontendFormatPath(
     NTSTATUS                status;
 
     Length = (ULONG)(strlen(__FrontendGetPath(Frontend)) +
-                     strlen("/queue-XX") +
+                     strlen("/queue-XXX") +
                      1) * sizeof (CHAR);
 
     Path = __FrontendAllocate(Length);
@@ -1345,6 +1347,7 @@ FrontendWaitForBackendXenbusStateChange(
     LARGE_INTEGER               Timeout;
     XenbusState                 Old = *State;
     NTSTATUS                    status;
+    const ULONGLONG             TotalTimeout = 120000;
 
     Trace("%s: ====> %s\n",
           __FrontendGetBackendPath(Frontend),
@@ -1368,7 +1371,7 @@ FrontendWaitForBackendXenbusStateChange(
 
     Timeout.QuadPart = 0;
 
-    while (*State == Old && TimeDelta < 120000) {
+    while (*State == Old && TimeDelta < TotalTimeout) {
         PCHAR           Buffer;
         LARGE_INTEGER   Now;
 
@@ -1415,6 +1418,9 @@ FrontendWaitForBackendXenbusStateChange(
 
         TimeDelta = (Now.QuadPart - Start.QuadPart) / 10000ull;
     }
+
+    if (TimeDelta >= TotalTimeout)
+        Error("%s timed out waiting for backend state change\n", __FrontendGetBackendPath(Frontend));
 
     if (Watch != NULL)
         (VOID) XENBUS_STORE(WatchRemove,
@@ -1542,8 +1548,12 @@ FrontendPrepare(
             break;
 
         case XenbusStateClosed:
-            FrontendSetXenbusState(Frontend,
-                                   XenbusStateInitialising);
+            if (FrontendIsBackendOnline(Frontend))
+                FrontendSetXenbusState(Frontend,
+                                       XenbusStateInitialising);
+            else
+                FrontendSetOffline(Frontend);
+
             break;
 
         case XenbusStateConnected:
@@ -1613,14 +1623,14 @@ __FrontendQueryStatistic(
 {
     ULONG                       Index;
 
-    ASSERT(Name >= 0 && Name < XENVIF_VIF_STATISTIC_COUNT);
+    ASSERT3U(Name, <, XENVIF_VIF_STATISTIC_COUNT);
 
     *Value = 0;
     for (Index = 0; Index < Frontend->StatisticsCount; Index++) {
         PXENVIF_FRONTEND_STATISTICS Statistics;
 
         Statistics = &Frontend->Statistics[Index];
-        *Value += Statistics->Value[Name];
+        *Value += Statistics->Value[(ULONG)Name];
     }
 }
 
@@ -1645,7 +1655,7 @@ FrontendIncrementStatistic(
     PXENVIF_FRONTEND_STATISTICS Statistics;
     KIRQL                       Irql;
 
-    ASSERT(Name >= 0 && Name < XENVIF_VIF_STATISTIC_COUNT);
+    ASSERT3U(Name, <, XENVIF_VIF_STATISTIC_COUNT);
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 
@@ -1654,7 +1664,7 @@ FrontendIncrementStatistic(
     ASSERT3U(Index, <, Frontend->StatisticsCount);
     Statistics = &Frontend->Statistics[Index];
 
-    Statistics->Value[Name] += Delta;
+    Statistics->Value[(ULONG)Name] += Delta;
 
     KeLowerIrql(Irql);
 }
@@ -1764,7 +1774,7 @@ FrontendDebugCallback(
     }
 }
 
-static VOID
+static NTSTATUS
 FrontendSetNumQueues(
     IN  PXENVIF_FRONTEND    Frontend
     )
@@ -1789,10 +1799,19 @@ FrontendSetNumQueues(
         BackendMaxQueues = 1;
     }
 
+    status = STATUS_INVALID_PARAMETER;
+    if (BackendMaxQueues == 0)
+        goto fail1;
+
     Frontend->NumQueues = __min(__FrontendGetMaxQueues(Frontend),
                                 BackendMaxQueues);
 
     Info("%s: %u\n", __FrontendGetPath(Frontend), Frontend->NumQueues);
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 %08x\n", status);
+    return status;
 }
 
 static FORCEINLINE ULONG
@@ -1800,6 +1819,7 @@ __FrontendGetNumQueues(
     IN  PXENVIF_FRONTEND    Frontend
     )
 {
+    ASSERT(Frontend->NumQueues != 0);
     return Frontend->NumQueues;
 }
 
@@ -1953,7 +1973,6 @@ FrontendSetHashAlgorithm(
     case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
         // Don't allow toeplitz hashing to be configured for a single
         // queue, or if it has been explicitly disabled
-        ASSERT(__FrontendGetNumQueues(Frontend) != 0);
         status = (__FrontendGetNumQueues(Frontend) == 1 ||
                   Frontend->DisableToeplitz != 0) ?
                  STATUS_NOT_SUPPORTED :
@@ -2218,20 +2237,23 @@ FrontendConnect(
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    FrontendSetNumQueues(Frontend);
+    status = FrontendSetNumQueues(Frontend);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
     FrontendSetSplit(Frontend);
 
     status = ReceiverConnect(__FrontendGetReceiver(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     status = TransmitterConnect(__FrontendGetTransmitter(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     status = ControllerConnect(__FrontendGetController(Frontend));
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail7;
 
     Attempt = 0;
     do {
@@ -2286,7 +2308,7 @@ abort:
     } while (status == STATUS_RETRY);
 
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail8;
 
     State = XenbusStateUnknown;
     while (State != XenbusStateConnected) {
@@ -2325,7 +2347,7 @@ abort:
 
     status = STATUS_UNSUCCESSFUL;
     if (State != XenbusStateConnected)
-        goto fail8;
+        goto fail9;
 
     ControllerEnable(__FrontendGetController(Frontend));
 
@@ -2334,23 +2356,26 @@ abort:
     Trace("<====\n");
     return STATUS_SUCCESS;
 
+fail9:
+    Error("fail9\n");
+
 fail8:
     Error("fail8\n");
+
+    ControllerDisconnect(__FrontendGetController(Frontend));
 
 fail7:
     Error("fail7\n");
 
-    ControllerDisconnect(__FrontendGetController(Frontend));
+    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
 
 fail6:
     Error("fail6\n");
 
-    TransmitterDisconnect(__FrontendGetTransmitter(Frontend));
+    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
 
 fail5:
     Error("fail5\n");
-
-    ReceiverDisconnect(__FrontendGetReceiver(Frontend));
 
 fail4:
     Error("fail4\n");

@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, 
@@ -3692,6 +3693,7 @@ __TransmitterRingConnect(
                            &Transmitter->GnttabInterface,
                            Name,
                            0,
+                           0,
                            TransmitterRingAcquireLock,
                            TransmitterRingReleaseLock,
                            Ring,
@@ -3987,21 +3989,29 @@ __TransmitterRingDisable(
     ASSERT3U(Ring->RequestsPushed, ==, Ring->RequestsPosted);
     while (Ring->ResponsesProcessed != Ring->RequestsPushed) {
         Attempt++;
-        ASSERT(Attempt < 100);
+
+        KeStallExecutionProcessor(1000);    // 1ms
 
         // Try to move things along
         __TransmitterRingSend(Ring);
         (VOID) TransmitterRingPoll(Ring);
 
-        if (State != XenbusStateConnected)
-            __TransmitterRingFakeResponses(Ring);
+        if ((Attempt >= 100) || (State != XenbusStateConnected))
+            break;
 
         // We are waiting for a watch event at DISPATCH_LEVEL so
         // it is our responsibility to poll the store ring.
         XENBUS_STORE(Poll,
                      &Transmitter->StoreInterface);
+    }
+    if (Ring->ResponsesProcessed != Ring->RequestsPushed)
+    {
+        XENBUS_DEBUG(Trigger,
+                     &Transmitter->DebugInterface,
+                     Ring->DebugCallback);
 
-        KeStallExecutionProcessor(1000);    // 1ms
+        __TransmitterRingFakeResponses(Ring);
+        (VOID) TransmitterRingPoll(Ring);
     }
 
     Ring->Enabled = FALSE;
@@ -5131,6 +5141,8 @@ TransmitterQueuePacket(
     ULONG                           Index;
     PXENVIF_TRANSMITTER_RING        Ring;
     NTSTATUS                        status;
+
+    ASSERT(Mdl != NULL);
 
     Frontend = Transmitter->Frontend;
 

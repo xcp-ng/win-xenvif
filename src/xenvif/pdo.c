@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, 
@@ -1180,6 +1181,49 @@ fail1:
     return status;
 }
 
+static NTSTATUS
+PdoGetInterfaceLuid(
+    IN  PXENVIF_PDO Pdo,
+    IN  HANDLE      Key,
+    OUT PNET_LUID   Luid
+    )
+{
+    ULONG           Value;
+    NTSTATUS        status;
+
+    UNREFERENCED_PARAMETER(Pdo);
+
+    Luid->Value = 0ull;
+
+    status = RegistryQueryDwordValue(Key,
+                                     "*IfType",
+                                     &Value);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    Luid->Info.IfType = Value;
+
+    status = RegistryQueryDwordValue(Key,
+                                     "NetLuidIndex",
+                                     &Value);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    Luid->Info.NetLuidIndex = Value;
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    Luid->Value = 0ull;
+
+    return status;
+}
+
 static VOID
 PdoUnplugRequest(
     IN  PXENVIF_PDO Pdo,
@@ -1216,7 +1260,6 @@ PdoStartDevice(
     PIO_STACK_LOCATION  StackLocation;
     HANDLE              SoftwareKey;
     HANDLE              HardwareKey;
-    ULONG               HasSettings;
     GUID                Guid;
     NTSTATUS            status;
 
@@ -1303,43 +1346,49 @@ PdoStartDevice(
     if (Pdo->HasAlias) {
         PdoUnplugRequest(Pdo, TRUE);
 
-        status = STATUS_UNSUCCESSFUL;
+        status = STATUS_PNP_REBOOT_REQUIRED;
         goto fail9;
     }
 
-    status = RegistryQueryDwordValue(SoftwareKey,
-                                     "HasSettings",
-                                     &HasSettings);
-    if (!NT_SUCCESS(status))
-        HasSettings = 0;
 
-    if (HasSettings == 0) {
-        //
-        // If there is a stack bound then restore any settings that
-        // may have been saved from an aliasing emulated device.
-        //
-        status = PdoGetInterfaceGuid(Pdo, SoftwareKey, &Guid);
+    //
+    // If there is a stack bound then restore any settings that
+    // may have been saved from an aliasing device.
+    //
+    status = PdoGetInterfaceGuid(Pdo, SoftwareKey, &Guid);
+    if (NT_SUCCESS(status)) {
+        NET_LUID        Luid;
+        PWCHAR          Alias;
+        PWCHAR          Description;
+
+        RtlZeroMemory(&Luid, sizeof(NET_LUID));
+        Alias = NULL;
+        Description = NULL;
+
+        status = PdoGetInterfaceLuid(Pdo, SoftwareKey, &Luid);
         if (NT_SUCCESS(status)) {
             for (Index = 0; Index < Table->NumEntries; Index++) {
                 PMIB_IF_ROW2    Row = &Table->Table[Index];
 
-                if (!IsEqualGUID(&Row->InterfaceGuid, &Guid))
+                Trace("%s: CHECKING %ws (%ws)\n",
+                    __PdoGetName(Pdo),
+                    Row->Alias,
+                    Row->Description);
+
+                if (Row->InterfaceLuid.Value != Luid.Value)
                     continue;
 
-                (VOID) SettingsRestore(__PdoGetName(Pdo),
-                                       Row->Alias,
-                                       Row->Description,
-                                       &Row->InterfaceGuid,
-                                       &Row->InterfaceLuid);
+                Alias = Row->Alias;
+                Description = Row->Description;
                 break;
             }
-
-            HasSettings = 1;
-
-            (VOID) RegistryUpdateDwordValue(SoftwareKey,
-                                            "HasSettings",
-                                             HasSettings);
         }
+
+        (VOID) SettingsRestore(__PdoGetName(Pdo),
+                               Alias,
+                               Description,
+                               &Guid,
+                               &Luid);
     }
 
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
@@ -1595,13 +1644,11 @@ PdoQueryDeviceRelations(
     if (StackLocation->Parameters.QueryDeviceRelations.Type != TargetDeviceRelation)
         goto done;
 
-    Relations = ALLOCATE_POOL(PagedPool, sizeof (DEVICE_RELATIONS), 'FIV');
+    Relations = __AllocatePoolWithTag(PagedPool, sizeof (DEVICE_RELATIONS), 'FIV');
 
     status = STATUS_NO_MEMORY;
     if (Relations == NULL)
         goto done;
-
-    RtlZeroMemory(Relations, sizeof (DEVICE_RELATIONS));
 
     Relations->Count = 1;
     ObReferenceObject(__PdoGetDeviceObject(Pdo));
@@ -1848,13 +1895,11 @@ PdoQueryDeviceText(
         goto done;
     }
 
-    Buffer = ALLOCATE_POOL(PagedPool, MAXTEXTLEN, 'FIV');
+    Buffer = __AllocatePoolWithTag(PagedPool, MAXTEXTLEN, 'FIV');
 
     status = STATUS_NO_MEMORY;
     if (Buffer == NULL)
         goto done;
-
-    RtlZeroMemory(Buffer, MAXTEXTLEN);
 
     Text.Buffer = Buffer;
     Text.MaximumLength = MAXTEXTLEN;
@@ -1983,13 +2028,11 @@ PdoQueryId(
         goto done;
     }
 
-    Buffer = ALLOCATE_POOL(PagedPool, Id.MaximumLength, 'FIV');
+    Buffer = __AllocatePoolWithTag(PagedPool, Id.MaximumLength, 'FIV');
 
     status = STATUS_NO_MEMORY;
     if (Buffer == NULL)
         goto done;
-
-    RtlZeroMemory(Buffer, Id.MaximumLength);
 
     Id.Buffer = Buffer;
     Id.Length = 0;
@@ -2129,13 +2172,11 @@ PdoQueryBusInformation(
 
     UNREFERENCED_PARAMETER(Pdo);
 
-    Info = ALLOCATE_POOL(PagedPool, sizeof (PNP_BUS_INFORMATION), 'FIV');
+    Info = __AllocatePoolWithTag(PagedPool, sizeof (PNP_BUS_INFORMATION), 'FIV');
 
     status = STATUS_NO_MEMORY;
     if (Info == NULL)
         goto done;
-
-    RtlZeroMemory(Info, sizeof (PNP_BUS_INFORMATION));
 
     Info->BusTypeGuid = GUID_BUS_TYPE_INTERNAL;
     Info->LegacyBusType = PNPBus;

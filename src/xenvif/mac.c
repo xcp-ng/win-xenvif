@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, 
@@ -715,6 +716,8 @@ __MacGetSpeed(
         Unit = "G";
     } else {
         Speed = _strtoui64(Buffer, &Unit, 10);
+        if (Speed == _UI64_MAX)
+            Speed = Mac->Speed;
         if (*Unit == '\0')
             Unit = "G";
 
@@ -999,10 +1002,8 @@ MacSetFilterLevel(
     KIRQL                       Irql;
     NTSTATUS                    status;
 
-    ASSERT(Type >= 0);
-
     status = STATUS_INVALID_PARAMETER;
-    if (Type >= ETHERNET_ADDRESS_TYPE_COUNT)
+    if ((ULONG)Type >= ETHERNET_ADDRESS_TYPE_COUNT)
         goto fail1;
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
@@ -1012,7 +1013,7 @@ MacSetFilterLevel(
     if (Level > XENVIF_MAC_FILTER_ALL || Level < XENVIF_MAC_FILTER_NONE)
         goto fail2;
 
-    Mac->FilterLevel[Type] = Level;
+    Mac->FilterLevel[(ULONG)Type] = Level;
 
     __MacReleaseLockExclusive(Mac);
     KeLowerIrql(Irql);
@@ -1041,16 +1042,14 @@ MacQueryFilterLevel(
     KIRQL                           Irql;
     NTSTATUS                        status;
 
-    ASSERT(Type >= 0);
-
     status = STATUS_INVALID_PARAMETER;
-    if (Type >= ETHERNET_ADDRESS_TYPE_COUNT)
+    if ((ULONG)Type >= ETHERNET_ADDRESS_TYPE_COUNT)
         goto fail1;
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
     __MacAcquireLockShared(Mac);
 
-    *Level = Mac->FilterLevel[Type];
+    *Level = Mac->FilterLevel[(ULONG)Type];
 
     __MacReleaseLockShared(Mac);
     KeLowerIrql(Irql);

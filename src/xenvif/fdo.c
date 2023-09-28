@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, 
@@ -1879,13 +1880,11 @@ FdoQueryDeviceRelations(
 
     Size = FIELD_OFFSET(DEVICE_RELATIONS, Objects) + (sizeof (PDEVICE_OBJECT) * __max(Count, 1));
 
-    Relations = ALLOCATE_POOL(PagedPool, Size, 'FIV');
+    Relations = __AllocatePoolWithTag(PagedPool, Size, 'FIV');
 
     status = STATUS_NO_MEMORY;
     if (Relations == NULL)
         goto fail1;
-
-    RtlZeroMemory(Relations, Size);
 
     for (ListEntry = Fdo->Dx->ListEntry.Flink;
          ListEntry != &Fdo->Dx->ListEntry;
@@ -2075,7 +2074,7 @@ FdoQueryPnpDeviceState(
         goto done;
 
     if (Fdo->NotDisableable) {
-        Info("%s: not disableable\n", __FdoGetName(Fdo));
+        Trace("%s: not disableable\n", __FdoGetName(Fdo));
         State |= PNP_DEVICE_NOT_DISABLEABLE;
     }
 
@@ -3175,8 +3174,8 @@ FdoCreate(
 fail14:
     Error("fail14\n");
 
-    RtlZeroMemory(&Fdo->UnplugInterface,
-                  sizeof (XENBUS_UNPLUG_INTERFACE));
+    RtlZeroMemory(&Fdo->GnttabInterface,
+                  sizeof (XENBUS_GNTTAB_INTERFACE));
 
 fail13:
     Error("fail13\n");

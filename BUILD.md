@@ -1,39 +1,25 @@
 Building the XenVif Package
 ===========================
 
-## Prerequisites
+First you'll need a device driver build environment for Windows 10. Happily
+Microsoft has made this easy with the introduction of the 'EWDK'. This is an
+ISO containing all the build environment you need.
 
-- [Visual Studio 2019](https://visualstudio.microsoft.com/vs/older-downloads/)
-- [Windows 10 SDK (10.0.18362.0)](https://developer.microsoft.com/fr-fr/windows/downloads/sdk-archive/)
-- [Windows Driver Kit (WDK) for Windows 10, version 1903 (10.0.18362.0)](https://learn.microsoft.com/en-us/windows-hardware/drivers/other-wdk-downloads)
-- [Spectre mitigated libraries](https://docs.microsoft.com/en-us/cpp/build/reference/spectre?view=msvc-160) (Install the latest version via Visual Studio Installer under Individual components)
+The package should support building with the following EWDKs:
 
-Note: Visual Studio 2019 and the WDK for Windows 10, version 1903 (10.0.18362.0) (and not above) are required to build the 32-bit version of the driver for Windows 8 and 10.
-For building 64 bits drivers for Windows 10, 11 and above, you will need corresponding WDK for Windows 11.
+- EWDK for Server 2022, version 22000 with Visual Studio Build Tools 16.9
+- EWDK for Windows 10, version 1903 with Visual Studio Build Tools 16.0
+- EWDK for Windows 10, version 1809 with Visual Studio Build Tools 15.8.9
 
-## Setting PowerShell Execution Policy
+Once you have downloaded the ISO, open it and you should see a file called:
 
-Before running the build script, you may need to change the PowerShell execution policy to allow the execution of unsigned scripts. You can do this by opening a PowerShell prompt as an administrator and running the following command:
+LaunchBuildEnv.cmd
 
-powershell Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+Run this and it should give you a build environment command prompt. From
+within this shell navigate to the root of your checked out repository
+and run:
 
-## Building with Visual Studio
-
-1. Open the Visual Studio 2019 Command Prompt. You can find this by searching for "Command Prompt" in the start menu, and it should be listed under Visual Studio 2019.
-
-2. Navigate to the directory where your `build.ps1` script is located using the `cd` command.
-
-3. Run the `build.ps1` script with the `powershell` command. For example: `powershell .\build.ps1`.
-
-## Building with EWDK
-
-If you cannot install Visual Studio 2019, you can use the EWDK to build the project. Follow the instructions provided by Microsoft to download and set up the EWDK.
-
-1. Open the EWDK environment.
-
-2. Navigate to the directory where your `build.ps1` script is located using the `cd` command.
-
-3. Run the `build.ps1` script with the `powershell` command. For example: `powershell .\build.ps1`.
+powershell ./build.ps1
 
 This will then prompt you for whether you want a 'free' (non-debug) or a
 'checked' (debug) build and then proceed to build all x86 and x64 drivers.
@@ -44,3 +30,14 @@ by default. However, if you set the environment variable DPINST_REDIST to
 point to a directory with x86 and x64 sub-directories containing 32- and
 64-bit dpinst.exe binaries (respectively) then these will be copied into
 the built packages, making installation more convenient.
+
+NOTE: In order to use the '-CodeQL' parameter to generate *.sarif log files,
+an additional tool and set of rules will need installing. The CodeQL engine
+can be downloaded from https://github.com/github/codeql-cli-binaries/releases
+and the driver specific rules can be cloned from
+https://github.com/microsoft/Windows-Driver-Developer-Supplemental-Tools.
+Once acquired, the rules need to be in a sibling folder of the engine (e.g.
+C:\Tools\CodeQL and C:\Tools\Windows-Driver-Developer-Supplemental-Tools) and
+the CodeQL engine (e.g. C:\Tools\CodeQL) must be added to the PATH environment
+variable. Further information available at
+https://docs.microsoft.com/en-us/windows-hardware/drivers/devtest/static-tools-and-codeql

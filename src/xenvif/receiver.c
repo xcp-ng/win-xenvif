@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, 
@@ -106,8 +107,11 @@ typedef struct _XENVIF_RECEIVER_RING {
     PLIST_ENTRY                 PacketQueue;
     KDPC                        QueueDpc;
     ULONG                       QueueDpcs;
+    PROCESSOR_NUMBER            TargetProcessor;
     LIST_ENTRY                  PacketComplete;
     XENVIF_RECEIVER_HASH        Hash;
+    BOOLEAN                     Paused;
+    BOOLEAN                     Flush;
 } XENVIF_RECEIVER_RING, *PXENVIF_RECEIVER_RING;
 
 typedef struct _XENVIF_RECEIVER_PACKET {
@@ -262,6 +266,8 @@ __ReceiverRingGetPacket(
                           &Receiver->CacheInterface,
                           Ring->PacketCache,
                           Locked);
+    if (Packet == NULL)
+        return NULL;
 
     ASSERT(IsZeroMemory(&Packet->Info, sizeof (XENVIF_PACKET_INFO)));
     ASSERT3P(Packet->Ring, ==, Ring);
@@ -1337,6 +1343,7 @@ __ReceiverRingSwizzle(
     PXENVIF_VIF_CONTEXT         Context;
     LIST_ENTRY                  List;
     PLIST_ENTRY                 ListEntry;
+    BOOLEAN                     Pause;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -1344,36 +1351,42 @@ __ReceiverRingSwizzle(
 
     InitializeListHead(&List);
 
-    ListEntry = InterlockedExchangePointer(&Ring->PacketQueue, NULL);
+    KeMemoryBarrier();
 
-    // Packets are held in the queue in reverse order so that the most
-    // recent is always head of the list. This is necessary to allow
-    // addition to the list to be done atomically.
+    // Only process the PacketQueue if the ring is not paused or it is being flushed
+    if (!Ring->Paused || Ring->Flush) {
+        ListEntry = InterlockedExchangePointer(&Ring->PacketQueue, NULL);
 
-    while (ListEntry != NULL) {
-        PLIST_ENTRY NextEntry;
+        // Packets are held in the queue in reverse order so that the most
+        // recent is always head of the list. This is necessary to allow
+        // addition to the list to be done atomically.
 
-        NextEntry = ListEntry->Blink;
-        ListEntry->Flink = ListEntry->Blink = ListEntry;
+        while (ListEntry != NULL) {
+            PLIST_ENTRY NextEntry;
 
-        InsertHeadList(&List, ListEntry);
+            NextEntry = ListEntry->Blink;
+            ListEntry->Flink = ListEntry->Blink = ListEntry;
 
-        ListEntry = NextEntry;
+            InsertHeadList(&List, ListEntry);
+
+            ListEntry = NextEntry;
+        }
+
+        while (!IsListEmpty(&List)) {
+            PXENVIF_RECEIVER_PACKET Packet;
+
+            ListEntry = RemoveHeadList(&List);
+            ASSERT3P(ListEntry, !=, &List);
+
+            RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
+
+            Packet = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_PACKET, ListEntry);
+            ReceiverRingProcessPacket(Ring, Packet);
+        }
     }
 
-    while (!IsListEmpty(&List)) {
-        PXENVIF_RECEIVER_PACKET Packet;
-
-        ListEntry = RemoveHeadList(&List);
-        ASSERT3P(ListEntry, !=, &List);
-
-        RtlZeroMemory(ListEntry, sizeof (LIST_ENTRY));
-
-        Packet = CONTAINING_RECORD(ListEntry, XENVIF_RECEIVER_PACKET, ListEntry);
-        ReceiverRingProcessPacket(Ring, Packet);
-    }
-
-    while (!IsListEmpty(&Ring->PacketComplete)) {
+    Pause = FALSE;
+    while (!IsListEmpty(&Ring->PacketComplete) && !Pause) {
         PXENVIF_RECEIVER_PACKET Packet;
         PXENVIF_PACKET_INFO     Info;
         PUCHAR                  BaseVa;
@@ -1537,7 +1550,27 @@ __ReceiverRingSwizzle(
                                &Packet->Info,
                                &Packet->Hash,
                                !IsListEmpty(&Ring->PacketComplete) ? TRUE : FALSE,
-                               Packet);
+                               Packet,
+                               &Pause);
+
+        // If we are flushing then we can't pause
+        if (Ring->Flush)
+            Pause = FALSE;
+    }
+
+    if (Pause) {
+        Ring->Paused = TRUE;
+
+        if (KeInsertQueueDpc(&Ring->QueueDpc, NULL, NULL))
+            Ring->QueueDpcs++;
+    } else {
+        BOOLEAN Paused = Ring->Paused;
+
+        Ring->Paused = FALSE;
+
+        // PollDpc is cleared before Flush is set
+        if (Paused && !Ring->Flush && KeInsertQueueDpc(&Ring->PollDpc, NULL, NULL))
+            Ring->PollDpcs++;
     }
 }
 
@@ -1757,11 +1790,11 @@ __ReceiverRingPreparePacket(
 fail2:
     Error("fail2\n");
 
+    __ReceiverRingPutFragment(Ring, Fragment);
+
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    __ReceiverRingPutFragment(Ring, Fragment);
-    
     return NULL;
 }
 
@@ -1989,7 +2022,7 @@ ReceiverRingPoll(
 
     Count = 0;
 
-    if (!Ring->Enabled)
+    if (!Ring->Enabled || Ring->Paused)
         goto done;
 
     for (;;) {
@@ -2498,6 +2531,9 @@ __ReceiverRingInitialize(
 
     KeInitializeThreadedDpc(&(*Ring)->QueueDpc, ReceiverRingQueueDpc, *Ring);
 
+    status = KeGetProcessorNumberFromIndex((*Ring)->Index, &(*Ring)->TargetProcessor);
+    ASSERT(NT_SUCCESS(status));
+
     return STATUS_SUCCESS;
 
 fail7:
@@ -2550,6 +2586,29 @@ fail1:
     return status;
 }
 
+static FORCEINLINE VOID
+__ReceiverRingSetAffinity(
+    IN  PXENVIF_RECEIVER_RING   Ring,
+    IN  PPROCESSOR_NUMBER       Processor
+    )
+{
+    PXENVIF_RECEIVER            Receiver;
+    PXENVIF_FRONTEND            Frontend;
+
+    Receiver = Ring->Receiver;
+    Frontend = Receiver->Frontend;
+
+    __ReceiverRingAcquireLock(Ring);
+
+    Ring->TargetProcessor = *Processor;
+
+    /* Don't rebind event channel at this point */
+    KeSetTargetProcessorDpcEx(&Ring->PollDpc, &Ring->TargetProcessor);
+    KeSetTargetProcessorDpcEx(&Ring->QueueDpc, &Ring->TargetProcessor);
+
+    __ReceiverRingReleaseLock(Ring);
+}
+
 static FORCEINLINE NTSTATUS
 __ReceiverRingConnect(
     IN  PXENVIF_RECEIVER_RING   Ring
@@ -2560,7 +2619,6 @@ __ReceiverRingConnect(
     PFN_NUMBER                  Pfn;
     CHAR                        Name[MAXNAMELEN];
     ULONG                       Index;
-    PROCESSOR_NUMBER            ProcNumber;
     NTSTATUS                    status;
 
     Receiver = Ring->Receiver;
@@ -2580,6 +2638,7 @@ __ReceiverRingConnect(
     status = XENBUS_GNTTAB(CreateCache,
                            &Receiver->GnttabInterface,
                            Name,
+                           0,
                            0,
                            ReceiverRingAcquireLock,
                            ReceiverRingReleaseLock,
@@ -2636,16 +2695,17 @@ __ReceiverRingConnect(
     if (Ring->Channel == NULL)
         goto fail6;
 
-    status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
-    ASSERT(NT_SUCCESS(status));
+    status = XENBUS_EVTCHN(Bind,
+                           &Receiver->EvtchnInterface,
+                           Ring->Channel,
+                           Ring->TargetProcessor.Group,
+                           Ring->TargetProcessor.Number);
+    if (!NT_SUCCESS(status))
+        /* Ring affinity not yet changed from initial CPU number, so just warn */
+        Warning("Could not set initial receiver ring affinity: 0x%x for ring %u\n", status, Ring->Index);
 
-    KeSetTargetProcessorDpcEx(&Ring->PollDpc, &ProcNumber);
-
-    (VOID) XENBUS_EVTCHN(Bind,
-                         &Receiver->EvtchnInterface,
-                         Ring->Channel,
-                         ProcNumber.Group,
-                         ProcNumber.Number);
+    KeSetTargetProcessorDpcEx(&Ring->PollDpc, &Ring->TargetProcessor);
+    KeSetTargetProcessorDpcEx(&Ring->QueueDpc, &Ring->TargetProcessor);
 
     (VOID) XENBUS_EVTCHN(Unmask,
                          &Receiver->EvtchnInterface,
@@ -2663,11 +2723,6 @@ __ReceiverRingConnect(
                           &Ring->DebugCallback);
     if (!NT_SUCCESS(status))
         goto fail7;
-
-    status = KeGetProcessorNumberFromIndex(Ring->Index, &ProcNumber);
-    ASSERT(NT_SUCCESS(status));
-
-    KeSetTargetProcessorDpcEx(&Ring->QueueDpc, &ProcNumber);
 
     return STATUS_SUCCESS;
 
@@ -2886,6 +2941,14 @@ __ReceiverRingDisconnect(
     ASSERT3U(Ring->ResponsesProcessed, ==, Ring->RequestsPushed);
     ASSERT3U(Ring->RequestsPushed, ==, Ring->RequestsPosted);
 
+    // The above assertions will have no effect in free builds so
+    // trigger some logging instead.
+    if ((Ring->ResponsesProcessed != Ring->RequestsPushed) ||
+        (Ring->RequestsPushed != Ring->RequestsPosted))
+        XENBUS_DEBUG(Trigger,
+                     &Receiver->DebugInterface,
+                     Ring->DebugCallback);
+
     Ring->ResponsesProcessed = 0;
     Ring->RequestsPushed = 0;
     Ring->RequestsPosted = 0;
@@ -2932,7 +2995,15 @@ __ReceiverRingTeardown(
     Ring->BackfillSize = 0;
     Ring->OffloadOptions.Value = 0;
 
+    RtlZeroMemory(&Ring->TargetProcessor, sizeof (PROCESSOR_NUMBER));
+
+    Ring->Flush = TRUE;
+    KeMemoryBarrier();
+
+    KeInsertQueueDpc(&Ring->QueueDpc, NULL, NULL);
     KeFlushQueuedDpcs();
+    Ring->Flush = FALSE;
+
     RtlZeroMemory(&Ring->QueueDpc, sizeof (KDPC));
 
     ThreadAlert(Ring->WatchdogThread);
@@ -3908,6 +3979,49 @@ fail1:
     return status;
 }
 
+static FORCEINLINE NTSTATUS
+__ReceiverSetQueueAffinities(
+    IN  PXENVIF_RECEIVER    Receiver,
+    IN  PPROCESSOR_NUMBER   QueueAffinities,
+    IN  ULONG               Count
+    )
+{
+    PXENVIF_FRONTEND        Frontend;
+    ULONG                   Index;
+    NTSTATUS                status;
+    KIRQL                   Irql;
+
+    Frontend = Receiver->Frontend;
+
+    status = STATUS_INVALID_PARAMETER;
+
+    if (QueueAffinities == NULL)
+        goto fail1;
+
+    if (Count > FrontendGetNumQueues(Frontend))
+        goto fail2;
+
+    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+
+    for (Index = 0; Index < Count; Index++) {
+        PXENVIF_RECEIVER_RING   Ring = Receiver->Ring[Index];
+
+        __ReceiverRingSetAffinity(Ring, &QueueAffinities[Index]);
+    }
+
+    KeLowerIrql(Irql);
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
 NTSTATUS
 ReceiverUpdateHashMapping(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3917,7 +4031,10 @@ ReceiverUpdateHashMapping(
 {
     PXENVIF_FRONTEND        Frontend;
     PULONG                  QueueMapping;
+    PPROCESSOR_NUMBER       QueueAffinities;
     ULONG                   NumQueues;
+    ULONG                   QueuesDetermined;
+    ULONG                   QueueIndex;
     ULONG                   Index;
     NTSTATUS                status;
 
@@ -3930,25 +4047,60 @@ ReceiverUpdateHashMapping(
         goto fail1;
 
     NumQueues = FrontendGetNumQueues(Frontend);
+    QueuesDetermined = 0;
+
+    QueueAffinities = __ReceiverAllocate(sizeof(PROCESSOR_NUMBER) * NumQueues);
+    if (QueueAffinities == NULL)
+        goto fail2;
 
     status = STATUS_INVALID_PARAMETER;
+    /* N^2-ish, but performed infrequently */
     for (Index = 0; Index < Size; Index++) {
-        QueueMapping[Index] = KeGetProcessorIndexFromNumber(&ProcessorMapping[Index]);
+        BOOLEAN MapEntryDone = FALSE;
 
-        if (QueueMapping[Index] >= NumQueues)
-            goto fail2;
+        /* Does the existing queue meet the affinity requirement for the mapping? */
+        for (QueueIndex = 0; QueueIndex < QueuesDetermined; QueueIndex++) {
+            if ((QueueAffinities[QueueIndex].Group == ProcessorMapping[Index].Group) &&
+                (QueueAffinities[QueueIndex].Number == ProcessorMapping[Index].Number)) {
+                QueueMapping[Index] = QueueIndex;
+                MapEntryDone = TRUE;
+            }
+        }
+        if (!MapEntryDone) {
+            /* New queue "allocation", with new affinity, if possible */
+            if (QueuesDetermined >= NumQueues)
+                goto fail3;
+
+            QueueIndex = QueuesDetermined;
+            QueueAffinities[QueueIndex] = ProcessorMapping[Index];
+            QueueMapping[Index] = QueueIndex;
+            QueuesDetermined++;
+        }
     }
 
     status = FrontendSetHashMapping(Frontend, QueueMapping, Size);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
+
+    status = __ReceiverSetQueueAffinities(Receiver, QueueAffinities, QueuesDetermined);
+    if (!NT_SUCCESS(status))
+        goto fail5;
 
     __ReceiverFree(QueueMapping);
+    __ReceiverFree(QueueAffinities);
 
     return STATUS_SUCCESS;
 
+fail5:
+    Error("fail5\n");
+
+fail4:
+    Error("fail4\n");
+
 fail3:
     Error("fail3\n");
+
+    __ReceiverFree(QueueAffinities);
 
 fail2:
     Error("fail2\n");

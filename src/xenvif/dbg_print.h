@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, 
@@ -35,11 +36,11 @@
 #include <ntddk.h>
 #include <stdarg.h>
 
-#pragma warning(disable:4127)   // conditional expression is constant
-
 #define stringify_literal(_text) #_text
 #define stringify(_text) stringify_literal(_text)
 #define __MODULE__ stringify(PROJECT)
+
+#pragma warning(disable:4127)   // conditional expression is constant
 
 static __inline VOID
 __Error(
@@ -88,6 +89,7 @@ __Warning(
         __Warning(__MODULE__ "|" __FUNCTION__ ": ", __VA_ARGS__)
 
 #if DBG
+
 static __inline VOID
 __Trace(
     IN  const CHAR  *Prefix,
@@ -107,7 +109,9 @@ __Trace(
                           Arguments);
     va_end(Arguments);
 }
+
 #else   // DBG
+
 static __inline VOID
 __Trace(
     IN  const CHAR  *Prefix,
@@ -118,6 +122,7 @@ __Trace(
     UNREFERENCED_PARAMETER(Prefix);
     UNREFERENCED_PARAMETER(Format);
 }
+
 #endif  // DBG
 
 #define Trace(...)  \

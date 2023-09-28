@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, 
@@ -85,7 +86,7 @@ typedef VOID
     );
 
 // {73db6517-3d06-4937-989f-199b7501e229}
-DEFINE_GUID(GUID_XENBUS_UNPLUG_INTERFACE, 
+DEFINE_GUID(GUID_XENBUS_UNPLUG_INTERFACE,
 0x73db6517, 0x3d06, 0x4937, 0x98, 0x9f, 0x19, 0x9b, 0x75, 0x01, 0xe2, 0x29);
 
 /*! \struct _XENBUS_UNPLUG_INTERFACE_V1
@@ -113,4 +114,3 @@ typedef struct _XENBUS_UNPLUG_INTERFACE_V1 XENBUS_UNPLUG_INTERFACE, *PXENBUS_UNP
 #define XENBUS_UNPLUG_INTERFACE_VERSION_MAX  1
 
 #endif  // _XENBUS_UNPLUG_INTERFACE_H
-
