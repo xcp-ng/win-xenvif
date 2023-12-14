@@ -95,8 +95,6 @@ struct _XENVIF_PDO {
 
     PXENVIF_VIF_CONTEXT         VifContext;
     XENVIF_VIF_INTERFACE        VifInterface;
-
-    BOOLEAN                     HasAlias;
 };
 
 static FORCEINLINE PVOID
@@ -1272,64 +1270,34 @@ PdoUnplugRequested(
     return State;
 }
 
-static DECLSPEC_NOINLINE NTSTATUS
-PdoStartDevice(
+static FORCEINLINE NTSTATUS
+PdoParseMibTable(
     IN  PXENVIF_PDO     Pdo,
-    IN  PIRP            Irp
+    IN  HANDLE          SoftwareKey
     )
 {
     NTSTATUS            (*__GetIfTable2)(PMIB_IF_TABLE2 *);
     VOID                (*__FreeMibTable)(PVOID);
     PMIB_IF_TABLE2      Table;
     ULONG               Index;
-    PIO_STACK_LOCATION  StackLocation;
-    HANDLE              SoftwareKey;
-    HANDLE              HardwareKey;
     GUID                Guid;
     NTSTATUS            status;
-
-    status = STATUS_UNSUCCESSFUL;
-    if (Pdo->HasAlias)
-        goto fail1;
-
-    if (DriverSafeMode())
-        goto fail2;
-
-    status = RegistryOpenSoftwareKey(__PdoGetDeviceObject(Pdo),
-                                     KEY_READ,
-                                     &SoftwareKey);
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
-    status = RegistryOpenHardwareKey(__PdoGetDeviceObject(Pdo),
-                                     KEY_ALL_ACCESS,
-                                     &HardwareKey);
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
-    (VOID) PdoSetFriendlyName(Pdo,
-                              SoftwareKey,
-                              HardwareKey);
-
-    status = __PdoSetCurrentAddress(Pdo, SoftwareKey);
-    if (!NT_SUCCESS(status))
-        goto fail5;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "GetIfTable2",
                                    (PVOID *)&__GetIfTable2);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail1;
 
     status = LinkGetRoutineAddress("netio.sys",
                                    "FreeMibTable",
                                    (PVOID *)&__FreeMibTable);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail2;
 
     status = __GetIfTable2(&Table);
     if (!NT_SUCCESS(status))
-        goto fail8;
+        goto fail3;
 
     //
     // Look for a network interface with the same permanent address
@@ -1364,16 +1332,8 @@ PdoStartDevice(
                             &Row->InterfaceGuid,
                             &Row->InterfaceLuid);
 
-        Pdo->HasAlias = TRUE;
-        break;
-    }
-
-    if (Pdo->HasAlias || !PdoUnplugRequested(Pdo)) {
-        PdoUnplugRequest(Pdo, TRUE);
-        DriverRequestReboot();
-
         status = STATUS_PNP_REBOOT_REQUIRED;
-        goto fail9;
+        goto fail4;
     }
 
     //
@@ -1416,11 +1376,76 @@ PdoStartDevice(
                                &Luid);
     }
 
+    __FreeMibTable(Table);
+
+    return STATUS_SUCCESS;
+
+fail4:
+    Error("fail4\n");
+
+    __FreeMibTable(Table);
+
+fail3:
+    Error("fail3\n");
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+static DECLSPEC_NOINLINE NTSTATUS
+PdoStartDevice(
+    IN  PXENVIF_PDO     Pdo,
+    IN  PIRP            Irp
+    )
+{
+    PIO_STACK_LOCATION  StackLocation;
+    HANDLE              SoftwareKey;
+    HANDLE              HardwareKey;
+    NTSTATUS            status;
+
+    status = STATUS_UNSUCCESSFUL;
+    if (DriverSafeMode())
+        goto fail1;
+
+    status = RegistryOpenSoftwareKey(__PdoGetDeviceObject(Pdo),
+                                     KEY_READ,
+                                     &SoftwareKey);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    status = RegistryOpenHardwareKey(__PdoGetDeviceObject(Pdo),
+                                     KEY_ALL_ACCESS,
+                                     &HardwareKey);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    (VOID) PdoSetFriendlyName(Pdo,
+                              SoftwareKey,
+                              HardwareKey);
+
+    status = __PdoSetCurrentAddress(Pdo, SoftwareKey);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
+    status = PdoParseMibTable(Pdo, SoftwareKey);
+    if (status == STATUS_PNP_REBOOT_REQUIRED || !PdoUnplugRequested(Pdo)) {
+        PdoUnplugRequest(Pdo, TRUE);
+        DriverRequestReboot();
+
+        status = STATUS_PNP_REBOOT_REQUIRED;
+        goto fail5;
+    }
+
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
 
     status = PdoD3ToD0(Pdo);
     if (!NT_SUCCESS(status))
-        goto fail10;
+        goto fail6;
 
     PdoUnplugRequest(Pdo, TRUE);
 
@@ -1429,44 +1454,28 @@ PdoStartDevice(
     Irp->IoStatus.Status = STATUS_SUCCESS;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
 
-    __FreeMibTable(Table);
-
     RegistryCloseKey(HardwareKey);
     RegistryCloseKey(SoftwareKey);
 
     return STATUS_SUCCESS;
 
-fail10:
-    Error("fail10\n");
-
-fail9:
-    Error("fail9\n");
-
-    __FreeMibTable(Table);
-
-fail8:
-    Error("fail8\n");
-
-fail7:
-    Error("fail7\n");
-
 fail6:
     Error("fail6\n");
-
-    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
 
 fail5:
     Error("fail5\n");
 
-    RegistryCloseKey(HardwareKey);
+    RtlZeroMemory(&Pdo->CurrentAddress, sizeof (ETHERNET_ADDRESS));
 
 fail4:
     Error("fail4\n");
 
-    RegistryCloseKey(SoftwareKey);
+    RegistryCloseKey(HardwareKey);
 
 fail3:
     Error("fail3\n");
+
+    RegistryCloseKey(SoftwareKey);
 
 fail2:
     Error("fail2\n");
@@ -2892,7 +2901,6 @@ PdoDestroy(
     PXENVIF_FDO     Fdo = __PdoGetFdo(Pdo);
 
     Pdo->UnplugRequested = FALSE;
-    Pdo->HasAlias = FALSE;
 
     ASSERT3U(__PdoGetDevicePnpState(Pdo), ==, Deleted);
 
