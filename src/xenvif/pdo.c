@@ -1296,7 +1296,7 @@ PdoStartDevice(
         goto fail2;
 
     status = RegistryOpenSoftwareKey(__PdoGetDeviceObject(Pdo),
-                                     KEY_ALL_ACCESS,
+                                     KEY_READ,
                                      &SoftwareKey);
     if (!NT_SUCCESS(status))
         goto fail3;
@@ -1370,11 +1370,11 @@ PdoStartDevice(
 
     if (Pdo->HasAlias || !PdoUnplugRequested(Pdo)) {
         PdoUnplugRequest(Pdo, TRUE);
+        DriverRequestReboot();
 
         status = STATUS_PNP_REBOOT_REQUIRED;
         goto fail9;
     }
-
 
     //
     // If there is a stack bound then restore any settings that
@@ -1431,6 +1431,7 @@ PdoStartDevice(
 
     __FreeMibTable(Table);
 
+    RegistryCloseKey(HardwareKey);
     RegistryCloseKey(SoftwareKey);
 
     return STATUS_SUCCESS;
@@ -1438,14 +1439,9 @@ PdoStartDevice(
 fail10:
     Error("fail10\n");
 
-    __FreeMibTable(Table);
-
-    goto fail6;
-
 fail9:
     Error("fail9\n");
 
-    DriverRequestReboot();
     __FreeMibTable(Table);
 
 fail8:
