@@ -540,10 +540,11 @@ typedef struct _XENVIF_PDO_REVISION {
     ULONG   VifInterfaceVersion;
     ULONG   StoreInterfaceVersion;
     ULONG   SuspendInterfaceVersion;
+    ULONG   UnplugInterfaceVersion;
 } XENVIF_PDO_REVISION, *PXENVIF_PDO_REVISION;
 
-#define DEFINE_REVISION(_N, _C, _V, _ST, _SU) \
-    { (_N), (_C), (_V), (_ST), (_SU) }
+#define DEFINE_REVISION(_N, _C, _V, _ST, _SU, _U) \
+    { (_N), (_C), (_V), (_ST), (_SU), (_U) }
 
 static XENVIF_PDO_REVISION PdoRevision[] = {
     DEFINE_REVISION_TABLE
@@ -573,30 +574,33 @@ PdoDumpRevisions(
         ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
                      Revision->VifInterfaceVersion == XENVIF_VIF_INTERFACE_VERSION_MAX));
 
-        if (Revision->StoreInterfaceVersion != 0) {
-            ASSERT3U(Revision->StoreInterfaceVersion, >=, XENBUS_STORE_INTERFACE_VERSION_MIN);
-            ASSERT3U(Revision->StoreInterfaceVersion, <=, XENBUS_STORE_INTERFACE_VERSION_MAX);
-            ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
-                         Revision->StoreInterfaceVersion == XENBUS_STORE_INTERFACE_VERSION_MAX));
-        }
+        ASSERT3U(Revision->StoreInterfaceVersion, >=, XENBUS_STORE_INTERFACE_VERSION_MIN);
+        ASSERT3U(Revision->StoreInterfaceVersion, <=, XENBUS_STORE_INTERFACE_VERSION_MAX);
+        ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
+                     Revision->StoreInterfaceVersion == XENBUS_STORE_INTERFACE_VERSION_MAX));
 
-        if (Revision->SuspendInterfaceVersion != 0) {
-            ASSERT3U(Revision->SuspendInterfaceVersion, >=, XENBUS_SUSPEND_INTERFACE_VERSION_MIN);
-            ASSERT3U(Revision->SuspendInterfaceVersion, <=, XENBUS_SUSPEND_INTERFACE_VERSION_MAX);
-            ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
-                         Revision->SuspendInterfaceVersion == XENBUS_SUSPEND_INTERFACE_VERSION_MAX));
-        }
+        ASSERT3U(Revision->SuspendInterfaceVersion, >=, XENBUS_SUSPEND_INTERFACE_VERSION_MIN);
+        ASSERT3U(Revision->SuspendInterfaceVersion, <=, XENBUS_SUSPEND_INTERFACE_VERSION_MAX);
+        ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
+                     Revision->SuspendInterfaceVersion == XENBUS_SUSPEND_INTERFACE_VERSION_MAX));
+
+        ASSERT3U(Revision->UnplugInterfaceVersion, >=, XENBUS_UNPLUG_INTERFACE_VERSION_MIN);
+        ASSERT3U(Revision->UnplugInterfaceVersion, <=, XENBUS_UNPLUG_INTERFACE_VERSION_MAX);
+        ASSERT(IMPLY(Index == ARRAYSIZE(PdoRevision) - 1,
+                     Revision->UnplugInterfaceVersion == XENBUS_UNPLUG_INTERFACE_VERSION_MAX));
 
         Info("%08X -> "
              "CACHE v%u "
              "VIF v%u "
              "STORE v%u "
-             "SUSPEND v%u\n",
+             "SUSPEND v%u"
+             "UNPLUG v%u\n",
              Revision->Number,
              Revision->CacheInterfaceVersion,
              Revision->VifInterfaceVersion,
              Revision->StoreInterfaceVersion,
-             Revision->SuspendInterfaceVersion);
+             Revision->SuspendInterfaceVersion,
+             Revision->UnplugInterfaceVersion);
     }
 }
 
