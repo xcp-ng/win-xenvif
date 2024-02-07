@@ -3933,6 +3933,7 @@ __TransmitterRingDisable(
     PCHAR                           Buffer;
     XenbusState                     State;
     ULONG                           Attempt;
+    BOOLEAN                         WaitForBackend;
     NTSTATUS                        status;
 
     Transmitter = Ring->Transmitter;
@@ -3985,6 +3986,13 @@ __TransmitterRingDisable(
                      Buffer);
     }
 
+    //
+    // If the we are disabling during an eject then the backend will still be
+    // be there, but it will be in XenbusStateClosing state, not
+    // XenbusStateConnected.
+    //
+    WaitForBackend = (State == XenbusStateConnected) || (State == XenbusStateClosing);
+
     Attempt = 0;
     ASSERT3U(Ring->RequestsPushed, ==, Ring->RequestsPosted);
     while (Ring->ResponsesProcessed != Ring->RequestsPushed) {
@@ -3996,7 +4004,7 @@ __TransmitterRingDisable(
         __TransmitterRingSend(Ring);
         (VOID) TransmitterRingPoll(Ring);
 
-        if ((Attempt >= 100) || (State != XenbusStateConnected))
+        if ((Attempt >= 100) || !WaitForBackend)
             break;
 
         // We are waiting for a watch event at DISPATCH_LEVEL so
