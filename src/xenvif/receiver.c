@@ -469,10 +469,6 @@ ReceiverRingProcessTag(
 
     Info->Length -= sizeof (ETHERNET_TAG);
 
-    BaseVa += Packet->Offset;
-
-    EthernetHeader = (PETHERNET_HEADER)(BaseVa + Info->EthernetHeader.Offset);
-
     ASSERT3U(PayloadLength, ==, Packet->Length - Info->Length);
 }
 
