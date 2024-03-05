@@ -442,10 +442,11 @@ ReceiverRingProcessTag(
                   Offset);
 
     // Fix up the packet information
-    BaseVa += sizeof (ETHERNET_TAG);
+    Packet->Mdl.MappedSystemVa = (PUCHAR)Packet->Mdl.MappedSystemVa + sizeof(ETHERNET_TAG);
+    Packet->Mdl.ByteOffset += sizeof(ETHERNET_TAG);
+    Packet->Mdl.ByteCount -= sizeof(ETHERNET_TAG);
 
-    BaseVa -= Packet->Offset;
-    Packet->Mdl.MappedSystemVa = BaseVa;
+    ASSERT3P((PUCHAR)Packet->Mdl.StartVa + Packet->Mdl.ByteOffset, ==, Packet->Mdl.MappedSystemVa);
 
     Packet->Length -= sizeof (ETHERNET_TAG);
 
