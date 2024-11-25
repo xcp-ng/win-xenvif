@@ -1911,9 +1911,12 @@ __FrontendUpdateHash(
     }
 
     status = ControllerSetHashAlgorithm(Controller,
-                                        XEN_NETIF_CTRL_HASH_ALGORITHM_TOEPLITZ);
+                                        Hash->Algorithm);
     if (!NT_SUCCESS(status))
         goto fail1;
+
+    if (Hash->Algorithm == XEN_NETIF_CTRL_HASH_ALGORITHM_NONE)
+        goto done;
 
     status = ControllerSetHashMappingSize(Controller, Size);
     if (!NT_SUCCESS(status))
