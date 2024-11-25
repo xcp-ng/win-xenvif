@@ -64,7 +64,7 @@ InitializeMrswLock(
 
     RtlZeroMemory(Lock, sizeof (XENVIF_MRSW_LOCK));
 
-    for (Slot = 0; Slot < sizeof (Lock->Mask) * 8; Slot++)
+    for (Slot = 0; Slot < (LONG) sizeof (Lock->Mask) * 8; Slot++)
         Lock->Holder[Slot].Level = -1;
 
     KeInitializeEvent(&Lock->Event, NotificationEvent, FALSE);
@@ -103,7 +103,7 @@ __AcquireMrswLockExclusive(
     Self = KeGetCurrentThread();
 
     // Make sure we do not already hold the lock
-    for (Slot = 0; Slot < sizeof (Lock->Mask) * 8; Slot++)
+    for (Slot = 0; Slot < (LONG) sizeof (Lock->Mask) * 8; Slot++)
         ASSERT(Lock->Holder[Slot].Thread != Self);
 
     for (;;) {
@@ -218,7 +218,7 @@ AcquireMrswLockShared(
 
     // Do we already hold the lock? If so, get the nesting level
     Level = -1;
-    for (Slot = 0; Slot < sizeof (Lock->Mask) * 8; Slot++) {
+    for (Slot = 0; Slot < (LONG) sizeof (Lock->Mask) * 8; Slot++) {
         if (Lock->Holder[Slot].Thread == Self && Lock->Holder[Slot].Level > Level)
             Level = Lock->Holder[Slot].Level;
     }
@@ -261,7 +261,7 @@ ReleaseMrswLockShared(
 
     Level = -1;
     Deepest = -1;
-    for (Slot = 0; Slot < sizeof (Lock->Mask) * 8; Slot++) {
+    for (Slot = 0; Slot < (LONG) sizeof (Lock->Mask) * 8; Slot++) {
         if (Lock->Holder[Slot].Thread == Self && Lock->Holder[Slot].Level > Level) {
             Level = Lock->Holder[Slot].Level;
             Deepest = Slot;
