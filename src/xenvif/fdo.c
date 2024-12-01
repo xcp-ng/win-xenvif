@@ -758,18 +758,20 @@ __FdoEnumerate(
             Name = PdoGetName(Pdo);
             Missing = TRUE;
 
-            // If the PDO already exists and its name is in the device list
-            // then we don't want to remove it.
-            for (Index = 0; Devices[Index].Buffer != NULL; Index++) {
-                PANSI_STRING Device = &Devices[Index];
+            if (Devices != NULL) {
+                // If the PDO already exists and its name is in the device list
+                // then we don't want to remove it.
+                for (Index = 0; Devices[Index].Buffer != NULL; Index++) {
+                    PANSI_STRING Device = &Devices[Index];
 
-                if (Device->Length == 0)
-                    continue;
+                    if (Device->Length == 0)
+                        continue;
 
-                if (strcmp(Name, Device->Buffer) == 0) {
-                    Missing = FALSE;
-                    Device->Length = 0;  // avoid duplication
-                    break;
+                    if (strcmp(Name, Device->Buffer) == 0) {
+                        Missing = FALSE;
+                        Device->Length = 0;  // avoid duplication
+                        break;
+                    }
                 }
             }
 
@@ -797,40 +799,42 @@ __FdoEnumerate(
     }
 
     // Walk the class list and create PDOs for any new device
-    for (Index = 0; Devices[Index].Buffer != NULL; Index++) {
-        PANSI_STRING Device = &Devices[Index];
+    if (Devices != NULL) {
+        for (Index = 0; Devices[Index].Buffer != NULL; Index++) {
+            PANSI_STRING Device = &Devices[Index];
 
-        if (Device->Length != 0) {
-            ULONG   Number;
-            CHAR    Prefix[sizeof ("device/vif/XXXXXXXXXX")];
-            PCHAR   Address;
+            if (Device->Length != 0) {
+                ULONG   Number;
+                CHAR    Prefix[sizeof ("device/vif/XXXXXXXXXX")];
+                PCHAR   Address;
 
-            Number = strtol(Device->Buffer, NULL, 10);
+                Number = strtol(Device->Buffer, NULL, 10);
 
-            status = RtlStringCbPrintfA(Prefix,
-                                        sizeof (Prefix),
-                                        "device/vif/%u",
-                                        Number);
-            ASSERT(NT_SUCCESS(status));
-            if (!NT_SUCCESS(status))
-                continue;
+                status = RtlStringCbPrintfA(Prefix,
+                                            sizeof (Prefix),
+                                            "device/vif/%u",
+                                            Number);
+                ASSERT(NT_SUCCESS(status));
+                if (!NT_SUCCESS(status))
+                    continue;
 
-            status = XENBUS_STORE(Read,
-                                  &Fdo->StoreInterface,
-                                  NULL,
-                                  Prefix,
-                                  "mac",
-                                  &Address);
-            if (!NT_SUCCESS(status))
-                continue;
+                status = XENBUS_STORE(Read,
+                                      &Fdo->StoreInterface,
+                                      NULL,
+                                      Prefix,
+                                      "mac",
+                                      &Address);
+                if (!NT_SUCCESS(status))
+                    continue;
 
-            status = PdoCreate(Fdo, Number, Address);
-            if (NT_SUCCESS(status))
-                NeedInvalidate = TRUE;
+                status = PdoCreate(Fdo, Number, Address);
+                if (NT_SUCCESS(status))
+                    NeedInvalidate = TRUE;
 
-            XENBUS_STORE(Free,
-                         &Fdo->StoreInterface,
-                         Address);
+                XENBUS_STORE(Free,
+                            &Fdo->StoreInterface,
+                            Address);
+            }
         }
     }
 
@@ -979,7 +983,7 @@ FdoScan(
         }
 
         if (Devices == NULL)
-            goto loop;
+            goto invalidate;
 
         if (ParametersKey != NULL) {
             status = RegistryQuerySzValue(ParametersKey,
@@ -1019,9 +1023,11 @@ FdoScan(
         if (UnsupportedDevices != NULL)
             RegistryFreeSzValue(UnsupportedDevices);
 
+invalidate:
         NeedInvalidate = __FdoEnumerate(Fdo, Devices);
 
-        __FdoFreeAnsi(Devices);
+        if (Devices != NULL)
+            __FdoFreeAnsi(Devices);
 
         if (NeedInvalidate) {
             NeedInvalidate = FALSE;
@@ -1029,7 +1035,6 @@ FdoScan(
                                         BusRelations);
         }
 
-loop:
         KeSetEvent(&Fdo->ScanEvent, IO_NO_INCREMENT, FALSE);
     }
 
