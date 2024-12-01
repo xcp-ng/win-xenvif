@@ -982,8 +982,12 @@ FdoScan(
             Devices = NULL;
         }
 
-        if (Devices == NULL)
-            goto invalidate;
+        if (Devices == NULL) {
+            if (status == STATUS_OBJECT_PATH_NOT_FOUND)
+                goto invalidate;
+            else
+                goto loop;
+        }
 
         if (ParametersKey != NULL) {
             status = RegistryQuerySzValue(ParametersKey,
@@ -1035,6 +1039,7 @@ invalidate:
                                         BusRelations);
         }
 
+loop:
         KeSetEvent(&Fdo->ScanEvent, IO_NO_INCREMENT, FALSE);
     }
 
