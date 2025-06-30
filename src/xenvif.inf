@@ -56,9 +56,9 @@ xenvif.sys=0,,
 ; DisplayName		Section		DeviceID
 ; -----------		-------		--------
 
-%XenVifName%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@@VENDOR_DEVICE_ID@&DEV_VIF&REV_0900000A
-%XenVifName%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@0001&DEV_VIF&REV_0900000A
-%XenVifName%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@0002&DEV_VIF&REV_0900000A
+%XenVifName%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@@VENDOR_DEVICE_ID@&DEV_VIF&REV_0900000B
+%XenVifName%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@0001&DEV_VIF&REV_0900000B
+%XenVifName%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@0002&DEV_VIF&REV_0900000B
 
 [XenVif_Inst] 
 CopyFiles=XenVif_Copyfiles
@@ -83,7 +83,6 @@ HKR,,"BootFlags",0x00010003,0x81
 
 [XenVif_Parameters]
 HKR,"Parameters",,0x00000010
-HKR,"Parameters","RequestKey",0x00000000,%RequestKey%
 HKR,"Parameters","FrontendMaxQueues",0x00010001,0x00000008
 
 [XenVif_Unplug]
@@ -94,7 +93,6 @@ HKLM,%UnplugKey%,"NICS",0x00010001,0
 Vendor="@VENDOR_NAME@"
 DiskDesc="@PRODUCT_NAME@ PV Network Class Package"
 XenVifName="@PRODUCT_NAME@ PV Network Class"
-RequestKey="SYSTEM\CurrentControlSet\Services\xenbus_monitor\Request"
 UnplugKey="SYSTEM\CurrentControlSet\Services\XEN\Unplug"
 
 SERVICE_BOOT_START=0x0 
