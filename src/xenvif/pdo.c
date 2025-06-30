@@ -1253,6 +1253,24 @@ PdoUnplugRequest(
     XENBUS_UNPLUG(Release, &Pdo->UnplugInterface);
 }
 
+static VOID
+PdoRequestReboot(
+    IN  PXENVIF_PDO Pdo
+    )
+{
+    NTSTATUS        status;
+
+    status = XENBUS_UNPLUG(Acquire, &Pdo->UnplugInterface);
+    if (!NT_SUCCESS(status))
+        return;
+
+    XENBUS_UNPLUG(Reboot,
+                  &Pdo->UnplugInterface,
+                  __MODULE__);
+
+    XENBUS_UNPLUG(Release, &Pdo->UnplugInterface);
+}
+
 static BOOLEAN
 PdoUnplugRequested(
     IN  PXENVIF_PDO Pdo
@@ -1439,7 +1457,7 @@ PdoStartDevice(
     status = PdoParseMibTable(Pdo, SoftwareKey);
     if (status == STATUS_PNP_REBOOT_REQUIRED || !PdoUnplugRequested(Pdo)) {
         PdoUnplugRequest(Pdo, TRUE);
-        DriverRequestReboot();
+        PdoRequestReboot(Pdo);
 
         status = STATUS_PNP_REBOOT_REQUIRED;
         goto fail5;

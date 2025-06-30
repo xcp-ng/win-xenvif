@@ -49,7 +49,6 @@ typedef struct _XENVIF_DRIVER {
     HANDLE              ParametersKey;
     HANDLE              AddressesKey;
     HANDLE              SettingsKey;
-    BOOLEAN             NeedReboot;
 } XENVIF_DRIVER, *PXENVIF_DRIVER;
 
 static XENVIF_DRIVER    Driver;
@@ -168,96 +167,6 @@ DriverGetSettingsKey(
     return __DriverGetSettingsKey();
 }
 
-#define MAXNAMELEN  256
-
-static FORCEINLINE VOID
-__DriverRequestReboot(
-    VOID
-    )
-{
-    PANSI_STRING    Ansi;
-    CHAR            RequestKeyName[MAXNAMELEN];
-    HANDLE          RequestKey;
-    HANDLE          SubKey;
-    NTSTATUS        status;
-
-    Info("====>\n");
-
-    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
-
-    status = RegistryQuerySzValue(__DriverGetParametersKey(),
-                                  "RequestKey",
-                                  NULL,
-                                  &Ansi);
-    if (!NT_SUCCESS(status))
-        goto fail1;
-
-    status = RtlStringCbPrintfA(RequestKeyName,
-                                MAXNAMELEN,
-                                "\\Registry\\Machine\\%Z",
-                                &Ansi[0]);
-    ASSERT(NT_SUCCESS(status));
-
-    status = RegistryCreateSubKey(NULL,
-                                  RequestKeyName,
-                                  REG_OPTION_NON_VOLATILE,
-                                  &RequestKey);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
-    status = RegistryCreateSubKey(RequestKey,
-                                  __MODULE__,
-                                  REG_OPTION_VOLATILE,
-                                  &SubKey);
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
-    status = RegistryUpdateDwordValue(SubKey,
-                                      "Reboot",
-                                      1);
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
-    RegistryCloseKey(SubKey);
-
-    RegistryFreeSzValue(Ansi);
-
-    Info("<====\n");
-
-    return;
-
-fail4:
-    Error("fail4\n");
-
-    RegistryCloseKey(SubKey);
-
-fail3:
-    Error("fail3\n");
-
-    RegistryCloseKey(RequestKey);
-
-fail2:
-    Error("fail2\n");
-
-    RegistryFreeSzValue(Ansi);
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-}
-
-VOID
-DriverRequestReboot(
-    VOID
-    )
-{
-    if (Driver.NeedReboot)
-        return;
-
-    __DriverRequestReboot();
-
-    Driver.NeedReboot = TRUE;
-}
-
 DRIVER_UNLOAD       DriverUnload;
 
 VOID
@@ -272,8 +181,6 @@ DriverUnload(
     ASSERT3P(DriverObject, ==, __DriverGetDriverObject());
 
     Trace("====>\n");
-
-    Driver.NeedReboot = FALSE;
 
     SettingsKey = __DriverGetSettingsKey();
     __DriverSetSettingsKey(NULL);
