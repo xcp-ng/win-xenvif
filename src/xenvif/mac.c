@@ -1,32 +1,32 @@
 /* Copyright (c) Xen Project.
  * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -307,6 +307,7 @@ MacDumpAddressTable(
     PLIST_ENTRY         ListEntry;
     ULONG               Index;
     KIRQL               Irql;
+    ULONG               Attempt;
     NTSTATUS            status;
 
     Trace("====>\n");
@@ -351,36 +352,67 @@ MacDumpAddressTable(
     __MacReleaseLockShared(Mac);
     KeLowerIrql(Irql);
 
-    (VOID) XENBUS_STORE(Remove,
-                        &Mac->StoreInterface,
-                        NULL,
-                        FrontendGetPrefix(Frontend),
-                        "mac");
+    Attempt = 0;
+    do {
+        PXENBUS_STORE_TRANSACTION   Transaction;
 
-    for (Index = 0; Index < Count; Index++) {
-        CHAR    Node[sizeof ("mac/XXXXXXXXXX")];
-
-        status = RtlStringCbPrintfA(Node,
-                                    sizeof (Node),
-                                    "mac/%u",
-                                    Index);
-        ASSERT(NT_SUCCESS(status));
+        status = XENBUS_STORE(TransactionStart,
+                              &Mac->StoreInterface,
+                              &Transaction);
         if (!NT_SUCCESS(status))
-            continue;
+            break;
 
-        (VOID) XENBUS_STORE(Printf,
+        status = XENBUS_STORE(Remove,
+                              &Mac->StoreInterface,
+                              NULL,
+                              FrontendGetPrefix(Frontend),
+                              "mac");
+        if (!NT_SUCCESS(status))
+            goto abort;
+
+        for (Index = 0; Index < Count; Index++) {
+            CHAR    Node[sizeof ("mac/XXXXXXXXXX")];
+
+            status = RtlStringCbPrintfA(Node,
+                                        sizeof (Node),
+                                        "mac/%u",
+                                        Index);
+            ASSERT(NT_SUCCESS(status));
+            if (!NT_SUCCESS(status))
+                goto abort;
+
+            status = XENBUS_STORE(Printf,
+                                  &Mac->StoreInterface,
+                                  NULL,
+                                  FrontendGetPrefix(Frontend),
+                                  Node,
+                                  "%02x:%02x:%02x:%02x:%02x:%02x",
+                                  Address[Index].Byte[0],
+                                  Address[Index].Byte[1],
+                                  Address[Index].Byte[2],
+                                  Address[Index].Byte[3],
+                                  Address[Index].Byte[4],
+                                  Address[Index].Byte[5]);
+            if (!NT_SUCCESS(status))
+                goto abort;
+        }
+
+        status = XENBUS_STORE(TransactionEnd,
+                              &Mac->StoreInterface,
+                              Transaction,
+                              TRUE);
+        if (status != STATUS_RETRY || ++Attempt > 10)
+            break;
+
+        continue;
+
+    abort:
+        (VOID) XENBUS_STORE(TransactionEnd,
                             &Mac->StoreInterface,
-                            NULL,
-                            FrontendGetPrefix(Frontend),
-                            Node,
-                            "%02x:%02x:%02x:%02x:%02x:%02x",
-                            Address[Index].Byte[0],
-                            Address[Index].Byte[1],
-                            Address[Index].Byte[2],
-                            Address[Index].Byte[3],
-                            Address[Index].Byte[4],
-                            Address[Index].Byte[5]);
-    }
+                            Transaction,
+                            FALSE);
+        break;
+    } while (status == STATUS_RETRY);
 
     if (Address != NULL)
         __MacFree(Address);
@@ -819,7 +851,7 @@ MacQueryState(
 VOID
 MacQueryMaximumFrameSize(
     IN  PXENVIF_MAC Mac,
-    OUT PULONG      Size                     
+    OUT PULONG      Size
     )
 {
     *Size = Mac->MaximumFrameSize;
