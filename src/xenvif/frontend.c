@@ -1883,6 +1883,7 @@ __FrontendUpdateHash(
 {
     PXENVIF_CONTROLLER      Controller;
     ULONG                   Zero = 0;
+    ULONG                   NetifAlgorithm;
     ULONG                   Size;
     PULONG                  Mapping;
     ULONG                   Flags;
@@ -1892,30 +1893,30 @@ __FrontendUpdateHash(
 
     switch (Hash->Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
+    case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
+        NetifAlgorithm = XEN_NETIF_CTRL_HASH_ALGORITHM_NONE;
         Size = 1;
         Mapping = &Zero;
         Flags = 0;
         break;
 
     case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
+        NetifAlgorithm = XEN_NETIF_CTRL_HASH_ALGORITHM_TOEPLITZ;
         Size = Hash->Size;
         Mapping = Hash->Mapping;
         Flags = Hash->Flags;
         break;
 
-    case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
     default:
-        (VOID) ControllerSetHashAlgorithm(Controller,
-                                          XEN_NETIF_CTRL_HASH_ALGORITHM_NONE);
-        goto done;
+        return STATUS_NOT_SUPPORTED;
     }
 
     status = ControllerSetHashAlgorithm(Controller,
-                                        Hash->Algorithm);
+                                        NetifAlgorithm);
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    if (Hash->Algorithm == XEN_NETIF_CTRL_HASH_ALGORITHM_NONE)
+    if (NetifAlgorithm == XEN_NETIF_CTRL_HASH_ALGORITHM_NONE)
         goto done;
 
     status = ControllerSetHashMappingSize(Controller, Size);
