@@ -2117,8 +2117,7 @@ PdoQueryId(
         Type = REG_SZ;
         status = RtlStringCbPrintfW(Buffer,
                                     Id.MaximumLength,
-                                    L"XENVIF\\VEN_%hs&DEV_NET",
-                                    __PdoGetVendorName(Pdo));
+                                    L"XENVIF\\VEN_" VENDOR_PREFIX_STR "&DEV_NET");
         ASSERT(NT_SUCCESS(status));
 
         Buffer += wcslen(Buffer);
