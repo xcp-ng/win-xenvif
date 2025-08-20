@@ -53,15 +53,15 @@ xenvif.sys=0,,
 %Vendor%=Inst,NT@INF_ARCH@
 
 [Inst.NT@INF_ARCH@]
-; DisplayName		Section		DeviceID
-; -----------		-------		--------
-
-%XenVifName%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@@VENDOR_DEVICE_ID@&DEV_VIF&REV_0900000B
-%XenVifName%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@0001&DEV_VIF&REV_0900000B
-%XenVifName%		=XenVif_Inst,	XENBUS\VEN_@VENDOR_PREFIX@0002&DEV_VIF&REV_0900000B
+%XenVifName%=XenVif_Inst,\
+XENBUS\VEN_@VENDOR_PREFIX@@VENDOR_DEVICE_ID@&DEV_VIF&REV_0900000B,\
+XENBUS\VEN_@VENDOR_PREFIX@0001&DEV_VIF&REV_0900000B,\
+XENBUS\VEN_@VENDOR_PREFIX@0002&DEV_VIF&REV_0900000B
 
 [XenVif_Inst] 
 CopyFiles=XenVif_Copyfiles
+; TODO: Remove during next PDO version bump
+FeatureScore=0xFE
 
 [XenVif_Copyfiles]
 xenvif.sys
