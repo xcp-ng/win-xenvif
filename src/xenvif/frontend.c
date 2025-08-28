@@ -1894,6 +1894,9 @@ __FrontendUpdateHash(
     ULONG                   Flags;
     NTSTATUS                status;
 
+    if (Frontend->State != FRONTEND_ENABLED)
+        goto done;
+
     Controller = __FrontendGetController(Frontend);
 
     switch (Hash->Algorithm) {
