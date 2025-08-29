@@ -1404,7 +1404,12 @@ FrontendWaitForBackendXenbusStateChange(
                               __FrontendGetBackendPath(Frontend),
                               "state",
                               &Buffer);
-        if (!NT_SUCCESS(status)) {
+        if (status == STATUS_OBJECT_NAME_NOT_FOUND) {
+            *State = XenbusStateUnknown;
+            Trace("%s disappeared\n",
+                  __FrontendGetBackendPath(Frontend));
+            break;
+        } else if (!NT_SUCCESS(status)) {
             *State = XenbusStateUnknown;
         } else {
             *State = (XenbusState)strtol(Buffer, NULL, 10);
