@@ -61,6 +61,40 @@ RtlRandomEx (
 
 #define MAXNAMELEN  128
 
+typedef enum _XENVIF_CONTROLLER_REQUEST_STATE {
+    XENVIF_CONTROLLER_REQUEST_FREE = 0,
+    XENVIF_CONTROLLER_REQUEST_BUSY,
+    XENVIF_CONTROLLER_REQUEST_RESPONDED
+} XENVIF_CONTROLLER_REQUEST_STATE;
+
+typedef struct _XENVIF_CONTROLLER_SET_HASH_MAPPING {
+    PMDL                    Mdl;
+    PXENBUS_GNTTAB_ENTRY    Entry;
+} XENVIF_CONTROLLER_SET_HASH_MAPPING, *PXENVIF_CONTROLLER_SET_HASH_MAPPING;
+
+typedef struct _XENVIF_CONTROLLER_SET_HASH_KEY {
+    PMDL                    Mdl;
+    PXENBUS_GNTTAB_ENTRY    Entry;
+} XENVIF_CONTROLLER_SET_HASH_KEY, *PXENVIF_CONTROLLER_SET_HASH_KEY;
+
+typedef union {
+    XENVIF_CONTROLLER_SET_HASH_MAPPING  SetHashMapping;
+    XENVIF_CONTROLLER_SET_HASH_KEY      SetHashKey;
+} XENVIF_CONTROLLER_PENDING_REQUEST;
+
+typedef struct _XENVIF_CONTROLLER_REQUEST_DATA {
+    XENVIF_CONTROLLER_REQUEST_STATE     State;
+    // Busy
+    USHORT                              RequestId;
+    struct xen_netif_ctrl_request       Request;
+    // Responded
+    struct xen_netif_ctrl_response      Response;
+    // Not free
+    XENVIF_CONTROLLER_PENDING_REQUEST   Pending;
+    XENVIF_CONTROLLER_REQUEST_CALLBACK  Callback;
+    PVOID                               Argument;
+} XENVIF_CONTROLLER_REQUEST_DATA, *PXENVIF_CONTROLLER_REQUEST_DATA;
+
 struct _XENVIF_CONTROLLER {
     PXENVIF_FRONTEND                    Frontend;
     KSPIN_LOCK                          Lock;
@@ -70,11 +104,11 @@ struct _XENVIF_CONTROLLER {
     xen_netif_ctrl_sring_t              *Shared;
     PXENBUS_GNTTAB_ENTRY                Entry;
     PXENBUS_EVTCHN_CHANNEL              Channel;
+    KDPC                                EvtchnDpc;
     ULONG                               Events;
     BOOLEAN                             Connected;
-    USHORT                              RequestId;
-    struct xen_netif_ctrl_request       Request;
-    struct xen_netif_ctrl_response      Response;
+    PXENVIF_THREAD                      RequestThread;
+    XENVIF_CONTROLLER_REQUEST_DATA      RequestData;
     XENBUS_GNTTAB_INTERFACE             GnttabInterface;
     XENBUS_EVTCHN_INTERFACE             EvtchnInterface;
     XENBUS_STORE_INTERFACE              StoreInterface;
@@ -101,18 +135,18 @@ __ControllerFree(
 }
 
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_min_(DISPATCH_LEVEL)
 __ControllerAcquireLock(
     IN  PXENVIF_CONTROLLER  Controller
     )
 {
-    ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+    ASSERT3U(KeGetCurrentIrql(), >=, DISPATCH_LEVEL);
 
     KeAcquireSpinLockAtDpcLevel(&Controller->Lock);
 }
 
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_min_(DISPATCH_LEVEL)
 __ControllerReleaseLock(
     IN  PXENVIF_CONTROLLER  Controller
     )
@@ -121,6 +155,7 @@ __ControllerReleaseLock(
     KeReleaseSpinLockFromDpcLevel(&Controller->Lock);
 }
 
+_IRQL_requires_min_(DISPATCH_LEVEL)
 static VOID
 ControllerAcquireLock(
     IN  PXENVIF_CONTROLLER  Controller
@@ -129,6 +164,7 @@ ControllerAcquireLock(
     __ControllerAcquireLock(Controller);
 }
 
+_IRQL_requires_min_(DISPATCH_LEVEL)
 static VOID
 ControllerReleaseLock(
     IN  PXENVIF_CONTROLLER  Controller
@@ -170,7 +206,7 @@ ControllerPoll(
     rsp = RING_GET_RESPONSE(&Controller->Front, rsp_cons);
     rsp_cons++;
 
-    Controller->Response = *rsp;
+    Controller->RequestData.Response = *rsp;
 
     KeMemoryBarrier();
 
@@ -179,6 +215,7 @@ ControllerPoll(
 }
 
 _IRQL_requires_min_(DISPATCH_LEVEL)
+_Requires_lock_held_(Controller->Lock)
 static NTSTATUS
 ControllerPutRequest(
     IN  PXENVIF_CONTROLLER          Controller,
@@ -197,26 +234,31 @@ ControllerPutRequest(
     if (!Controller->Connected)
         goto fail1;
 
+    ASSERT(Controller->RequestData.State == XENVIF_CONTROLLER_REQUEST_FREE);
+
     status = STATUS_INSUFFICIENT_RESOURCES;
     if (RING_FULL(&Controller->Front))
         goto fail2;
 
-    Controller->Request.type = Type;
+    Controller->RequestData.State = XENVIF_CONTROLLER_REQUEST_BUSY;
 
-    Controller->Request.id = Controller->RequestId++;
-    if (Controller->Request.id == 0) // Make sure we skip zero
-        Controller->Request.id = Controller->RequestId++;
+    Controller->RequestData.Request.type = Type;
 
-    Controller->Request.data[0] = Data0;
-    Controller->Request.data[1] = Data1;
-    Controller->Request.data[2] = Data2;
+    Controller->RequestData.Request.id = Controller->RequestData.RequestId++;
+    if (Controller->RequestData.Request.id == 0) // Make sure we skip zero
+        Controller->RequestData.Request.id =
+            Controller->RequestData.RequestId++;
+
+    Controller->RequestData.Request.data[0] = Data0;
+    Controller->RequestData.Request.data[1] = Data1;
+    Controller->RequestData.Request.data[2] = Data2;
 
     req_prod = Controller->Front.req_prod_pvt;
 
     req = RING_GET_REQUEST(&Controller->Front, req_prod);
     req_prod++;
 
-    *req = Controller->Request;
+    *req = Controller->RequestData.Request;
 
     KeMemoryBarrier();
 
@@ -248,53 +290,31 @@ fail1:
 #define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
 #define TIME_RELATIVE(_t)   (-(_t))
 
-#define XENVIF_CONTROLLER_POLL_PERIOD 10 // ms
+#define XENVIF_CONTROLLER_POLL_PERIOD 100 // ms
 
 _IRQL_requires_(DISPATCH_LEVEL)
+_Requires_lock_held_(Controller->Lock)
 static NTSTATUS
 ControllerGetResponse(
     IN  PXENVIF_CONTROLLER          Controller,
     OUT PULONG                      Data OPTIONAL
     )
 {
-    LARGE_INTEGER                   Timeout;
-    ULONG                           Attempt;
     NTSTATUS                        status;
 
-    Timeout.QuadPart = TIME_RELATIVE(TIME_MS(XENVIF_CONTROLLER_POLL_PERIOD));
+    ASSERT(Controller->RequestData.State == XENVIF_CONTROLLER_REQUEST_BUSY);
 
-    for (Attempt = 0; Attempt < 10; Attempt++) {
-        ULONG   Count;
+    ControllerPoll(Controller);
+    KeMemoryBarrier();
 
-        Count = XENBUS_EVTCHN(GetCount,
-                              &Controller->EvtchnInterface,
-                              Controller->Channel);
+    if (Controller->RequestData.Response.id !=
+        Controller->RequestData.Request.id)
+        return STATUS_PENDING;
 
-        ControllerPoll(Controller);
-        KeMemoryBarrier();
+    ASSERT3U(Controller->RequestData.Response.type, ==,
+             Controller->RequestData.Request.type);
 
-        if (Controller->Response.id == Controller->Request.id)
-            break;
-
-        status = XENBUS_EVTCHN(Wait,
-                               &Controller->EvtchnInterface,
-                               Controller->Channel,
-                               Count + 1,
-                               &Timeout);
-        if (status == STATUS_TIMEOUT)
-            __ControllerSend(Controller);
-    }
-
-    // Use STATUS_TRANSACTION_TIMED_OUT as an error code since STATUS_TIMEOUT is
-    // a success code.
-    if (Controller->Response.id != Controller->Request.id) {
-        status = STATUS_TRANSACTION_TIMED_OUT;
-        goto done;
-    }
-
-    ASSERT3U(Controller->Response.type, ==, Controller->Request.type);
-
-    switch (Controller->Response.status) {
+    switch (Controller->RequestData.Response.status) {
     case XEN_NETIF_CTRL_STATUS_SUCCESS:
         status = STATUS_SUCCESS;
         break;
@@ -317,13 +337,14 @@ ControllerGetResponse(
     }
 
     if (NT_SUCCESS(status) && Data != NULL)
-        *Data = Controller->Response.data;
+        *Data = Controller->RequestData.Response.data;
 
-done:
-    RtlZeroMemory(&Controller->Request,
+    RtlZeroMemory(&Controller->RequestData.Request,
                   sizeof (struct xen_netif_ctrl_request));
-    RtlZeroMemory(&Controller->Response,
+    RtlZeroMemory(&Controller->RequestData.Response,
                   sizeof (struct xen_netif_ctrl_response));
+
+    Controller->RequestData.State = XENVIF_CONTROLLER_REQUEST_RESPONDED;
 
     return status;
 }
@@ -338,14 +359,121 @@ ControllerEvtchnCallback(
     )
 {
     PXENVIF_CONTROLLER          Controller = Argument;
+    BOOLEAN                     Queued;
 
     UNREFERENCED_PARAMETER(InterruptObject);
 
     ASSERT(Controller != NULL);
 
+    ControllerAcquireLock(Controller);
+
     Controller->Events++;
 
+    KeInsertQueueDpc(&Controller->EvtchnDpc, NULL, NULL);
+
+    ControllerReleaseLock(Controller);
+
     return TRUE;
+}
+
+_Function_class_(KDEFERRED_ROUTINE)
+_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_same_
+VOID
+ControllerEvtchnDpc(
+    _In_ PKDPC          Dpc,
+    _In_opt_ PVOID      DeferredContext,
+    _In_opt_ PVOID      SystemArgument1,
+    _In_opt_ PVOID      SystemArgument2
+    )
+{
+    PXENVIF_CONTROLLER  Controller = DeferredContext;
+    LONG                Previous;
+
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(SystemArgument1);
+    UNREFERENCED_PARAMETER(SystemArgument2);
+
+    ASSERT(Controller != NULL);
+
+    ControllerAcquireLock(Controller);
+
+    if (Controller->RequestData.State != XENVIF_CONTROLLER_REQUEST_BUSY)
+    {
+        Trace("Controller DPC executed while request is not busy (%d)!\n",
+              Controller->RequestData.State);
+        goto out_unlock;
+    }
+
+    ThreadWake(Controller->RequestThread);
+
+out_unlock:
+    ControllerReleaseLock(Controller);
+}
+
+static NTSTATUS
+ControllerRequest(
+    _In_ PXENVIF_THREAD Self,
+    _In_ PVOID          Context
+    )
+{
+    PXENVIF_CONTROLLER  Controller = Context;
+    PKEVENT             Event;
+
+    Event = ThreadGetEvent(Self);
+
+    for (;;) {
+        KIRQL                               Irql;
+        NTSTATUS                            status;
+        ULONG                               Data;
+        XENVIF_CONTROLLER_REQUEST_CALLBACK  Callback;
+        PVOID                               Argument;
+
+        KeWaitForSingleObject(Event,
+                              Executive,
+                              KernelMode,
+                              FALSE,
+                              NULL);
+        KeClearEvent(Event);
+
+        if (ThreadIsAlerted(Self))
+            break;
+
+        KeAcquireSpinLock(&Controller->Lock, &Irql);
+
+        switch (Controller->RequestData.State) {
+        case XENVIF_CONTROLLER_REQUEST_BUSY:
+            status = ControllerGetResponse(Controller, &Data);
+
+            if (status == STATUS_PENDING)
+                goto out_unlock;
+
+            ASSERT3U(Controller->RequestData.State, ==,
+                     XENVIF_CONTROLLER_REQUEST_RESPONDED);
+
+            Callback = Controller->RequestData.Callback;
+            Argument = Controller->RequestData.Argument;
+
+            RtlZeroMemory(&Controller->RequestData.Pending,
+                  sizeof (XENVIF_CONTROLLER_PENDING_REQUEST));
+
+            Controller->RequestData.Callback = NULL;
+            Controller->RequestData.Argument = NULL;
+            Controller->RequestData.State = XENVIF_CONTROLLER_REQUEST_FREE;
+
+            break;
+        default:
+            break;
+        }
+
+out_unlock:
+        KeReleaseSpinLock(&Controller->Lock, Irql);
+
+        if (Callback)
+            Callback(Argument, status, NT_SUCCESS(status) ? Data : 0);
+    }
+
+    return STATUS_SUCCESS;
 }
 
 static VOID
@@ -375,6 +503,14 @@ ControllerInitialize(
     if (*Controller == NULL)
         goto fail1;
 
+    KeInitializeDpc(&(*Controller)->EvtchnDpc, ControllerEvtchnDpc, *Controller);
+
+    (*Controller)->RequestThread = ThreadCreate(ControllerRequest,
+                                                *Controller,
+                                                &(*Controller)->RequestThread);
+    if ((*Controller)->RequestThread == NULL)
+        goto fail2;
+
     FdoGetDebugInterface(PdoGetFdo(FrontendGetPdo(Frontend)),
                          &(*Controller)->DebugInterface);
 
@@ -392,11 +528,16 @@ ControllerInitialize(
     KeQuerySystemTime(&Now);
     Seed = Now.LowPart;
 
-    (*Controller)->RequestId = (USHORT)RtlRandomEx(&Seed);
+    (*Controller)->RequestData.RequestId = (USHORT)RtlRandomEx(&Seed);
 
     (*Controller)->Frontend = Frontend;
 
     return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+    __ControllerFree(*Controller);
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -757,9 +898,13 @@ ControllerTeardown(
 {
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
+    ThreadAlert(Controller->RequestThread);
+    ThreadJoin(Controller->RequestThread);
+    Controller->RequestThread = NULL;
+
     Controller->Frontend = NULL;
 
-    Controller->RequestId = 0;
+    Controller->RequestData.RequestId = 0;
 
     RtlZeroMemory(&Controller->Lock,
                   sizeof (KSPIN_LOCK));
@@ -776,6 +921,8 @@ ControllerTeardown(
     RtlZeroMemory(&Controller->EvtchnInterface,
                   sizeof (XENBUS_EVTCHN_INTERFACE));
 
+    RtlZeroMemory(&Controller->EvtchnDpc, sizeof (KDPC));
+
     ASSERT(IsZeroMemory(Controller, sizeof (XENVIF_CONTROLLER)));
     __ControllerFree(Controller);
 }
@@ -783,12 +930,14 @@ ControllerTeardown(
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashAlgorithm(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Algorithm
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument,
+    _In_ ULONG                                  Algorithm
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND                            Frontend;
+    NTSTATUS                                    status;
 
     Frontend = Controller->Frontend;
 
@@ -802,16 +951,12 @@ ControllerSetHashAlgorithm(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = ControllerGetResponse(Controller, NULL);
-    if (!NT_SUCCESS(status))
-        goto fail2;
+    Controller->RequestData.Callback = Callback;
+    Controller->RequestData.Argument = Argument;
 
     __ControllerReleaseLock(Controller);
 
-    return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
+    return STATUS_PENDING;
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -824,12 +969,13 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerGetHashFlags(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Flags
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND                            Frontend;
+    NTSTATUS                                    status;
 
     Frontend = Controller->Frontend;
 
@@ -843,16 +989,12 @@ ControllerGetHashFlags(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = ControllerGetResponse(Controller, Flags);
-    if (!NT_SUCCESS(status))
-        goto fail2;
+    Controller->RequestData.Callback = Callback;
+    Controller->RequestData.Argument = Argument;
 
     __ControllerReleaseLock(Controller);
 
-    return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
+    return STATUS_PENDING;
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -863,14 +1005,48 @@ fail1:
 }
 
 _IRQL_requires_(DISPATCH_LEVEL)
-NTSTATUS
-ControllerSetHashFlags(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Flags
+VOID
+ControllerEndGetHashFlags(
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _Out_ PULONG                                Flags
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND                            Frontend;
+    PXENVIF_CONTROLLER_SET_HASH_KEY             Pending;
+    NTSTATUS                                    status;
+
+    Frontend = Controller->Frontend;
+    Pending = &Controller->RequestData.Pending.SetHashMapping;
+
+    __ControllerAcquireLock(Controller);
+
+    ASSERT3U(Controller->RequestData.State, ==,
+             XENVIF_CONTROLLER_REQUEST_RESPONDED);
+    ASSERT3U(Controller->RequestData.Request.type, ==,
+             XEN_NETIF_CTRL_TYPE_SET_HASH_KEY);
+
+    (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
+                         &Controller->GnttabInterface,
+                         Controller->GnttabCache,
+                         TRUE,
+                         Pending->Entry);
+
+    __FreePage(Pending->Mdl);
+
+    __ControllerReleaseLock(Controller);
+}
+
+_IRQL_requires_(DISPATCH_LEVEL)
+NTSTATUS
+ControllerSetHashFlags(
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument,
+    _In_ ULONG                                  Flags
+    )
+{
+    PXENVIF_FRONTEND                            Frontend;
+    NTSTATUS                                    status;
 
     Frontend = Controller->Frontend;
 
@@ -884,16 +1060,12 @@ ControllerSetHashFlags(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = ControllerGetResponse(Controller, NULL);
-    if (!NT_SUCCESS(status))
-        goto fail2;
+    Controller->RequestData.Callback = Callback;
+    Controller->RequestData.Argument = Argument;
 
     __ControllerReleaseLock(Controller);
 
-    return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
+    return STATUS_PENDING;
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -906,35 +1078,36 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashKey(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PUCHAR              Key,
-    IN  ULONG               Size
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument,
+    _In_reads_bytes_(Size) PUCHAR               Key,
+    _In_ ULONG                                  Size
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    PMDL                    Mdl;
-    PUCHAR                  Buffer;
-    PFN_NUMBER              Pfn;
-    PXENBUS_GNTTAB_ENTRY    Entry;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND                            Frontend;
+    PXENVIF_CONTROLLER_SET_HASH_KEY             Pending;
+    PUCHAR                                      Buffer;
+    PFN_NUMBER                                  Pfn;
+    NTSTATUS                                    status;
 
     Frontend = Controller->Frontend;
 
     __ControllerAcquireLock(Controller);
 
-    Mdl = __AllocatePage();
+    Pending->Mdl = __AllocatePage();
 
     status = STATUS_NO_MEMORY;
-    if (Mdl == NULL)
+    if (Pending->Mdl == NULL)
         goto fail1;
 
-    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
-    Buffer = Mdl->MappedSystemVa;
+    ASSERT(Pending->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    Buffer = Pending->Mdl->MappedSystemVa;
     ASSERT(Buffer != NULL);
 
     RtlCopyMemory(Buffer, Key, Size);
 
-    Pfn = MmGetMdlPfnArray(Mdl)[0];
+    Pfn = MmGetMdlPfnArray(Pending->Mdl)[0];
 
     status = XENBUS_GNTTAB(PermitForeignAccess,
                            &Controller->GnttabInterface,
@@ -943,7 +1116,7 @@ ControllerSetHashKey(
                            FrontendGetBackendDomain(Frontend),
                            Pfn,
                            FALSE,
-                           &Entry);
+                           &Pending->Entry);
     if (!NT_SUCCESS(status))
         goto fail2;
 
@@ -951,30 +1124,18 @@ ControllerSetHashKey(
                                   XEN_NETIF_CTRL_TYPE_SET_HASH_KEY,
                                   XENBUS_GNTTAB(GetReference,
                                                 &Controller->GnttabInterface,
-                                                Entry),
+                                                Pending->Entry),
                                   Size,
                                   0);
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    status = ControllerGetResponse(Controller, NULL);
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
-    (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
-                         &Controller->GnttabInterface,
-                         Controller->GnttabCache,
-                         TRUE,
-                         Entry);
-
-    __FreePage(Mdl);
+    Controller->RequestData.Callback = Callback;
+    Controller->RequestData.Argument = Argument;
 
     __ControllerReleaseLock(Controller);
 
     return STATUS_SUCCESS;
-
-fail4:
-    Error("fail4\n");
 
 fail3:
     Error("fail3\n");
@@ -983,12 +1144,14 @@ fail3:
                          &Controller->GnttabInterface,
                          Controller->GnttabCache,
                          TRUE,
-                         Entry);
+                         Pending->Entry);
+    Pending->Entry = NULL;
 
 fail2:
     Error("fail2\n");
 
-    __FreePage(Mdl);
+    __FreePage(Pending->Mdl);
+    Pending->Mdl = NULL;
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -999,14 +1162,47 @@ fail1:
 }
 
 _IRQL_requires_(DISPATCH_LEVEL)
-NTSTATUS
-ControllerGetHashMappingSize(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Size
+VOID
+ControllerEndSetHashKey(
+    _In_ PXENVIF_CONTROLLER                     Controller
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND                            Frontend;
+    PXENVIF_CONTROLLER_SET_HASH_KEY             Pending;
+    NTSTATUS                                    status;
+
+    Frontend = Controller->Frontend;
+    Pending = &Controller->RequestData.Pending.SetHashMapping;
+
+    __ControllerAcquireLock(Controller);
+
+    ASSERT3U(Controller->RequestData.State, ==,
+             XENVIF_CONTROLLER_REQUEST_RESPONDED);
+    ASSERT3U(Controller->RequestData.Request.type, ==,
+             XEN_NETIF_CTRL_TYPE_SET_HASH_KEY);
+
+    (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
+                         &Controller->GnttabInterface,
+                         Controller->GnttabCache,
+                         TRUE,
+                         Pending->Entry);
+
+    __FreePage(Pending->Mdl);
+
+    __ControllerReleaseLock(Controller);
+}
+
+_IRQL_requires_(DISPATCH_LEVEL)
+NTSTATUS
+ControllerGetHashMappingSize(
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument,
+    _Out_ PULONG                                Size
+    )
+{
+    PXENVIF_FRONTEND                            Frontend;
+    NTSTATUS                                    status;
 
     Frontend = Controller->Frontend;
 
@@ -1020,16 +1216,12 @@ ControllerGetHashMappingSize(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = ControllerGetResponse(Controller, Size);
-    if (!NT_SUCCESS(status))
-        goto fail2;
+    Controller->RequestData.Callback = Callback;
+    Controller->RequestData.Argument = Argument;
 
     __ControllerReleaseLock(Controller);
 
-    return STATUS_SUCCESS;
-
-fail2:
-    Error("fail2\n");
+    return STATUS_PENDING;
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -1042,12 +1234,14 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashMappingSize(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Size
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument,
+    _In_ ULONG                                  Size
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND                            Frontend;
+    NTSTATUS                                    status;
 
     Frontend = Controller->Frontend;
 
@@ -1061,13 +1255,104 @@ ControllerSetHashMappingSize(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = ControllerGetResponse(Controller, NULL);
-    if (!NT_SUCCESS(status))
+    Controller->RequestData.Callback = Callback;
+    Controller->RequestData.Argument = Argument;
+
+    __ControllerReleaseLock(Controller);
+
+    return STATUS_PENDING;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    __ControllerReleaseLock(Controller);
+
+    return status;
+}
+
+_IRQL_requires_(DISPATCH_LEVEL)
+NTSTATUS
+ControllerSetHashMapping(
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument,
+    _In_reads_(Size) PULONG                     Mapping,
+    _In_ ULONG                                  Size,
+    _In_ ULONG                                  Offset
+    )
+{
+    PXENVIF_FRONTEND                            Frontend;
+    PXENVIF_CONTROLLER_SET_HASH_MAPPING         Pending;
+    PUCHAR                                      Buffer;
+    PFN_NUMBER                                  Pfn;
+    NTSTATUS                                    status;
+
+    Frontend = Controller->Frontend;
+    Pending = &Controller->RequestData.Pending.SetHashMapping;
+
+    __ControllerAcquireLock(Controller);
+
+    status = STATUS_INVALID_PARAMETER;
+    if (Size * sizeof (ULONG) > PAGE_SIZE)
+        goto fail1;
+
+    Pending->Mdl = __AllocatePage();
+
+    status = STATUS_NO_MEMORY;
+    if (Pending->Mdl == NULL)
         goto fail2;
+
+    ASSERT(Pending->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    Buffer = Pending->Mdl->MappedSystemVa;
+    ASSERT(Buffer != NULL);
+
+    RtlCopyMemory(Buffer, Mapping, Size * sizeof (ULONG));
+
+    Pfn = MmGetMdlPfnArray(Pending->Mdl)[0];
+
+    status = XENBUS_GNTTAB(PermitForeignAccess,
+                           &Controller->GnttabInterface,
+                           Controller->GnttabCache,
+                           TRUE,
+                           FrontendGetBackendDomain(Frontend),
+                           Pfn,
+                           FALSE,
+                           &Pending->Entry);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    status = ControllerPutRequest(Controller,
+                                  XEN_NETIF_CTRL_TYPE_SET_HASH_MAPPING,
+                                  XENBUS_GNTTAB(GetReference,
+                                                &Controller->GnttabInterface,
+                                                Pending->Entry),
+                                  Size,
+                                  Offset);
+    if (!NT_SUCCESS(status))
+        goto fail4;
+
+    Controller->RequestData.Callback = Callback;
+    Controller->RequestData.Argument = Argument;
 
     __ControllerReleaseLock(Controller);
 
     return STATUS_SUCCESS;
+
+fail4:
+    Error("fail4\n");
+
+    (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
+                         &Controller->GnttabInterface,
+                         Controller->GnttabCache,
+                         TRUE,
+                         Pending->Entry);
+    Pending->Entry = NULL;
+
+fail3:
+    Error("fail3\n");
+
+    __FreePage(Pending->Mdl);
+    Pending->Mdl = NULL;
 
 fail2:
     Error("fail2\n");
@@ -1081,104 +1366,32 @@ fail1:
 }
 
 _IRQL_requires_(DISPATCH_LEVEL)
-NTSTATUS
-ControllerSetHashMapping(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Mapping,
-    IN  ULONG               Size,
-    IN  ULONG               Offset
+VOID
+ControllerEndSetHashMapping(
+    _In_ PXENVIF_CONTROLLER                     Controller
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    PMDL                    Mdl;
-    PUCHAR                  Buffer;
-    PFN_NUMBER              Pfn;
-    PXENBUS_GNTTAB_ENTRY    Entry;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND                            Frontend;
+    PXENVIF_CONTROLLER_SET_HASH_MAPPING         Pending;
+    NTSTATUS                                    status;
 
     Frontend = Controller->Frontend;
+    Pending = &Controller->RequestData.Pending.SetHashMapping;
 
     __ControllerAcquireLock(Controller);
 
-    status = STATUS_INVALID_PARAMETER;
-    if (Size * sizeof (ULONG) > PAGE_SIZE)
-        goto fail1;
-
-    Mdl = __AllocatePage();
-
-    status = STATUS_NO_MEMORY;
-    if (Mdl == NULL)
-        goto fail2;
-
-    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
-    Buffer = Mdl->MappedSystemVa;
-    ASSERT(Buffer != NULL);
-
-    RtlCopyMemory(Buffer, Mapping, Size * sizeof (ULONG));
-
-    Pfn = MmGetMdlPfnArray(Mdl)[0];
-
-    status = XENBUS_GNTTAB(PermitForeignAccess,
-                           &Controller->GnttabInterface,
-                           Controller->GnttabCache,
-                           TRUE,
-                           FrontendGetBackendDomain(Frontend),
-                           Pfn,
-                           FALSE,
-                           &Entry);
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
-    status = ControllerPutRequest(Controller,
-                                  XEN_NETIF_CTRL_TYPE_SET_HASH_MAPPING,
-                                  XENBUS_GNTTAB(GetReference,
-                                                &Controller->GnttabInterface,
-                                                Entry),
-                                  Size,
-                                  Offset);
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
-    status = ControllerGetResponse(Controller, NULL);
-    if (!NT_SUCCESS(status))
-        goto fail5;
+    ASSERT3U(Controller->RequestData.State, ==,
+             XENVIF_CONTROLLER_REQUEST_RESPONDED);
+    ASSERT3U(Controller->RequestData.Request.type, ==,
+             XEN_NETIF_CTRL_TYPE_SET_HASH_MAPPING);
 
     (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
                          &Controller->GnttabInterface,
                          Controller->GnttabCache,
                          TRUE,
-                         Entry);
+                         Pending->Entry);
 
-    __FreePage(Mdl);
-
-    __ControllerReleaseLock(Controller);
-
-    return STATUS_SUCCESS;
-
-fail5:
-    Error("fail5\n");
-
-fail4:
-    Error("fail4\n");
-
-    (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
-                         &Controller->GnttabInterface,
-                         Controller->GnttabCache,
-                         TRUE,
-                         Entry);
-
-fail3:
-    Error("fail3\n");
-
-    __FreePage(Mdl);
-
-fail2:
-    Error("fail2\n");
-
-fail1:
-    Error("fail1 (%08x)\n", status);
+    __FreePage(Pending->Mdl);
 
     __ControllerReleaseLock(Controller);
-
-    return status;
 }

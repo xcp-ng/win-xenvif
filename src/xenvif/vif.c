@@ -1,32 +1,32 @@
 /* Copyright (c) Xen Project.
  * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -58,6 +58,8 @@ struct _XENVIF_VIF_CONTEXT {
     PVOID                       ArgumentVersion8;
     XENVIF_VIF_CALLBACK_V9      CallbackVersion9;
     PVOID                       ArgumentVersion9;
+    XENVIF_VIF_CALLBACK_V10     CallbackVersion10;
+    PVOID                       ArgumentVersion10;
     LONG                        Queued;
     PXENVIF_THREAD              MacThread;
     KEVENT                      MacEvent;
@@ -122,6 +124,21 @@ VifMac(
     return STATUS_SUCCESS;
 }
 
+static VOID
+VifOnFrontendEnabledSuspend(
+    _In_opt_ PVOID      Argument,
+    _In_ NTSTATUS       CallbackStatus
+    )
+{
+    PXENVIF_VIF_CONTEXT Context = Argument;
+
+    // We do this three times to make sure switches take note
+    FrontendAdvertiseIpAddresses(Context->Frontend);
+    FrontendAdvertiseIpAddresses(Context->Frontend);
+    FrontendAdvertiseIpAddresses(Context->Frontend);
+}
+
+_IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 VifSuspendCallbackLate(
     IN  PVOID           Argument
@@ -133,49 +150,24 @@ VifSuspendCallbackLate(
     if (!Context->Enabled)
         return;
 
-    status = FrontendSetState(Context->Frontend, FRONTEND_ENABLED);
+    status = FrontendSetStateAsync(Context->Frontend,
+                                   VifOnFrontendEnabledSuspend,
+                                   Context,
+                                   FRONTEND_ENABLED);
     ASSERT(NT_SUCCESS(status));
-
-    // We do this three times to make sure switches take note
-    FrontendAdvertiseIpAddresses(Context->Frontend);
-    FrontendAdvertiseIpAddresses(Context->Frontend);
-    FrontendAdvertiseIpAddresses(Context->Frontend);
 }
 
-static NTSTATUS
-VifEnable(
-    IN  PINTERFACE          Interface,
-    IN  XENVIF_VIF_CALLBACK Callback,
-    IN  PVOID               Argument
+static VOID
+VifOnFrontendEnabled(
+    _In_opt_ PVOID          Argument,
+    _In_ NTSTATUS           CallbackStatus
     )
 {
-    PXENVIF_VIF_CONTEXT     Context = Interface->Context;
+    PXENVIF_VIF_CONTEXT     Context = Argument;
     KIRQL                   Irql;
-    BOOLEAN                 Exclusive;
     NTSTATUS                status;
 
-    Trace("====>\n");
-
     AcquireMrswLockExclusive(&Context->Lock, &Irql);
-    Exclusive = TRUE;
-
-    if (Context->Enabled)
-        goto done;
-
-    Context->Callback = Callback;
-    Context->Argument = Argument;
-
-    Context->Enabled = TRUE;
-
-    KeMemoryBarrier();
-
-    status = XENBUS_SUSPEND(Acquire, &Context->SuspendInterface);
-    if (!NT_SUCCESS(status))
-        goto fail1;
-
-    status = FrontendSetState(Context->Frontend, FRONTEND_ENABLED);
-    if (!NT_SUCCESS(status))
-        goto fail2;
 
     status = XENBUS_SUSPEND(Register,
                             &Context->SuspendInterface,
@@ -184,23 +176,18 @@ VifEnable(
                             Context,
                             &Context->SuspendCallbackLate);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail1;
 
-done:
-    ASSERT(Exclusive);
     ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
 
-    Trace("<====\n");
+    return;
 
-    return STATUS_SUCCESS;
-
-fail3:
-    Error("fail3\n");
+fail1:
+    Error("fail1\n");
 
     (VOID) FrontendSetState(Context->Frontend, FRONTEND_CONNECTED);
 
     ReleaseMrswLockExclusive(&Context->Lock, Irql, TRUE);
-    Exclusive = FALSE;
 
     ReceiverWaitForPackets(FrontendGetReceiver(Context->Frontend));
     TransmitterAbortPackets(FrontendGetTransmitter(Context->Frontend));
@@ -217,6 +204,53 @@ fail3:
                                  NULL);
 
     Trace("done\n");
+}
+
+_IRQL_requires_min_(PASSIVE_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
+static NTSTATUS
+VifEnable(
+    IN  PINTERFACE          Interface,
+    IN  XENVIF_VIF_CALLBACK Callback,
+    IN  PVOID               Argument
+    )
+{
+    PXENVIF_VIF_CONTEXT     Context = Interface->Context;
+    KIRQL                   Irql;
+    NTSTATUS                status;
+
+    Trace("====>\n");
+
+    AcquireMrswLockExclusive(&Context->Lock, &Irql);
+
+    status = STATUS_SUCCESS;
+    if (Context->Enabled)
+        goto done;
+
+    Context->Callback = Callback;
+    Context->Argument = Argument;
+
+    Context->Enabled = TRUE;
+
+    KeMemoryBarrier();
+
+    status = XENBUS_SUSPEND(Acquire, &Context->SuspendInterface);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    status = FrontendSetStateAsync(Context->Frontend,
+                                   VifOnFrontendEnabled,
+                                   Context,
+                                   FRONTEND_ENABLED);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+done:
+    ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
+
+    Trace("<====\n");
+
+    return status;
 
 fail2:
     Error("fail2\n");
@@ -233,10 +267,7 @@ fail1:
     Context->Argument = NULL;
     Context->Callback = NULL;
 
-    if (Exclusive)
-        ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
-    else
-        ReleaseMrswLockShared(&Context->Lock);
+    ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
 
     return status;
 }
@@ -381,6 +412,77 @@ VifCallbackVersion9(
 #undef XENVIF_RECEIVER_QUEUE_MAX
 }
 
+static VOID
+VifCallbackVersion10(
+    IN  PVOID                                       _Argument OPTIONAL,
+    IN  XENVIF_VIF_CALLBACK_TYPE                    Type,
+    IN  PXENVIF_VIF_CALLBACK_PARAMETERS             Parameters
+    )
+{
+#define XENVIF_RECEIVER_QUEUE_MAX 1024 // Chosen to match IN_NDIS_MAX in XENNET
+
+    PXENVIF_VIF_CONTEXT                 Context = _Argument;
+    XENVIF_VIF_CALLBACK_PARAMETERS_V10  ParametersVersion10;
+
+    switch (Type) {
+    case XENVIF_TRANSMITTER_RETURN_PACKET:
+        RtlCopyMemory(&ParametersVersion10.TransmitterReturnPacket,
+                      &Parameters->TransmitterReturnPacket,
+                      sizeof (Parameters->TransmitterReturnPacket));
+        break;
+
+    case XENVIF_RECEIVER_QUEUE_PACKET:
+        RtlCopyMemory(&ParametersVersion10.ReceiverQueuePacket,
+                      &Parameters->ReceiverQueuePacket,
+                      sizeof (Parameters->ReceiverQueuePacket));
+        break;
+
+    case XENVIF_MAC_STATE_CHANGE:
+        // No parameters to translate
+        break;
+
+    default:
+        ASSERT(FALSE);
+        break;
+    }
+
+    Context->CallbackVersion10(Context->ArgumentVersion10,
+                               Type,
+                               &ParametersVersion10);
+#undef XENVIF_RECEIVER_QUEUE_MAX
+}
+
+_IRQL_requires_min_(PASSIVE_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
+static NTSTATUS
+VifEnableVersion10(
+    IN  PINTERFACE                  Interface,
+    IN  XENVIF_VIF_CALLBACK_V10     Callback,
+    IN  PVOID                       Argument
+    )
+{
+    PXENVIF_VIF_CONTEXT             Context = Interface->Context;
+    KIRQL                           Irql;
+    NTSTATUS                        status;
+
+    Trace("====>\n");
+
+    AcquireMrswLockExclusive(&Context->Lock, &Irql);
+
+    Context->CallbackVersion10 = Callback;
+    Context->ArgumentVersion10 = Argument;
+
+    ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
+
+    status = VifEnable(Interface, VifCallbackVersion10, Context);
+
+    Trace("<====\n");
+
+    return status;
+}
+
+_IRQL_requires_min_(PASSIVE_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 static NTSTATUS
 VifEnableVersion9(
     IN  PINTERFACE                  Interface,
@@ -408,6 +510,8 @@ VifEnableVersion9(
     return status;
 }
 
+_IRQL_requires_min_(PASSIVE_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 static NTSTATUS
 VifEnableVersion8(
     IN  PINTERFACE                  Interface,
@@ -435,6 +539,8 @@ VifEnableVersion8(
     return status;
 }
 
+_IRQL_requires_min_(PASSIVE_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 static VOID
 VifDisable(
     IN  PINTERFACE      Interface
@@ -511,7 +617,7 @@ VifQueryStatistic(
     status = STATUS_INVALID_PARAMETER;
     if (Index >= XENVIF_VIF_STATISTIC_COUNT)
         goto done;
-        
+
     AcquireMrswLockShared(&Context->Lock);
 
     FrontendQueryStatistic(Context->Frontend, Index, Value);
@@ -682,7 +788,7 @@ VifReceiverSetBackfillSize(
 }
 
 static NTSTATUS
-VifReceiverSetHashAlgorithm(
+VifReceiverSetHashAlgorithmVersion8(
     IN  PINTERFACE                      Interface,
     IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
     )
@@ -701,7 +807,7 @@ VifReceiverSetHashAlgorithm(
 }
 
 static NTSTATUS
-VifReceiverQueryHashCapabilities(
+VifReceiverQueryHashCapabilitiesVersion8(
     IN  PINTERFACE      Interface,
     ...
     )
@@ -728,7 +834,7 @@ VifReceiverQueryHashCapabilities(
 }
 
 static NTSTATUS
-VifReceiverUpdateHashParameters(
+VifReceiverUpdateHashParametersVersion8(
     IN  PINTERFACE      Interface,
     ...
     )
@@ -1007,9 +1113,9 @@ static struct _XENVIF_VIF_INTERFACE_V8 VifInterfaceVersion8 = {
     VifReceiverSetOffloadOptions,
     VifReceiverSetBackfillSize,
     VifReceiverQueryRingSize,
-    VifReceiverSetHashAlgorithm,
-    VifReceiverQueryHashCapabilities,
-    VifReceiverUpdateHashParameters,
+    VifReceiverSetHashAlgorithmVersion8,
+    VifReceiverQueryHashCapabilitiesVersion8,
+    VifReceiverUpdateHashParametersVersion8,
     VifTransmitterQueuePacket,
     VifTransmitterQueryOffloadOptions,
     VifTransmitterQueryLargePacketSize,
@@ -1037,9 +1143,9 @@ static struct _XENVIF_VIF_INTERFACE_V9 VifInterfaceVersion9 = {
     VifReceiverSetOffloadOptions,
     VifReceiverSetBackfillSize,
     VifReceiverQueryRingSize,
-    VifReceiverSetHashAlgorithm,
-    VifReceiverQueryHashCapabilities,
-    VifReceiverUpdateHashParameters,
+    VifReceiverSetHashAlgorithmVersion8,
+    VifReceiverQueryHashCapabilitiesVersion8,
+    VifReceiverUpdateHashParametersVersion8,
     VifTransmitterQueuePacket,
     VifTransmitterQueryOffloadOptions,
     VifTransmitterQueryLargePacketSize,
@@ -1056,6 +1162,36 @@ static struct _XENVIF_VIF_INTERFACE_V9 VifInterfaceVersion9 = {
 
 static struct _XENVIF_VIF_INTERFACE_V10 VifInterfaceVersion10 = {
     { sizeof (struct _XENVIF_VIF_INTERFACE_V10), 10, NULL, NULL, NULL },
+    VifAcquire,
+    VifRelease,
+    VifEnableVersion10,
+    VifDisable,
+    VifQueryStatistic,
+    VifQueryRingCount,
+    VifUpdateHashMapping,
+    VifReceiverReturnPacket,
+    VifReceiverSetOffloadOptions,
+    VifReceiverSetBackfillSize,
+    VifReceiverQueryRingSize,
+    VifReceiverSetHashAlgorithmVersion8,
+    VifReceiverQueryHashCapabilitiesVersion8,
+    VifReceiverUpdateHashParametersVersion8,
+    VifTransmitterQueuePacket,
+    VifTransmitterQueryOffloadOptions,
+    VifTransmitterQueryLargePacketSize,
+    VifTransmitterQueryRingSize,
+    VifMacQueryState,
+    VifMacQueryMaximumFrameSize,
+    VifMacQueryPermanentAddress,
+    VifMacQueryCurrentAddress,
+    VifMacQueryMulticastAddresses,
+    VifMacSetMulticastAddresses,
+    VifMacSetFilterLevel,
+    VifMacQueryFilterLevel
+};
+
+static struct _XENVIF_VIF_INTERFACE_V11 VifInterfaceVersion11 = {
+    { sizeof (struct _XENVIF_VIF_INTERFACE_V11), 11, NULL, NULL, NULL },
     VifAcquire,
     VifRelease,
     VifEnable,
@@ -1199,13 +1335,30 @@ VifGetInterface(
         status = STATUS_SUCCESS;
         break;
     }
+    case 11: {
+        struct _XENVIF_VIF_INTERFACE_V11 *VifInterface;
+
+        VifInterface = (struct _XENVIF_VIF_INTERFACE_V11 *)Interface;
+
+        status = STATUS_BUFFER_OVERFLOW;
+        if (Size < sizeof (struct _XENVIF_VIF_INTERFACE_V11))
+            break;
+
+        *VifInterface = VifInterfaceVersion11;
+
+        ASSERT3U(Interface->Version, ==, Version);
+        Interface->Context = Context;
+
+        status = STATUS_SUCCESS;
+        break;
+    }
     default:
         status = STATUS_NOT_SUPPORTED;
         break;
     }
 
     return status;
-}   
+}
 
 VOID
 VifTeardown(
@@ -1236,6 +1389,8 @@ VifTeardown(
     Trace("<====\n");
 }
 
+_IRQL_requires_min_(PASSIVE_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 VifReceiverQueuePacket(
     IN  PXENVIF_VIF_CONTEXT             Context,

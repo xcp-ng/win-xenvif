@@ -386,7 +386,9 @@ typedef enum _XENVIF_VIF_CALLBACK_TYPE {
     /*! Queue a receive side packet at the subscriber */
     XENVIF_RECEIVER_QUEUE_PACKET,
     /*! Notify the subscriber of a MAC (link) state has change */
-    XENVIF_MAC_STATE_CHANGE
+    XENVIF_MAC_STATE_CHANGE,
+    /*! Notify that an OID request has completed (V11) */
+    XENVIF_VIF_OID_COMPLETION,
 } XENVIF_VIF_CALLBACK_TYPE, *PXENVIF_VIF_CALLBACK_TYPE;
 
 union _XENVIF_VIF_CALLBACK_PARAMETERS_V9 {
@@ -454,6 +456,64 @@ union _XENVIF_VIF_CALLBACK_PARAMETERS_V10 {
     } ReceiverQueuePacket;
 };
 
+typedef union _XENVIF_VIF_CALLBACK_PARAMETERS_V10
+    XENVIF_VIF_CALLBACK_PARAMETERS_V10, *PXENVIF_VIF_CALLBACK_PARAMETERS_V10;
+
+/*! \typedef XENVIF_VIF_CALLBACK_PARAMETERS_V11
+    \brief VIF interface version 11 parameters for provider to subscriber callback function
+
+    \b XENVIF_TRANSMITTER_RETURN_PACKET:
+    \param Cookie Cookie supplied to XENVIF_TRANSMITTER_QUEUE_PACKET
+    \param Completion Packet completion information
+
+    \b XENVIF_RECEIVER_QUEUE_PACKET:
+    \param Index The index of the queue on which the packet was received
+    \param Mdl The initial MDL of the packet
+    \param Offset The offset of the packet data in the initial MDL
+    \param Length The total length of the packet
+    \param Flags Packet checksum flags
+    \param MaximumSegmentSize The TCP MSS (used only if OffloadOptions.OffloadIpVersion[4|6]LargePacket is set)
+    \param TagControlInformation The VLAN TCI (used only if OffloadOptions.OffloadTagManipulation is set)
+    \param Info Header information for the packet
+    \param Hash Hash information for the packet
+    \param More A flag to indicate whether more packets will be queued for the same CPU
+    \param Cookie Cookie that should be passed to XENVIF_RECEIVER_RETURN_PACKET method
+    \param Pause A flag to request that no more packets be queued for a short period of time
+
+    \b XENVIF_MAC_STATE_CHANGE:
+    No additional arguments
+
+    \b XENVIF_VIF_OID_COMPLETION:
+    \param Context The request context
+    \param Status The request status
+*/
+union _XENVIF_VIF_CALLBACK_PARAMETERS_V11 {
+    struct {
+        PVOID                                       Cookie;
+        PXENVIF_TRANSMITTER_PACKET_COMPLETION_INFO  Completion;
+    } TransmitterReturnPacket;
+    struct {
+        ULONG                           Index;
+        PMDL                            Mdl;
+        ULONG                           Offset;
+        ULONG                           Length;
+        XENVIF_PACKET_CHECKSUM_FLAGS    Flags;
+        USHORT                          MaximumSegmentSize;
+        USHORT                          TagControlInformation;
+        PXENVIF_PACKET_INFO             Info;
+        PXENVIF_PACKET_HASH             Hash;
+        BOOLEAN                         More;
+        PVOID                           Cookie;
+        BOOLEAN                         Pause;
+    } ReceiverQueuePacket;
+    struct {
+        PVOID                           Context;
+        NTSTATUS                        Status;
+    } VifOidCompletion;
+};
+
+typedef union _XENVIF_VIF_CALLBACK_PARAMETERS_V11 XENVIF_VIF_CALLBACK_PARAMETERS, *PXENVIF_VIF_CALLBACK_PARAMETERS;
+
 /*! \typedef XENVIF_VIF_ACQUIRE
     \brief Acquire a reference to the VIF interface
 
@@ -488,7 +548,19 @@ typedef VOID
     IN  union _XENVIF_VIF_CALLBACK_PARAMETERS_V9   *Parameters
     );
 
-typedef union _XENVIF_VIF_CALLBACK_PARAMETERS_V10 XENVIF_VIF_CALLBACK_PARAMETERS, *PXENVIF_VIF_CALLBACK_PARAMETERS;
+/*! \typedef XENVIF_VIF_CALLBACK
+    \brief Provider to subscriber callback function
+
+    \param Argument An optional context argument passed to the callback
+    \param Type The callback type
+    \param Parameters The callback parameters
+*/
+typedef VOID
+(*XENVIF_VIF_CALLBACK_V10)(
+    IN  PVOID                               Argument OPTIONAL,
+    IN  XENVIF_VIF_CALLBACK_TYPE            Type,
+    IN  PXENVIF_VIF_CALLBACK_PARAMETERS_V10 Parameters
+    );
 
 /*! \typedef XENVIF_VIF_CALLBACK
     \brief Provider to subscriber callback function
@@ -499,9 +571,9 @@ typedef union _XENVIF_VIF_CALLBACK_PARAMETERS_V10 XENVIF_VIF_CALLBACK_PARAMETERS
 */
 typedef VOID
 (*XENVIF_VIF_CALLBACK)(
-    IN  PVOID                           Argument OPTIONAL,
-    IN  XENVIF_VIF_CALLBACK_TYPE        Type,
-    IN  PXENVIF_VIF_CALLBACK_PARAMETERS Parameters
+    _In_opt_ PVOID                          Argument,
+    _In_ XENVIF_VIF_CALLBACK_TYPE           Type,
+    _In_ PXENVIF_VIF_CALLBACK_PARAMETERS    Parameters
     );
 
 typedef NTSTATUS
@@ -518,6 +590,23 @@ typedef NTSTATUS
     IN  PVOID                   Argument OPTIONAL
     );
 
+/*! \typedef XENVIF_VIF_ENABLE_V10
+    \brief Enable the VIF interface
+
+    All packets queued for transmit will be rejected and no packets will
+    be queued for receive until this method completes.
+
+    \param Interface The interface header
+    \param Callback The subscriber's callback function
+    \param Argument An optional context argument passed to the callback
+*/
+typedef NTSTATUS
+(*XENVIF_VIF_ENABLE_V10)(
+    IN  PINTERFACE              Interface,
+    IN  XENVIF_VIF_CALLBACK_V10 Callback,
+    IN  PVOID                   Argument OPTIONAL
+    );
+
 /*! \typedef XENVIF_VIF_ENABLE
     \brief Enable the VIF interface
 
@@ -530,9 +619,9 @@ typedef NTSTATUS
 */
 typedef NTSTATUS
 (*XENVIF_VIF_ENABLE)(
-    IN  PINTERFACE          Interface,
-    IN  XENVIF_VIF_CALLBACK Callback,
-    IN  PVOID               Argument OPTIONAL
+    _In_ PINTERFACE             Interface,
+    _In_ XENVIF_VIF_CALLBACK    Callback,
+    _In_opt_ PVOID              Argument
     );
 
 /*! \typedef XENVIF_VIF_DISABLE
@@ -717,7 +806,7 @@ typedef VOID
     OUT PULONG      Size
     );
 
-/*! \typedef XENVIF_VIF_RECEIVER_SET_HASH_ALGORITHM
+/*! \typedef XENVIF_VIF_RECEIVER_SET_HASH_ALGORITHM_V8
     \brief Select a hash alorithm
 
     \param Interface The interface header
@@ -725,12 +814,29 @@ typedef VOID
     XENVIF_PACKET_HASH_ALGORITHM_NONE to disable hashing)
 */
 typedef NTSTATUS
-(*XENVIF_VIF_RECEIVER_SET_HASH_ALGORITHM)(
+(*XENVIF_VIF_RECEIVER_SET_HASH_ALGORITHM_V8)(
     IN  PINTERFACE                      Interface,
     IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
     );
 
-/*! \typedef XENVIF_VIF_RECEIVER_QUERY_HASH_CAPABILITIES
+/*! \typedef XENVIF_VIF_RECEIVER_SET_HASH_ALGORITHM
+    \brief Select a hash algorithm
+
+    \param Interface The interface header
+    \param Algorithm The algorithm to enable (or
+    XENVIF_PACKET_HASH_ALGORITHM_NONE to disable hashing)
+    \param Callback The completion callback
+    \param Context An optional context argument passed to the callback
+*/
+typedef NTSTATUS
+(*XENVIF_VIF_RECEIVER_SET_HASH_ALGORITHM)(
+    _In_ PINTERFACE                     Interface,
+    _In_ XENVIF_PACKET_HASH_ALGORITHM   Algorithm,
+    _In_ XENVIF_VIF_CALLBACK            Callback,
+    _In_opt_ PVOID                      Context
+    );
+
+/*! \typedef XENVIF_VIF_RECEIVER_QUERY_HASH_CAPABILITIES_V8
     \brief Query any algorithm-specific capabilities.
 
     \param Interface The interface header
@@ -740,12 +846,31 @@ typedef NTSTATUS
     \param Types Mask of hash types supported
 */
 typedef NTSTATUS
-(*XENVIF_VIF_RECEIVER_QUERY_HASH_CAPABILITIES)(
+(*XENVIF_VIF_RECEIVER_QUERY_HASH_CAPABILITIES_V8)(
     IN  PINTERFACE  Interface,
     ...
     );
 
-/*! \typedef XENVIF_VIF_RECEIVER_UPDATE_HASH_PARAMETERS
+/*! \typedef XENVIF_VIF_RECEIVER_QUERY_HASH_CAPABILITIES
+    \brief Query any algorithm-specific capabilities.
+
+    \param Interface The interface header
+    \param Callback The completion callback
+    \param Context An optional context argument passed to the callback
+    \param ... Additional capabilities reported by the selected algorithm
+
+    \b XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
+    \param Types Mask of hash types supported
+*/
+typedef NTSTATUS
+(*XENVIF_VIF_RECEIVER_QUERY_HASH_CAPABILITIES)(
+    _In_ PINTERFACE             Interface,
+    _In_ XENVIF_VIF_CALLBACK    Callback,
+    _In_opt_ PVOID              Context,
+    ...
+    );
+
+/*! \typedef XENVIF_VIF_RECEIVER_UPDATE_HASH_PARAMETERS_V8
     \brief Set parameters of currently selected algorithm.
 
     \param Interface The interface header
@@ -756,8 +881,28 @@ typedef NTSTATUS
     \param Key Pointer to a 40-byte array containing the hash key
 */
 typedef NTSTATUS
-(*XENVIF_VIF_RECEIVER_UPDATE_HASH_PARAMETERS)(
+(*XENVIF_VIF_RECEIVER_UPDATE_HASH_PARAMETERS_V8)(
     IN  PINTERFACE  Interface,
+    ...
+    );
+
+/*! \typedef XENVIF_VIF_RECEIVER_UPDATE_HASH_PARAMETERS
+    \brief Set parameters of currently selected algorithm.
+
+    \param Interface The interface header
+    \param Callback The completion callback
+    \param Context An optional context argument passed to the callback
+    \param ... Additional parameters required by the selected algorithm
+
+    \b XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
+    \param Types Mask of hash types enabled
+    \param Key Pointer to a 40-byte array containing the hash key
+*/
+typedef NTSTATUS
+(*XENVIF_VIF_RECEIVER_UPDATE_HASH_PARAMETERS)(
+    _In_ PINTERFACE             Interface,
+    _In_ XENVIF_VIF_CALLBACK    Callback,
+    _In_opt_ PVOID              Context,
     ...
     );
 
@@ -906,9 +1051,9 @@ struct _XENVIF_VIF_INTERFACE_V8 {
     XENVIF_VIF_RECEIVER_SET_OFFLOAD_OPTIONS         ReceiverSetOffloadOptions;
     XENVIF_VIF_RECEIVER_SET_BACKFILL_SIZE           ReceiverSetBackfillSize;
     XENVIF_VIF_RECEIVER_QUERY_RING_SIZE             ReceiverQueryRingSize;
-    XENVIF_VIF_RECEIVER_SET_HASH_ALGORITHM          ReceiverSetHashAlgorithm;
-    XENVIF_VIF_RECEIVER_QUERY_HASH_CAPABILITIES     ReceiverQueryHashCapabilities;
-    XENVIF_VIF_RECEIVER_UPDATE_HASH_PARAMETERS      ReceiverUpdateHashParameters;
+    XENVIF_VIF_RECEIVER_SET_HASH_ALGORITHM_V8       ReceiverSetHashAlgorithmVersion8;
+    XENVIF_VIF_RECEIVER_QUERY_HASH_CAPABILITIES_V8  ReceiverQueryHashCapabilitiesVersion8;
+    XENVIF_VIF_RECEIVER_UPDATE_HASH_PARAMETERS_V8   ReceiverUpdateHashParametersVersion8;
     XENVIF_VIF_TRANSMITTER_QUEUE_PACKET             TransmitterQueuePacket;
     XENVIF_VIF_TRANSMITTER_QUERY_OFFLOAD_OPTIONS    TransmitterQueryOffloadOptions;
     XENVIF_VIF_TRANSMITTER_QUERY_LARGE_PACKET_SIZE  TransmitterQueryLargePacketSize;
@@ -940,9 +1085,9 @@ struct _XENVIF_VIF_INTERFACE_V9 {
     XENVIF_VIF_RECEIVER_SET_OFFLOAD_OPTIONS         ReceiverSetOffloadOptions;
     XENVIF_VIF_RECEIVER_SET_BACKFILL_SIZE           ReceiverSetBackfillSize;
     XENVIF_VIF_RECEIVER_QUERY_RING_SIZE             ReceiverQueryRingSize;
-    XENVIF_VIF_RECEIVER_SET_HASH_ALGORITHM          ReceiverSetHashAlgorithm;
-    XENVIF_VIF_RECEIVER_QUERY_HASH_CAPABILITIES     ReceiverQueryHashCapabilities;
-    XENVIF_VIF_RECEIVER_UPDATE_HASH_PARAMETERS      ReceiverUpdateHashParameters;
+    XENVIF_VIF_RECEIVER_SET_HASH_ALGORITHM_V8       ReceiverSetHashAlgorithmVersion8;
+    XENVIF_VIF_RECEIVER_QUERY_HASH_CAPABILITIES_V8  ReceiverQueryHashCapabilitiesVersion8;
+    XENVIF_VIF_RECEIVER_UPDATE_HASH_PARAMETERS_V8   ReceiverUpdateHashParametersVersion8;
     XENVIF_VIF_TRANSMITTER_QUEUE_PACKET             TransmitterQueuePacket;
     XENVIF_VIF_TRANSMITTER_QUERY_OFFLOAD_OPTIONS    TransmitterQueryOffloadOptions;
     XENVIF_VIF_TRANSMITTER_QUERY_LARGE_PACKET_SIZE  TransmitterQueryLargePacketSize;
@@ -962,6 +1107,40 @@ struct _XENVIF_VIF_INTERFACE_V9 {
     \ingroup interfaces
 */
 struct _XENVIF_VIF_INTERFACE_V10 {
+    INTERFACE                                       Interface;
+    XENVIF_VIF_ACQUIRE                              Acquire;
+    XENVIF_VIF_RELEASE                              Release;
+    XENVIF_VIF_ENABLE_V10                           EnableVersion10;
+    XENVIF_VIF_DISABLE                              Disable;
+    XENVIF_VIF_QUERY_STATISTIC                      QueryStatistic;
+    XENVIF_VIF_QUERY_RING_COUNT                     QueryRingCount;
+    XENVIF_VIF_UPDATE_HASH_MAPPING                  UpdateHashMapping;
+    XENVIF_VIF_RECEIVER_RETURN_PACKET               ReceiverReturnPacket;
+    XENVIF_VIF_RECEIVER_SET_OFFLOAD_OPTIONS         ReceiverSetOffloadOptions;
+    XENVIF_VIF_RECEIVER_SET_BACKFILL_SIZE           ReceiverSetBackfillSize;
+    XENVIF_VIF_RECEIVER_QUERY_RING_SIZE             ReceiverQueryRingSize;
+    XENVIF_VIF_RECEIVER_SET_HASH_ALGORITHM_V8       ReceiverSetHashAlgorithmVersion8;
+    XENVIF_VIF_RECEIVER_QUERY_HASH_CAPABILITIES_V8  ReceiverQueryHashCapabilitiesVersion8;
+    XENVIF_VIF_RECEIVER_UPDATE_HASH_PARAMETERS_V8   ReceiverUpdateHashParametersVersion8;
+    XENVIF_VIF_TRANSMITTER_QUEUE_PACKET             TransmitterQueuePacket;
+    XENVIF_VIF_TRANSMITTER_QUERY_OFFLOAD_OPTIONS    TransmitterQueryOffloadOptions;
+    XENVIF_VIF_TRANSMITTER_QUERY_LARGE_PACKET_SIZE  TransmitterQueryLargePacketSize;
+    XENVIF_VIF_TRANSMITTER_QUERY_RING_SIZE          TransmitterQueryRingSize;
+    XENVIF_VIF_MAC_QUERY_STATE                      MacQueryState;
+    XENVIF_VIF_MAC_QUERY_MAXIMUM_FRAME_SIZE         MacQueryMaximumFrameSize;
+    XENVIF_VIF_MAC_QUERY_PERMANENT_ADDRESS          MacQueryPermanentAddress;
+    XENVIF_VIF_MAC_QUERY_CURRENT_ADDRESS            MacQueryCurrentAddress;
+    XENVIF_VIF_MAC_QUERY_MULTICAST_ADDRESSES        MacQueryMulticastAddresses;
+    XENVIF_VIF_MAC_SET_MULTICAST_ADDRESSES          MacSetMulticastAddresses;
+    XENVIF_VIF_MAC_SET_FILTER_LEVEL                 MacSetFilterLevel;
+    XENVIF_VIF_MAC_QUERY_FILTER_LEVEL               MacQueryFilterLevel;
+};
+
+/*! \struct _XENVIF_VIF_INTERFACE_V11
+    \brief VIF interface version 11
+    \ingroup interfaces
+*/
+struct _XENVIF_VIF_INTERFACE_V11 {
     INTERFACE                                       Interface;
     XENVIF_VIF_ACQUIRE                              Acquire;
     XENVIF_VIF_RELEASE                              Release;
@@ -991,7 +1170,7 @@ struct _XENVIF_VIF_INTERFACE_V10 {
     XENVIF_VIF_MAC_QUERY_FILTER_LEVEL               MacQueryFilterLevel;
 };
 
-typedef struct _XENVIF_VIF_INTERFACE_V10 XENVIF_VIF_INTERFACE, *PXENVIF_VIF_INTERFACE;
+typedef struct _XENVIF_VIF_INTERFACE_V11 XENVIF_VIF_INTERFACE, *PXENVIF_VIF_INTERFACE;
 
 /*! \def XENVIF_VIF
     \brief Macro at assist in method invocation
@@ -1002,6 +1181,6 @@ typedef struct _XENVIF_VIF_INTERFACE_V10 XENVIF_VIF_INTERFACE, *PXENVIF_VIF_INTE
 #endif  // _WINDLL
 
 #define XENVIF_VIF_INTERFACE_VERSION_MIN    8
-#define XENVIF_VIF_INTERFACE_VERSION_MAX    10
+#define XENVIF_VIF_INTERFACE_VERSION_MAX    11
 
 #endif  // _XENVIF_INTERFACE_H

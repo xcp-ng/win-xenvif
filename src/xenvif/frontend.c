@@ -1,32 +1,32 @@
 /* Copyright (c) Xen Project.
  * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -67,47 +67,73 @@ typedef struct _XENVIF_FRONTEND_HASH {
     ULONG                           Size;
 } XENVIF_FRONTEND_HASH, *PXENVIF_FRONTEND_HASH;
 
+typedef enum _XENVIF_HASH_OPERATION_STATE {
+    XENVIF_HASH_OPERATION_NONE,
+    XENVIF_HASH_UPDATING_ALGORITHM,
+    XENVIF_HASH_UPDATING_MAPPING_SIZE,
+    XENVIF_HASH_UPDATING_MAPPING,
+    XENVIF_HASH_UPDATING_HASH_KEY,
+    XENVIF_HASH_UPDATING_HASH_FLAGS,
+    XENVIF_HASH_QUERYING_HASH_TYPES
+} XENVIF_HASH_OPERATION_STATE;
+
+typedef enum _XENVIF_FRONTEND_REQUEST_STATE {
+    XENVIF_FRONTEND_REQUEST_FREE = 0,
+    XENVIF_FRONTEND_REQUEST_BUSY
+} XENVIF_FRONTEND_REQUEST_STATE;
+
 struct _XENVIF_FRONTEND {
-    PXENVIF_PDO                 Pdo;
-    PCHAR                       Path;
-    PCHAR                       Prefix;
-    XENVIF_FRONTEND_STATE       State;
-    BOOLEAN                     Online;
-    KSPIN_LOCK                  Lock;
-    PXENVIF_THREAD              EjectThread;
-    KEVENT                      EjectEvent;
+    PXENVIF_PDO                     Pdo;
+    PCHAR                           Path;
+    PCHAR                           Prefix;
+    XENVIF_FRONTEND_STATE           State;
+    BOOLEAN                         Online;
+    KSPIN_LOCK                      Lock;
+    PXENVIF_THREAD                  EjectThread;
+    KEVENT                          EjectEvent;
 
-    PCHAR                       BackendPath;
-    USHORT                      BackendDomain;
-    ULONG                       MaxQueues;
-    ULONG                       NumQueues;
-    BOOLEAN                     Split;
-    ULONG                       DisableToeplitz;
+    PCHAR                           BackendPath;
+    USHORT                          BackendDomain;
+    ULONG                           MaxQueues;
+    ULONG                           NumQueues;
+    BOOLEAN                         Split;
+    ULONG                           DisableToeplitz;
 
-    PXENVIF_MAC                 Mac;
-    PXENVIF_RECEIVER            Receiver;
-    PXENVIF_TRANSMITTER         Transmitter;
-    PXENVIF_CONTROLLER          Controller;
+    PXENVIF_MAC                     Mac;
+    PXENVIF_RECEIVER                Receiver;
+    PXENVIF_TRANSMITTER             Transmitter;
+    PXENVIF_CONTROLLER              Controller;
 
-    XENBUS_DEBUG_INTERFACE      DebugInterface;
-    XENBUS_SUSPEND_INTERFACE    SuspendInterface;
-    XENBUS_STORE_INTERFACE      StoreInterface;
+    XENBUS_DEBUG_INTERFACE          DebugInterface;
+    XENBUS_SUSPEND_INTERFACE        SuspendInterface;
+    XENBUS_STORE_INTERFACE          StoreInterface;
 
-    PXENBUS_SUSPEND_CALLBACK    SuspendCallbackEarly;
-    PXENBUS_SUSPEND_CALLBACK    SuspendCallbackLate;
-    PXENBUS_DEBUG_CALLBACK      DebugCallback;
-    PXENBUS_STORE_WATCH         Watch;
+    PXENBUS_SUSPEND_CALLBACK        SuspendCallbackEarly;
+    PXENBUS_SUSPEND_CALLBACK        SuspendCallbackLate;
+    PXENBUS_DEBUG_CALLBACK          DebugCallback;
+    PXENBUS_STORE_WATCH             Watch;
 
-    PXENVIF_FRONTEND_STATISTICS Statistics;
-    ULONG                       StatisticsCount;
+    PXENVIF_FRONTEND_STATISTICS     Statistics;
+    ULONG                           StatisticsCount;
 
-    PXENVIF_THREAD              MibThread;
-    CHAR                        Alias[IF_MAX_STRING_SIZE + 1];
-    NET_IFINDEX                 InterfaceIndex;
-    PSOCKADDR_INET              AddressTable;
-    ULONG                       AddressCount;
+    PXENVIF_THREAD                  MibThread;
+    CHAR                            Alias[IF_MAX_STRING_SIZE + 1];
+    NET_IFINDEX                     InterfaceIndex;
+    PSOCKADDR_INET                  AddressTable;
+    ULONG                           AddressCount;
 
-    XENVIF_FRONTEND_HASH        Hash;
+    // For the FrontendOnControllerUpdated state machine
+    XENVIF_HASH_OPERATION_STATE     HashState;
+    XENVIF_FRONTEND_HASH            NextHash;
+    XENVIF_FRONTEND_HASH_CALLBACK   HashCallback;
+    PVOID                           HashArgument;
+
+    XENVIF_FRONTEND_HASH            Hash;
+
+    // For the FrontendSetState state machine
+    XENVIF_FRONTEND_REQUEST_STATE   RequestState;
+    XENVIF_FRONTEND_STATE_CALLBACK  StateCallback;
+    PVOID                           StateArgument;
 };
 
 static const PCHAR
@@ -452,9 +478,9 @@ FrontendEjectFailed(
     if (Path == NULL)
         goto fail1;
 
-    status = RtlStringCbPrintfA(Path, 
+    status = RtlStringCbPrintfA(Path,
                                 Length,
-                                "error/%s", 
+                                "error/%s",
                                 __FrontendGetPath(Frontend));
     if (!NT_SUCCESS(status))
         goto fail2;
@@ -836,7 +862,7 @@ FrontendMib(
     NTSTATUS            (*__GetIfTable2)(PMIB_IF_TABLE2 *);
     NTSTATUS            (*__NotifyUnicastIpAddressChange)(ADDRESS_FAMILY,
                                                           PUNICAST_IPADDRESS_CHANGE_CALLBACK,
-                                                          PVOID,    
+                                                          PVOID,
                                                           BOOLEAN,
                                                           HANDLE *);
     NTSTATUS            (*__GetUnicastIpAddressTable)(ADDRESS_FAMILY,
@@ -889,7 +915,7 @@ FrontendMib(
 
     Event = ThreadGetEvent(Self);
 
-    for (;;) { 
+    for (;;) {
         PMIB_IF_TABLE2              IfTable;
         PMIB_UNICASTIPADDRESS_TABLE UnicastIpAddressTable;
         KIRQL                       Irql;
@@ -1896,80 +1922,159 @@ FrontendIsSplit(
 }
 
 _IRQL_requires_(DISPATCH_LEVEL)
-static FORCEINLINE NTSTATUS
-__FrontendUpdateHash(
-    PXENVIF_FRONTEND        Frontend,
-    PXENVIF_FRONTEND_HASH   Hash
+static VOID
+FrontendOnControllerUpdated(
+    _In_opt_ PVOID                  Context,
+    _In_ NTSTATUS                   CallbackStatus,
+    _In_ ULONG                      Data
     )
 {
-    PXENVIF_CONTROLLER      Controller;
-    ULONG                   Zero = 0;
-    ULONG                   NetifAlgorithm;
-    ULONG                   Size;
-    PULONG                  Mapping;
-    ULONG                   Flags;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND                Frontend = Context;
+    PXENVIF_FRONTEND_HASH           Hash = &Frontend->Hash;
+    PXENVIF_CONTROLLER              Controller;
+    XENVIF_HASH_OPERATION_STATE     NextState;
+    KIRQL                           Irql;
+    XENVIF_FRONTEND_HASH_CALLBACK   Callback;
+    PVOID                           Argument;
+    NTSTATUS                        status;
+
+    UNREFERENCED_PARAMETER(Data);
+
+    KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
     Controller = __FrontendGetController(Frontend);
 
+    switch (Frontend->HashState) {
+    case XENVIF_HASH_UPDATING_MAPPING:
+        ControllerEndSetHashMapping(Controller);
+        break;
+    case XENVIF_HASH_UPDATING_HASH_KEY:
+        ControllerEndSetHashKey(Controller);
+        break;
+    }
+
+    if (!NT_SUCCESS(CallbackStatus)) {
+        status = CallbackStatus;
+        NextState = XENVIF_HASH_OPERATION_NONE;
+        goto out;
+    }
+
+    switch (Frontend->HashState) {
+    case XENVIF_HASH_UPDATING_ALGORITHM:
+        if (Frontend->Hash.Algorithm == XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ) {
+            status = ControllerSetHashMappingSize(Controller,
+                                                  FrontendOnControllerUpdated,
+                                                  Frontend,
+                                                  Hash->Size);
+            NextState = XENVIF_HASH_UPDATING_MAPPING_SIZE;
+        } else {
+            status = STATUS_SUCCESS;
+            NextState = XENVIF_HASH_OPERATION_NONE;
+        }
+        break;
+    case XENVIF_HASH_UPDATING_MAPPING_SIZE:
+        status = ControllerSetHashMapping(Controller,
+                                          FrontendOnControllerUpdated,
+                                          Frontend,
+                                          Hash->Mapping,
+                                          Hash->Size,
+                                          0);
+        NextState = XENVIF_HASH_UPDATING_MAPPING;
+        break;
+    case XENVIF_HASH_UPDATING_MAPPING:
+        ControllerCompleteSetHashMapping(Controller);
+        status = ControllerSetHashKey(Controller,
+                                      FrontendOnControllerUpdated,
+                                      Frontend,
+                                      Hash->Key,
+                                      XENVIF_VIF_HASH_KEY_SIZE);
+        NextState = XENVIF_HASH_UPDATING_HASH_KEY;
+        break;
+    case XENVIF_HASH_UPDATING_HASH_KEY:
+        ControllerCompleteSetHashKey(Controller);
+        status = ControllerSetHashFlags(Controller,
+                                        FrontendOnControllerUpdated,
+                                        Frontend,
+                                        Hash->Flags);
+        NextState = XENVIF_HASH_UPDATING_HASH_FLAGS;
+        break;
+    case XENVIF_HASH_UPDATING_HASH_FLAGS:
+        status = CallbackStatus;
+        NextState = XENVIF_HASH_OPERATION_NONE;
+        break;
+    default:
+        BUG("Unacceptable hash operation state");
+        break;
+    }
+
+out:
+    if (NT_SUCCESS(status))
+        Frontend->HashState = NextState;
+    else
+        Frontend->HashState = XENVIF_HASH_OPERATION_NONE;
+
+    ASSERT(IMPLY(Frontend->HashState == XENVIF_HASH_OPERATION_NONE,
+                 status != STATUS_PENDING));
+
+    if (Frontend->HashState == XENVIF_HASH_OPERATION_NONE) {
+        Callback = Frontend->HashCallback;
+        Argument = Frontend->HashArgument;
+    }
+    Frontend->HashCallback = NULL;
+    Frontend->HashArgument = NULL;
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    if (Callback)
+        Callback(Argument, status, 0);
+}
+
+_IRQL_requires_(DISPATCH_LEVEL)
+_Requires_lock_held_(Frontend->Lock)
+static FORCEINLINE NTSTATUS
+__FrontendUpdateHash(
+    _In_ PXENVIF_FRONTEND                   Frontend,
+    _In_opt_ XENVIF_FRONTEND_HASH_CALLBACK  Callback,
+    _In_opt_ PVOID                          Argument,
+    _In_ PXENVIF_FRONTEND_HASH              Hash
+    )
+{
+    PXENVIF_CONTROLLER                      Controller;
+    ULONG                                   NetifAlgorithm;
+    NTSTATUS                                status;
+
+    Controller = __FrontendGetController(Frontend);
+
+    if (Frontend->HashState != XENVIF_HASH_OPERATION_NONE)
+        return STATUS_DEVICE_BUSY;
+
+    RtlCopyMemory(&Frontend->NextHash, Hash, sizeof(XENVIF_FRONTEND_HASH));
     switch (Hash->Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
     case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
         NetifAlgorithm = XEN_NETIF_CTRL_HASH_ALGORITHM_NONE;
-        Size = 1;
-        Mapping = &Zero;
-        Flags = 0;
         break;
 
     case XENVIF_PACKET_HASH_ALGORITHM_TOEPLITZ:
         NetifAlgorithm = XEN_NETIF_CTRL_HASH_ALGORITHM_TOEPLITZ;
-        Size = Hash->Size;
-        Mapping = Hash->Mapping;
-        Flags = Hash->Flags;
         break;
 
     default:
         return STATUS_NOT_SUPPORTED;
     }
 
+    Frontend->HashCallback = Callback;
+    Frontend->HashArgument = Argument;
     status = ControllerSetHashAlgorithm(Controller,
+                                        FrontendOnControllerUpdated,
+                                        Frontend,
                                         NetifAlgorithm);
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    if (NetifAlgorithm == XEN_NETIF_CTRL_HASH_ALGORITHM_NONE)
-        goto done;
+    Frontend->HashState = XENVIF_HASH_UPDATING_ALGORITHM;
 
-    status = ControllerSetHashMappingSize(Controller, Size);
-    if (!NT_SUCCESS(status))
-        goto fail2;
-
-    status = ControllerSetHashMapping(Controller, Mapping, Size, 0);
-    if (!NT_SUCCESS(status))
-        goto fail3;
-
-    status = ControllerSetHashKey(Controller, Hash->Key, XENVIF_VIF_HASH_KEY_SIZE);
-    if (!NT_SUCCESS(status))
-        goto fail4;
-
-    status = ControllerSetHashFlags(Controller, Flags);
-    if (!NT_SUCCESS(status))
-        goto fail5;
-
-done:
-    return STATUS_SUCCESS;
-
-fail5:
-    Error("fail5\n");
-
-fail4:
-    Error("fail4\n");
-
-fail3:
-    Error("fail3\n");
-
-fail2:
-    Error("fail2\n");
+    return status;
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -1980,13 +2085,15 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashAlgorithm(
-    IN  PXENVIF_FRONTEND                Frontend,
-    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
+    _In_ PXENVIF_FRONTEND                   Frontend,
+    _In_opt_ XENVIF_FRONTEND_HASH_CALLBACK  Callback,
+    _In_opt_ PVOID                          Argument,
+    _In_ XENVIF_PACKET_HASH_ALGORITHM       Algorithm
     )
 {
-    XENVIF_FRONTEND_HASH                Hash;
-    KIRQL                               Irql;
-    NTSTATUS                            status;
+    XENVIF_FRONTEND_HASH                    Hash;
+    KIRQL                                   Irql;
+    NTSTATUS                                status;
 
     KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
@@ -2023,7 +2130,7 @@ FrontendSetHashAlgorithm(
 
     Hash.Algorithm = Algorithm;
 
-    status = __FrontendUpdateHash(Frontend, &Hash);
+    status = __FrontendUpdateHash(Frontend, Callback, Argument, &Hash);
     if (!NT_SUCCESS(status))
         goto fail2;
 
@@ -2045,32 +2152,61 @@ fail1:
 }
 
 _IRQL_requires_(DISPATCH_LEVEL)
-NTSTATUS
-FrontendQueryHashTypes(
-    IN  PXENVIF_FRONTEND    Frontend,
-    OUT PULONG              Types
+static VOID
+FrontendQueryHashCallback(
+    _In_opt_ PVOID                  Context,
+    _In_ NTSTATUS                   CallbackStatus,
+    _In_ ULONG                      Data
     )
 {
-    KIRQL                   Irql;
-    ULONG                   Flags;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND                Frontend = Context;
+    KIRQL                           Irql;
+    XENVIF_FRONTEND_HASH_CALLBACK   Callback;
+    PVOID                           Argument;
 
     KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
+    BUG_ON(CallbackStatus == STATUS_PENDING);
+
+    Frontend->HashState = XENVIF_HASH_OPERATION_NONE;
+    Callback = Frontend->HashCallback;
+    Argument = Frontend->HashArgument;
+    Frontend->HashCallback = NULL;
+    Frontend->HashArgument = NULL;
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    if (Callback)
+        Callback(Argument, CallbackStatus, 0);
+}
+
+_IRQL_requires_(DISPATCH_LEVEL)
+NTSTATUS
+FrontendQueryHashTypes(
+    _In_ PXENVIF_FRONTEND                   Frontend,
+    _In_opt_ XENVIF_FRONTEND_HASH_CALLBACK  Callback,
+    _In_opt_ PVOID                          Argument
+    )
+{
+    KIRQL                                   Irql;
+    ULONG                                   Flags;
+    NTSTATUS                                status;
+
+    KeAcquireSpinLock(&Frontend->Lock, &Irql);
+
+    status = STATUS_DEVICE_BUSY;
+    if (Frontend->HashState != XENVIF_HASH_OPERATION_NONE)
+        goto fail1;
+
+    Frontend->HashCallback = Callback;
+    Frontend->HashArgument = Argument;
     status = ControllerGetHashFlags(__FrontendGetController(Frontend),
-                                    &Flags);
+                                    FrontendQueryHashCallback,
+                                    Frontend);
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    *Types = 0;
-    if (Flags & XEN_NETIF_CTRL_HASH_TYPE_IPV4)
-        *Types |= 1 << XENVIF_PACKET_HASH_TYPE_IPV4;
-    if (Flags & XEN_NETIF_CTRL_HASH_TYPE_IPV4_TCP)
-        *Types |= 1 << XENVIF_PACKET_HASH_TYPE_IPV4_TCP;
-    if (Flags & XEN_NETIF_CTRL_HASH_TYPE_IPV6)
-        *Types |= 1 << XENVIF_PACKET_HASH_TYPE_IPV6;
-    if (Flags & XEN_NETIF_CTRL_HASH_TYPE_IPV6_TCP)
-        *Types |= 1 << XENVIF_PACKET_HASH_TYPE_IPV6_TCP;
+    Frontend->HashState = XENVIF_HASH_QUERYING_HASH_TYPES;
 
     KeReleaseSpinLock(&Frontend->Lock, Irql);
 
@@ -2087,14 +2223,16 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashMapping(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PULONG              Mapping,
-    IN  ULONG               Size
+    _In_ PXENVIF_FRONTEND                   Frontend,
+    _In_opt_ XENVIF_FRONTEND_HASH_CALLBACK  Callback,
+    _In_opt_ PVOID                          Argument,
+    _In_reads_bytes_(Size) PULONG           Mapping,
+    _In_ ULONG                              Size
     )
 {
-    XENVIF_FRONTEND_HASH    Hash;
-    KIRQL                   Irql;
-    NTSTATUS                status;
+    XENVIF_FRONTEND_HASH                    Hash;
+    KIRQL                                   Irql;
+    NTSTATUS                                status;
 
     KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
@@ -2107,7 +2245,7 @@ FrontendSetHashMapping(
     RtlCopyMemory(Hash.Mapping, Mapping, sizeof (ULONG) * Size);
     Hash.Size = Size;
 
-    status = __FrontendUpdateHash(Frontend, &Hash);
+    status = __FrontendUpdateHash(Frontend, Callback, Argument, &Hash);
     if (!NT_SUCCESS(status))
         goto fail2;
 
@@ -2131,8 +2269,10 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashKey(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PUCHAR              Key
+    _In_ PXENVIF_FRONTEND                               Frontend,
+    _In_opt_ XENVIF_FRONTEND_HASH_CALLBACK              Callback,
+    _In_opt_ PVOID                                      Argument,
+    _In_reads_bytes_(XENVIF_VIF_HASH_KEY_SIZE) PUCHAR   Key
     )
 {
     XENVIF_FRONTEND_HASH    Hash;
@@ -2145,7 +2285,7 @@ FrontendSetHashKey(
 
     RtlCopyMemory(Hash.Key, Key, XENVIF_VIF_HASH_KEY_SIZE);
 
-    status = __FrontendUpdateHash(Frontend, &Hash);
+    status = __FrontendUpdateHash(Frontend, Callback, Argument, &Hash);
     if (!NT_SUCCESS(status))
         goto fail1;
 
@@ -2166,14 +2306,16 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashTypes(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Types
+    _In_ PXENVIF_FRONTEND                   Frontend,
+    _In_opt_ XENVIF_FRONTEND_HASH_CALLBACK  Callback,
+    _In_opt_ PVOID                          Argument,
+    _In_ ULONG                              Types
     )
 {
-    XENVIF_FRONTEND_HASH    Hash;
-    KIRQL                   Irql;
-    ULONG                   Flags;
-    NTSTATUS                status;
+    XENVIF_FRONTEND_HASH                    Hash;
+    KIRQL                                   Irql;
+    ULONG                                   Flags;
+    NTSTATUS                                status;
 
     KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
@@ -2191,7 +2333,7 @@ FrontendSetHashTypes(
 
     Hash.Flags = Flags;
 
-    status = __FrontendUpdateHash(Frontend, &Hash);
+    status = __FrontendUpdateHash(Frontend, Callback, Argument, &Hash);
     if (!NT_SUCCESS(status))
         goto fail1;
 
@@ -2464,13 +2606,46 @@ FrontendDisconnect(
     Trace("<====\n");
 }
 
+static VOID
+FrontendOnHashUpdated(
+    _In_opt_ PVOID                  Context,
+    _In_ NTSTATUS                   CallbackStatus,
+    _In_ ULONG                      Data
+    )
+{
+    PXENVIF_FRONTEND                Frontend = Context;
+    XENVIF_FRONTEND_STATE_CALLBACK  StateCallback;
+    PVOID                           StateArgument;
+    KIRQL                           Irql;
+
+    UNREFERENCED_PARAMETER(Data);
+
+    KeAcquireSpinLock(&Frontend->Lock, &Irql);
+
+    BUG_ON(CallbackStatus == STATUS_PENDING);
+
+    (VOID) FrontendNotifyMulticastAddresses(Frontend, TRUE);
+
+    Frontend->State = FRONTEND_ENABLED;
+    Frontend->RequestState = XENVIF_FRONTEND_REQUEST_FREE;
+    StateCallback = Frontend->StateCallback;
+    StateArgument = Frontend->StateArgument;
+    Frontend->StateCallback = NULL;
+    Frontend->StateArgument = NULL;
+
+    KeReleaseSpinLock(&Frontend->Lock, Irql);
+
+    if (StateCallback)
+        StateCallback(StateArgument, CallbackStatus);
+}
+
 _IRQL_requires_(DISPATCH_LEVEL)
 static NTSTATUS
 FrontendEnable(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND               Frontend
     )
 {
-    NTSTATUS                status;
+    NTSTATUS                            status;
 
     Trace("====>\n");
 
@@ -2486,14 +2661,15 @@ FrontendEnable(
     if (!NT_SUCCESS(status))
         goto fail3;
 
-    status = __FrontendUpdateHash(Frontend, &Frontend->Hash);
+    status = __FrontendUpdateHash(Frontend,
+                                  FrontendOnHashUpdated,
+                                  Frontend,
+                                  &Frontend->Hash);
     if (!NT_SUCCESS(status))
         goto fail4;
 
-    (VOID) FrontendNotifyMulticastAddresses(Frontend, TRUE);
-
     Trace("<====\n");
-    return STATUS_SUCCESS;
+    return STATUS_PENDING;
 
 fail4:
     Error("fail4\n");
@@ -2535,13 +2711,16 @@ FrontendDisable(
 
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
-FrontendSetState(
-    IN  PXENVIF_FRONTEND        Frontend,
-    IN  XENVIF_FRONTEND_STATE   State
+FrontendSetStateAsync(
+    _In_ PXENVIF_FRONTEND               Frontend,
+    _In_ XENVIF_FRONTEND_STATE_CALLBACK Callback,
+    _In_ PVOID                          Argument,
+    _In_ XENVIF_FRONTEND_STATE          State
     )
 {
-    BOOLEAN                     Failed;
-    KIRQL                       Irql;
+    BOOLEAN                             Done;
+    KIRQL                               Irql;
+    NTSTATUS                            status;
 
     KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
@@ -2550,10 +2729,13 @@ FrontendSetState(
          FrontendStateName(Frontend->State),
          FrontendStateName(State));
 
-    Failed = FALSE;
-    while (Frontend->State != State && !Failed) {
-        NTSTATUS    status;
+    status = STATUS_DEVICE_BUSY;
+    if (Frontend->RequestState != XENVIF_FRONTEND_REQUEST_FREE)
+        goto out_unlock;
 
+    status = STATUS_SUCCESS;
+    Done = FALSE;
+    while (Frontend->State != State && !Done) {
         switch (Frontend->State) {
         case FRONTEND_UNKNOWN:
             switch (State) {
@@ -2565,7 +2747,7 @@ FrontendSetState(
                 if (NT_SUCCESS(status)) {
                     Frontend->State = FRONTEND_PREPARED;
                 } else {
-                    Failed = TRUE;
+                    Done = TRUE;
                 }
                 break;
 
@@ -2584,7 +2766,7 @@ FrontendSetState(
                 if (NT_SUCCESS(status)) {
                     Frontend->State = FRONTEND_PREPARED;
                 } else {
-                    Failed = TRUE;
+                    Done = TRUE;
                 }
                 break;
 
@@ -2609,7 +2791,7 @@ FrontendSetState(
                     FrontendClose(Frontend);
                     Frontend->State = FRONTEND_CLOSED;
 
-                    Failed = TRUE;
+                    Done = TRUE;
                 }
                 break;
 
@@ -2628,15 +2810,22 @@ FrontendSetState(
         case FRONTEND_CONNECTED:
             switch (State) {
             case FRONTEND_ENABLED:
+                Frontend->StateCallback = Callback;
+                Frontend->StateArgument = Argument;
                 status = FrontendEnable(Frontend);
                 if (NT_SUCCESS(status)) {
-                    Frontend->State = FRONTEND_ENABLED;
+                    Frontend->RequestState = XENVIF_FRONTEND_REQUEST_BUSY;
+                    Done = TRUE;
                 } else {
+                    Frontend->RequestState = XENVIF_FRONTEND_REQUEST_FREE;
+                    Frontend->StateCallback = NULL;
+                    Frontend->StateArgument = NULL;
+
                     FrontendClose(Frontend);
                     Frontend->State = FRONTEND_CLOSED;
 
                     FrontendDisconnect(Frontend);
-                    Failed = TRUE;
+                    Done = TRUE;
                 }
                 break;
 
@@ -2681,11 +2870,25 @@ FrontendSetState(
              FrontendStateName(Frontend->State));
     }
 
+out_unlock:
     KeReleaseSpinLock(&Frontend->Lock, Irql);
 
     Info("%s: <=====\n", __FrontendGetPath(Frontend));
 
-    return (!Failed) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
+    return status;
+}
+
+_IRQL_requires_(DISPATCH_LEVEL)
+NTSTATUS
+FrontendSetState(
+    IN  PXENVIF_FRONTEND        Frontend,
+    IN  XENVIF_FRONTEND_STATE   State
+    )
+{
+    // List of known states needing callback
+    ASSERT3U(State, !=, FRONTEND_ENABLED);
+
+    return FrontendSetStateAsync(Frontend, NULL, NULL, State);
 }
 
 _IRQL_requires_(DISPATCH_LEVEL)
@@ -2786,7 +2989,7 @@ FrontendResume(
     Trace("<====\n");
 
     return STATUS_SUCCESS;
-    
+
 fail3:
     Error("fail3\n");
 
@@ -2881,9 +3084,9 @@ FrontendInitialize(
     if (Path == NULL)
         goto fail1;
 
-    status = RtlStringCbPrintfA(Path, 
+    status = RtlStringCbPrintfA(Path,
                                 Length,
-                                "device/vif/%s", 
+                                "device/vif/%s",
                                 Name);
     if (!NT_SUCCESS(status))
         goto fail2;
@@ -2895,7 +3098,7 @@ FrontendInitialize(
     if (Prefix == NULL)
         goto fail3;
 
-    status = RtlStringCbPrintfA(Prefix, 
+    status = RtlStringCbPrintfA(Prefix,
                                 Length,
                                 "attr/vif/%s",
                                 Name);

@@ -1,32 +1,32 @@
 /* Copyright (c) Xen Project.
  * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -56,6 +56,17 @@ typedef enum _XENVIF_FRONTEND_STATE {
     FRONTEND_ENABLED
 } XENVIF_FRONTEND_STATE, *PXENVIF_FRONTEND_STATE;
 
+typedef VOID (*XENVIF_FRONTEND_HASH_CALLBACK)(
+    _In_opt_ PVOID      Context,
+    _In_ NTSTATUS       CallbackStatus,
+    _In_ ULONG          Data
+    );
+
+typedef VOID (*XENVIF_FRONTEND_STATE_CALLBACK)(
+    _In_opt_ PVOID      Context,
+    _In_ NTSTATUS       CallbackStatus
+    );
+
 _IRQL_requires_(PASSIVE_LEVEL)
 extern NTSTATUS
 FrontendInitialize(
@@ -72,6 +83,14 @@ FrontendTeardown(
 extern VOID
 FrontendEjectFailed(
     IN PXENVIF_FRONTEND Frontend
+    );
+
+NTSTATUS
+extern FrontendSetStateAsync(
+    _In_ PXENVIF_FRONTEND               Frontend,
+    _In_ XENVIF_FRONTEND_STATE_CALLBACK Callback,
+    _In_ PVOID                          Argument,
+    _In_ XENVIF_FRONTEND_STATE          State
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
@@ -219,37 +238,46 @@ FrontendAdvertiseIpAddresses(
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashAlgorithm(
-    IN  PXENVIF_FRONTEND                Frontend,
-    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
+    _In_ PXENVIF_FRONTEND                   Frontend,
+    _In_opt_ XENVIF_FRONTEND_HASH_CALLBACK  Callback,
+    _In_opt_ PVOID                          Argument,
+    _In_ XENVIF_PACKET_HASH_ALGORITHM       Algorithm
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendQueryHashTypes(
-    IN  PXENVIF_FRONTEND    Frontend,
-    OUT PULONG              Types
+    _In_ PXENVIF_FRONTEND                   Frontend,
+    _In_opt_ XENVIF_FRONTEND_HASH_CALLBACK  Callback,
+    _In_opt_ PVOID                          Argument
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashMapping(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PULONG              Mapping,
-    IN  ULONG               Order
+    _In_ PXENVIF_FRONTEND                   Frontend,
+    _In_opt_ XENVIF_FRONTEND_HASH_CALLBACK  Callback,
+    _In_opt_ PVOID                          Argument,
+    _In_reads_bytes_(Size) PULONG           Mapping,
+    _In_ ULONG                              Size
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashKey(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PUCHAR              Key
+    _In_ PXENVIF_FRONTEND                               Frontend,
+    _In_opt_ XENVIF_FRONTEND_HASH_CALLBACK              Callback,
+    _In_opt_ PVOID                                      Argument,
+    _In_reads_bytes_(XENVIF_VIF_HASH_KEY_SIZE) PUCHAR   Key
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashTypes(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Types
+    _In_ PXENVIF_FRONTEND                   Frontend,
+    _In_opt_ XENVIF_FRONTEND_HASH_CALLBACK  Callback,
+    _In_opt_ PVOID                          Argument,
+    _In_ ULONG                              Types
     );
 
 extern ULONG

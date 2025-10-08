@@ -41,6 +41,12 @@
 
 typedef struct _XENVIF_CONTROLLER XENVIF_CONTROLLER, *PXENVIF_CONTROLLER;
 
+typedef VOID (*XENVIF_CONTROLLER_REQUEST_CALLBACK)(
+    _In_opt_ PVOID      Context,
+    _In_ NTSTATUS       CallbackStatus,
+    _In_ ULONG          Data
+    );
+
 _IRQL_requires_(PASSIVE_LEVEL)
 extern NTSTATUS
 ControllerInitialize(
@@ -86,53 +92,77 @@ ControllerTeardown(
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashAlgorithm(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Algorithm
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument,
+    _In_ ULONG                                  Algorithm
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerGetHashFlags(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Flags
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashFlags(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Flags
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument,
+    _In_ ULONG                                  Flags
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashKey(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PUCHAR              Key,
-    IN  ULONG               Size
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument,
+    _In_reads_bytes_(Size) PUCHAR               Key,
+    _In_ ULONG                                  Size
+    );
+
+_IRQL_requires_(DISPATCH_LEVEL)
+extern VOID
+ControllerEndSetHashKey(
+    _In_ PXENVIF_CONTROLLER                     Controller
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerGetHashMappingSize(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Size
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashMappingSize(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Size
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument,
+    _In_ ULONG                                  Size
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashMapping(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Mapping,
-    IN  ULONG               Size,
-    IN  ULONG               Offset
+    _In_ PXENVIF_CONTROLLER                     Controller,
+    _In_opt_ XENVIF_CONTROLLER_REQUEST_CALLBACK Callback,
+    _In_opt_ PVOID                              Argument,
+    _In_reads_(Size) PULONG                     Mapping,
+    _In_ ULONG                                  Size,
+    _In_ ULONG                                  Offset
+    );
+
+_IRQL_requires_(DISPATCH_LEVEL)
+extern VOID
+ControllerEndSetHashMapping(
+    _In_ PXENVIF_CONTROLLER                     Controller
     );
 
 
