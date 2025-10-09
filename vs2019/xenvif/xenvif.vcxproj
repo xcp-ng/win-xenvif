@@ -89,6 +89,11 @@
     <ClCompile Include="../../src/xenvif/vif.c" />
   </ItemGroup>
   <ItemGroup>
+    <MASM Include="../../src/xenvif/amd64/checksum_amd64.asm">
+      <ExcludedFromBuild Condition="'$(Platform)'!='x64'">true</ExcludedFromBuild>
+    </MASM>
+  </ItemGroup>
+  <ItemGroup>
     <ResourceCompile Include="..\..\src\xenvif\xenvif.rc" />
   </ItemGroup>
   <ItemGroup>
