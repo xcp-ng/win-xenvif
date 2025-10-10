@@ -43,38 +43,45 @@
 
 typedef struct _XENVIF_TRANSMITTER XENVIF_TRANSMITTER, *PXENVIF_TRANSMITTER;
 
+_IRQL_requires_(PASSIVE_LEVEL)
 extern NTSTATUS
 TransmitterInitialize(
     IN  PXENVIF_FRONTEND    Frontend,
     OUT PXENVIF_TRANSMITTER *Transmitter
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 TransmitterConnect(
     IN  PXENVIF_TRANSMITTER Transmitter
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 TransmitterStoreWrite(
     IN  PXENVIF_TRANSMITTER         Transmitter,
     IN  PXENBUS_STORE_TRANSACTION   Transaction
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 TransmitterEnable(
     IN  PXENVIF_TRANSMITTER Transmitter
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterDisable(
     IN  PXENVIF_TRANSMITTER Transmitter
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterDisconnect(
     IN  PXENVIF_TRANSMITTER Transmitter
     );
 
+_IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 TransmitterTeardown(
     IN  PXENVIF_TRANSMITTER Transmitter
@@ -86,23 +93,27 @@ TransmitterNotify(
     IN  ULONG               Index
     );
 
+_IRQL_requires_max_(APC_LEVEL)
 extern VOID
 TransmitterAbortPackets(
     IN  PXENVIF_TRANSMITTER Transmitter
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueueArp(
     IN  PXENVIF_TRANSMITTER     Transmitter,
     IN  PIPV4_ADDRESS           Address
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueueNeighbourAdvertisement(
     IN  PXENVIF_TRANSMITTER     Transmitter,
     IN  PIPV6_ADDRESS           Address
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueueMulticastControl(
     IN  PXENVIF_TRANSMITTER     Transmitter,
@@ -110,12 +121,14 @@ TransmitterQueueMulticastControl(
     IN  BOOLEAN                 Add
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueryRingSize(
     IN  PXENVIF_TRANSMITTER Transmitter,
     OUT PULONG              Size
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 TransmitterQueuePacket(
     IN  PXENVIF_TRANSMITTER         Transmitter,
@@ -130,12 +143,14 @@ TransmitterQueuePacket(
     IN  PVOID                       Cookie
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueryOffloadOptions(
     IN  PXENVIF_TRANSMITTER         Transmitter,
     OUT PXENVIF_VIF_OFFLOAD_OPTIONS Options
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueryLargePacketSize(
     IN  PXENVIF_TRANSMITTER     Transmitter,
@@ -143,11 +158,13 @@ TransmitterQueryLargePacketSize(
     OUT PULONG                  Size
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 BOOLEAN
 TransmitterHasMulticastControl(
     IN  PXENVIF_TRANSMITTER Transmitter
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 TransmitterRequestMulticastControl(
     IN  PXENVIF_TRANSMITTER Transmitter,
