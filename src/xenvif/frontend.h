@@ -56,13 +56,14 @@ typedef enum _XENVIF_FRONTEND_STATE {
     FRONTEND_ENABLED
 } XENVIF_FRONTEND_STATE, *PXENVIF_FRONTEND_STATE;
 
-__drv_requiresIRQL(PASSIVE_LEVEL)
+_IRQL_requires_(PASSIVE_LEVEL)
 extern NTSTATUS
 FrontendInitialize(
     IN  PXENVIF_PDO         Pdo,
     OUT PXENVIF_FRONTEND    *Frontend
     );
 
+_IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 FrontendTeardown(
     IN  PXENVIF_FRONTEND    Frontend
@@ -73,17 +74,22 @@ FrontendEjectFailed(
     IN PXENVIF_FRONTEND Frontend
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetState(
     IN  PXENVIF_FRONTEND        Frontend,
     IN  XENVIF_FRONTEND_STATE   State
     );
 
+_IRQL_requires_min_(PASSIVE_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendResume(
     IN  PXENVIF_FRONTEND    Frontend
     );
 
+_IRQL_requires_min_(PASSIVE_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 FrontendSuspend(
     IN  PXENVIF_FRONTEND    Frontend
@@ -188,6 +194,7 @@ FrontendIncrementStatistic(
     IN  ULONGLONG               Delta
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetMulticastAddresses(
     IN  PXENVIF_FRONTEND    Frontend,
@@ -195,6 +202,7 @@ FrontendSetMulticastAddresses(
     IN  ULONG               Count
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetFilterLevel(
     IN  PXENVIF_FRONTEND        Frontend,
@@ -202,23 +210,27 @@ FrontendSetFilterLevel(
     IN  XENVIF_MAC_FILTER_LEVEL Level
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 FrontendAdvertiseIpAddresses(
     IN  PXENVIF_FRONTEND    Frontend
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashAlgorithm(
     IN  PXENVIF_FRONTEND                Frontend,
     IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendQueryHashTypes(
     IN  PXENVIF_FRONTEND    Frontend,
     OUT PULONG              Types
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashMapping(
     IN  PXENVIF_FRONTEND    Frontend,
@@ -226,12 +238,14 @@ FrontendSetHashMapping(
     IN  ULONG               Order
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashKey(
     IN  PXENVIF_FRONTEND    Frontend,
     IN  PUCHAR              Key
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashTypes(
     IN  PXENVIF_FRONTEND    Frontend,
