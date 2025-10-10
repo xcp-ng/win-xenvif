@@ -137,6 +137,7 @@ ControllerReleaseLock(
     __ControllerReleaseLock(Controller);
 }
 
+_IRQL_requires_min_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ControllerSend(
     IN  PXENVIF_CONTROLLER  Controller
@@ -177,6 +178,7 @@ ControllerPoll(
     Controller->Shared->rsp_event = rsp_cons + 1;
 }
 
+_IRQL_requires_min_(DISPATCH_LEVEL)
 static NTSTATUS
 ControllerPutRequest(
     IN  PXENVIF_CONTROLLER          Controller,
@@ -248,6 +250,7 @@ fail1:
 
 #define XENVIF_CONTROLLER_POLL_PERIOD 100 // ms
 
+_IRQL_requires_(DISPATCH_LEVEL)
 static NTSTATUS
 ControllerGetResponse(
     IN  PXENVIF_CONTROLLER          Controller,
@@ -318,6 +321,7 @@ ControllerGetResponse(
 
 KSERVICE_ROUTINE    ControllerEvtchnCallback;
 
+_Use_decl_annotations_
 BOOLEAN
 ControllerEvtchnCallback(
     IN  PKINTERRUPT             InterruptObject,
@@ -345,6 +349,7 @@ ControllerDebugCallback(
     UNREFERENCED_PARAMETER(Crashing);
 }
 
+_IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS
 ControllerInitialize(
     IN  PXENVIF_FRONTEND    Frontend,
@@ -390,6 +395,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerConnect(
     IN  PXENVIF_CONTROLLER      Controller
@@ -597,6 +603,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerStoreWrite(
     IN  PXENVIF_CONTROLLER          Controller,
@@ -670,6 +677,7 @@ ControllerDisable(
     Trace("<===>\n");
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ControllerDisconnect(
     IN  PXENVIF_CONTROLLER  Controller
@@ -732,6 +740,7 @@ done:
     Trace("<====\n");
 }
 
+_IRQL_requires_(PASSIVE_LEVEL)
 VOID
 ControllerTeardown(
     IN  PXENVIF_CONTROLLER  Controller
@@ -762,6 +771,7 @@ ControllerTeardown(
     __ControllerFree(Controller);
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashAlgorithm(
     IN  PXENVIF_CONTROLLER  Controller,
@@ -802,6 +812,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerGetHashFlags(
     IN  PXENVIF_CONTROLLER  Controller,
@@ -842,6 +853,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashFlags(
     IN  PXENVIF_CONTROLLER  Controller,
@@ -882,6 +894,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashKey(
     IN  PXENVIF_CONTROLLER  Controller,
@@ -976,6 +989,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerGetHashMappingSize(
     IN  PXENVIF_CONTROLLER  Controller,
@@ -1016,6 +1030,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashMappingSize(
     IN  PXENVIF_CONTROLLER  Controller,
@@ -1056,6 +1071,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashMapping(
     IN  PXENVIF_CONTROLLER  Controller,

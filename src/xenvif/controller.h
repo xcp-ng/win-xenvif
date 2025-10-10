@@ -41,17 +41,20 @@
 
 typedef struct _XENVIF_CONTROLLER XENVIF_CONTROLLER, *PXENVIF_CONTROLLER;
 
+_IRQL_requires_(PASSIVE_LEVEL)
 extern NTSTATUS
 ControllerInitialize(
     IN  PXENVIF_FRONTEND    Frontend,
     OUT PXENVIF_CONTROLLER  *Controller
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerConnect(
     IN  PXENVIF_CONTROLLER  Controller
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerStoreWrite(
     IN  PXENVIF_CONTROLLER          Controller,
@@ -68,34 +71,40 @@ ControllerDisable(
     IN  PXENVIF_CONTROLLER  Controller
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ControllerDisconnect(
     IN  PXENVIF_CONTROLLER  Controller
     );
 
+_IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 ControllerTeardown(
     IN  PXENVIF_CONTROLLER  Controller
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashAlgorithm(
     IN  PXENVIF_CONTROLLER  Controller,
     IN  ULONG               Algorithm
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerGetHashFlags(
     IN  PXENVIF_CONTROLLER  Controller,
     IN  PULONG              Flags
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashFlags(
     IN  PXENVIF_CONTROLLER  Controller,
     IN  ULONG               Flags
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashKey(
     IN  PXENVIF_CONTROLLER  Controller,
@@ -103,18 +112,21 @@ ControllerSetHashKey(
     IN  ULONG               Size
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerGetHashMappingSize(
     IN  PXENVIF_CONTROLLER  Controller,
     IN  PULONG              Size
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashMappingSize(
     IN  PXENVIF_CONTROLLER  Controller,
     IN  ULONG               Size
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashMapping(
     IN  PXENVIF_CONTROLLER  Controller,
