@@ -1330,6 +1330,8 @@ fail1:
                                1);
 }
 
+_IRQL_requires_min_(PASSIVE_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ReceiverRingSwizzle(
     IN  PXENVIF_RECEIVER_RING   Ring
@@ -1571,8 +1573,8 @@ __ReceiverRingSwizzle(
     }
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
 __ReceiverRingAcquireLock(
     IN  PXENVIF_RECEIVER_RING   Ring
     )
@@ -1582,6 +1584,7 @@ __ReceiverRingAcquireLock(
     KeAcquireSpinLockAtDpcLevel(&Ring->Lock);
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 ReceiverRingAcquireLock(
     IN  PXENVIF_RECEIVER_RING   Ring
@@ -1590,8 +1593,8 @@ ReceiverRingAcquireLock(
     __ReceiverRingAcquireLock(Ring);
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
 __ReceiverRingReleaseLock(
     IN  PXENVIF_RECEIVER_RING   Ring
     )
@@ -1602,6 +1605,7 @@ __ReceiverRingReleaseLock(
     KeReleaseSpinLockFromDpcLevel(&Ring->Lock);
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 ReceiverRingReleaseLock(
     IN  PXENVIF_RECEIVER_RING   Ring
@@ -1610,10 +1614,10 @@ ReceiverRingReleaseLock(
     __ReceiverRingReleaseLock(Ring);
 }
 
-__drv_functionClass(KDEFERRED_ROUTINE)
-__drv_maxIRQL(DISPATCH_LEVEL)
-__drv_minIRQL(PASSIVE_LEVEL)
-__drv_sameIRQL
+_Function_class_(KDEFERRED_ROUTINE)
+_IRQL_requires_min_(PASSIVE_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
+_IRQL_requires_same_
 static VOID
 ReceiverRingQueueDpc(
     IN  PKDPC               Dpc,
@@ -1657,6 +1661,7 @@ __ReceiverRingIsStopped(
     return Ring->Stopped;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ReceiverRingTrigger(
     IN  PXENVIF_RECEIVER_RING   Ring,
@@ -1701,6 +1706,7 @@ __ReceiverRingSend(
         __ReceiverRingReleaseLock(Ring);
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ReceiverRingReturnPacket(
     IN  PXENVIF_RECEIVER_RING   Ring,
@@ -2005,6 +2011,7 @@ __ReceiverRingQueuePacket(
     } while (InterlockedCompareExchangePointer(&Ring->PacketQueue, (PVOID)New, (PVOID)Old) != Old);
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE ULONG
 ReceiverRingPoll(
     IN  PXENVIF_RECEIVER_RING   Ring
@@ -2312,6 +2319,7 @@ ReceiverRingPollDpc(
 
 KSERVICE_ROUTINE    ReceiverRingEvtchnCallback;
 
+_Use_decl_annotations_
 BOOLEAN
 ReceiverRingEvtchnCallback(
     IN  PKINTERRUPT             InterruptObject,
@@ -2870,6 +2878,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ReceiverRingDisable(
     IN  PXENVIF_RECEIVER_RING   Ring
@@ -3076,6 +3085,7 @@ ReceiverDebugCallback(
                  Receiver->Returned);
 }
 
+_IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS
 ReceiverInitialize(
     IN  PXENVIF_FRONTEND    Frontend,
@@ -3249,6 +3259,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverConnect(
     IN  PXENVIF_RECEIVER    Receiver
@@ -3434,6 +3445,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverStoreWrite(
     IN  PXENVIF_RECEIVER            Receiver,
@@ -3518,6 +3530,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverEnable(
     IN  PXENVIF_RECEIVER    Receiver
@@ -3561,6 +3574,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverDisable(
     IN  PXENVIF_RECEIVER    Receiver
@@ -3583,6 +3597,7 @@ ReceiverDisable(
     Trace("<====\n");
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverDisconnect(
     IN  PXENVIF_RECEIVER    Receiver
@@ -3618,6 +3633,7 @@ ReceiverDisconnect(
     Trace("<====\n");
 }
 
+_IRQL_requires_(PASSIVE_LEVEL)
 VOID
 ReceiverTeardown(
     IN  PXENVIF_RECEIVER    Receiver
@@ -3678,6 +3694,7 @@ ReceiverTeardown(
     __ReceiverFree(Receiver);
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverSetOffloadOptions(
     IN  PXENVIF_RECEIVER            Receiver,
@@ -3708,6 +3725,7 @@ ReceiverSetOffloadOptions(
     }    
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverSetBackfillSize(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3734,6 +3752,7 @@ ReceiverSetBackfillSize(
     }
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverQueryRingSize(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3745,6 +3764,7 @@ ReceiverQueryRingSize(
     *Size = XENVIF_RECEIVER_RING_SIZE;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverReturnPacket(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3776,6 +3796,7 @@ ReceiverReturnPacket(
 
 #define XENVIF_RECEIVER_PACKET_WAIT_PERIOD 10
 
+_IRQL_requires_max_(APC_LEVEL)
 VOID
 ReceiverWaitForPackets(
     IN  PXENVIF_RECEIVER    Receiver
@@ -3826,6 +3847,7 @@ ReceiverWaitForPackets(
     Trace("%s: <====\n", FrontendGetPath(Frontend));
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverTrigger(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3839,6 +3861,7 @@ ReceiverTrigger(
     __ReceiverRingTrigger(Ring, FALSE);
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverSend(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3852,6 +3875,7 @@ ReceiverSend(
     __ReceiverRingSend(Ring, FALSE);
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverSetHashAlgorithm(
     IN  PXENVIF_RECEIVER                Receiver,
@@ -3895,6 +3919,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverQueryHashCapabilities(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3918,6 +3943,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverUpdateHashParameters(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3969,6 +3995,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE NTSTATUS
 __ReceiverSetQueueAffinities(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -4012,6 +4039,7 @@ fail1:
     return status;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverUpdateHashMapping(
     IN  PXENVIF_RECEIVER    Receiver,

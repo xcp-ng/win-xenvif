@@ -41,96 +41,113 @@
 
 typedef struct _XENVIF_RECEIVER XENVIF_RECEIVER, *PXENVIF_RECEIVER;
 
+_IRQL_requires_(PASSIVE_LEVEL)
 extern NTSTATUS
 ReceiverInitialize(
     IN  PXENVIF_FRONTEND    Frontend,
     OUT PXENVIF_RECEIVER    *Receiver
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ReceiverConnect(
     IN  PXENVIF_RECEIVER    Receiver
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ReceiverStoreWrite(
     IN  PXENVIF_RECEIVER            Receiver,
     IN  PXENBUS_STORE_TRANSACTION   Transaction
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ReceiverEnable(
     IN  PXENVIF_RECEIVER    Receiver
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ReceiverDisable(
     IN  PXENVIF_RECEIVER    Receiver
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ReceiverDisconnect(
     IN  PXENVIF_RECEIVER    Receiver
     );
 
+_IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 ReceiverTeardown(
     IN  PXENVIF_RECEIVER    Receiver
     );
 
+_IRQL_requires_max_(APC_LEVEL)
 extern VOID
 ReceiverWaitForPackets(
     IN  PXENVIF_RECEIVER    Receiver
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ReceiverQueryRingSize(
     IN  PXENVIF_RECEIVER    Receiver,
     OUT PULONG              Size
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ReceiverSetOffloadOptions(
     IN  PXENVIF_RECEIVER            Receiver,
     IN  XENVIF_VIF_OFFLOAD_OPTIONS  Options
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ReceiverSetBackfillSize(
     IN  PXENVIF_RECEIVER    Receiver,
     IN  ULONG               Size
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ReceiverReturnPacket(
     IN  PXENVIF_RECEIVER    Receiver,
     IN  PVOID               Cookie
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ReceiverTrigger(
     IN  PXENVIF_RECEIVER    Receiver,
     IN  ULONG               Index
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ReceiverSend(
     IN  PXENVIF_RECEIVER    Receiver,
     IN  ULONG               Index
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverSetHashAlgorithm(
     IN  PXENVIF_RECEIVER                Receiver,
     IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverQueryHashCapabilities(
     IN  PXENVIF_RECEIVER    Receiver,
     OUT PULONG              Types
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverUpdateHashParameters(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -138,6 +155,7 @@ ReceiverUpdateHashParameters(
     IN  PUCHAR              Key
     );
 
+_IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverUpdateHashMapping(
     IN  PXENVIF_RECEIVER    Receiver,
