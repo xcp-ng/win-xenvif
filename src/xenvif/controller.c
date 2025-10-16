@@ -248,7 +248,7 @@ fail1:
 #define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
 #define TIME_RELATIVE(_t)   (-(_t))
 
-#define XENVIF_CONTROLLER_POLL_PERIOD 100 // ms
+#define XENVIF_CONTROLLER_POLL_PERIOD 10 // ms
 
 _IRQL_requires_(DISPATCH_LEVEL)
 static NTSTATUS
@@ -258,11 +258,12 @@ ControllerGetResponse(
     )
 {
     LARGE_INTEGER                   Timeout;
+    ULONG                           Attempt;
     NTSTATUS                        status;
 
     Timeout.QuadPart = TIME_RELATIVE(TIME_MS(XENVIF_CONTROLLER_POLL_PERIOD));
 
-    for (;;) {
+    for (Attempt = 0; Attempt < 10; Attempt++) {
         ULONG   Count;
 
         Count = XENBUS_EVTCHN(GetCount,
@@ -282,6 +283,13 @@ ControllerGetResponse(
                                &Timeout);
         if (status == STATUS_TIMEOUT)
             __ControllerSend(Controller);
+    }
+
+    // Use STATUS_TRANSACTION_TIMED_OUT as an error code since STATUS_TIMEOUT is
+    // a success code.
+    if (Controller->Response.id != Controller->Request.id) {
+        status = STATUS_TRANSACTION_TIMED_OUT;
+        goto done;
     }
 
     ASSERT3U(Controller->Response.type, ==, Controller->Request.type);
@@ -311,6 +319,7 @@ ControllerGetResponse(
     if (NT_SUCCESS(status) && Data != NULL)
         *Data = Controller->Response.data;
 
+done:
     RtlZeroMemory(&Controller->Request,
                   sizeof (struct xen_netif_ctrl_request));
     RtlZeroMemory(&Controller->Response,
