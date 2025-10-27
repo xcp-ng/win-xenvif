@@ -26,10 +26,12 @@ l64:
     adc rax, [rdx + 8]
     adc rax, [rdx + 16]
     adc rax, [rdx + 24]
-    adc rax, [rdx + 32]
-    adc rax, [rdx + 40]
-    adc rax, [rdx + 48]
-    adc rax, [rdx + 56]
+    adc rax, 0
+    mov r9, [rdx + 32]
+    add r9, [rdx + 40]
+    adc r9, [rdx + 48]
+    adc r9, [rdx + 56]
+    adc rax, r9
     adc rax, 0
 
     sub r8, 64
