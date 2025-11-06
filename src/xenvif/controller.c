@@ -72,6 +72,7 @@ struct _XENVIF_CONTROLLER {
     PXENBUS_EVTCHN_CHANNEL              Channel;
     ULONG                               Events;
     BOOLEAN                             Connected;
+    BOOLEAN                             Enabled;
     USHORT                              RequestId;
     struct xen_netif_ctrl_request       Request;
     struct xen_netif_ctrl_response      Response;
@@ -194,7 +195,7 @@ ControllerPutRequest(
     NTSTATUS                        status;
 
     status = STATUS_NOT_SUPPORTED;
-    if (!Controller->Connected)
+    if (!Controller->Enabled)
         goto fail1;
 
     status = STATUS_INSUFFICIENT_RESOURCES;
@@ -688,7 +689,11 @@ ControllerEnable(
     IN  PXENVIF_CONTROLLER      Controller
     )
 {
-    UNREFERENCED_PARAMETER(Controller);
+    __ControllerAcquireLock(Controller);
+
+    Controller->Enabled = TRUE;
+
+    __ControllerReleaseLock(Controller);
 
     Trace("<===>\n");
 }
@@ -698,7 +703,11 @@ ControllerDisable(
     IN  PXENVIF_CONTROLLER      Controller
     )
 {
-    UNREFERENCED_PARAMETER(Controller);
+    __ControllerAcquireLock(Controller);
+
+    Controller->Enabled = FALSE;
+
+    __ControllerReleaseLock(Controller);
 
     Trace("<===>\n");
 }
