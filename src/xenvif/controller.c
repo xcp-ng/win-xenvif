@@ -246,9 +246,11 @@ fail1:
 
 #define TIME_US(_us)        ((_us) * 10)
 #define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
+#define TIME_S(_s)          (TIME_MS((_s) * 1000))
 #define TIME_RELATIVE(_t)   (-(_t))
 
-#define XENVIF_CONTROLLER_POLL_PERIOD 100 // ms
+#define XENVIF_CONTROLLER_POLL_PERIOD   TIME_MS(100)
+#define XENVIF_CONTROLLER_MAX_WAIT      TIME_S(5)
 
 _IRQL_requires_(DISPATCH_LEVEL)
 static NTSTATUS
@@ -257,10 +259,15 @@ ControllerGetResponse(
     OUT PULONG                      Data OPTIONAL
     )
 {
-    LARGE_INTEGER                   Timeout;
+    LARGE_INTEGER                   PollTimeout;
+    LARGE_INTEGER                   MaxTimeout;
+    LARGE_INTEGER                   Start;
     NTSTATUS                        status;
 
-    Timeout.QuadPart = TIME_RELATIVE(TIME_MS(XENVIF_CONTROLLER_POLL_PERIOD));
+    PollTimeout.QuadPart = TIME_RELATIVE(XENVIF_CONTROLLER_POLL_PERIOD);
+    MaxTimeout.QuadPart = TIME_RELATIVE(XENVIF_CONTROLLER_MAX_WAIT);
+
+    KeQuerySystemTime(&Start);
 
     for (;;) {
         ULONG   Count;
@@ -279,9 +286,27 @@ ControllerGetResponse(
                                &Controller->EvtchnInterface,
                                Controller->Channel,
                                Count + 1,
-                               &Timeout);
-        if (status == STATUS_TIMEOUT)
+                               &PollTimeout);
+        if (status == STATUS_TIMEOUT) {
+            LARGE_INTEGER       Now;
+            LONGLONG            Delta;
+
+            KeQuerySystemTime(&Now);
+
+            // Relative timeout
+            Delta = Now.QuadPart - Start.QuadPart;
+            if (Delta > -MaxTimeout.QuadPart)
+                break;
+
             __ControllerSend(Controller);
+        }
+    }
+
+    // Use STATUS_TRANSACTION_TIMED_OUT as an error code since STATUS_TIMEOUT is
+    // a success code.
+    if (Controller->Response.id != Controller->Request.id) {
+        status = STATUS_TRANSACTION_TIMED_OUT;
+        goto done;
     }
 
     ASSERT3U(Controller->Response.type, ==, Controller->Request.type);
@@ -311,6 +336,7 @@ ControllerGetResponse(
     if (NT_SUCCESS(status) && Data != NULL)
         *Data = Controller->Response.data;
 
+done:
     RtlZeroMemory(&Controller->Request,
                   sizeof (struct xen_netif_ctrl_request));
     RtlZeroMemory(&Controller->Response,
