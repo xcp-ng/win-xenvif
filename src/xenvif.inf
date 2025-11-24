@@ -50,7 +50,7 @@ DefaultDestDir=12
 xenvif.sys=0,,
 
 [Manufacturer] 
-%Vendor%=Inst,NT@INF_ARCH@
+%Vendor%=Inst,NT@INF_ARCH@,NT@INF_ARCH@.10.0...25398
 
 [Inst.NT@INF_ARCH@]
 %XenVifName%=XenVif_Inst,\
@@ -58,7 +58,18 @@ XENBUS\VEN_@VENDOR_PREFIX@@VENDOR_DEVICE_ID@&DEV_VIF&REV_0900000B,\
 XENBUS\VEN_@VENDOR_PREFIX@0001&DEV_VIF&REV_0900000B,\
 XENBUS\VEN_@VENDOR_PREFIX@0002&DEV_VIF&REV_0900000B
 
+[Inst.NT@INF_ARCH@.10.0...25398]
+%XenVifName%=XenVif_Inst_25H2,\
+XENBUS\VEN_@VENDOR_PREFIX@@VENDOR_DEVICE_ID@&DEV_VIF&REV_0900000B,\
+XENBUS\VEN_@VENDOR_PREFIX@0001&DEV_VIF&REV_0900000B,\
+XENBUS\VEN_@VENDOR_PREFIX@0002&DEV_VIF&REV_0900000B
+
 [XenVif_Inst] 
+CopyFiles=XenVif_Copyfiles
+; TODO: Remove during next PDO version bump
+FeatureScore=0xFE
+
+[XenVif_Inst_25H2]
 CopyFiles=XenVif_Copyfiles
 ; TODO: Remove during next PDO version bump
 FeatureScore=0xFE
@@ -69,6 +80,9 @@ xenvif.sys
 [XenVif_Inst.Services] 
 AddService=xenvif,0x02,XenVif_Service,
 
+[XenVif_Inst_25H2.Services]
+AddService=xenvif,0x02,XenVif_Service_25H2,
+
 [XenVif_Service]
 DisplayName=%XenVifName%
 ServiceType=%SERVICE_KERNEL_DRIVER% 
@@ -77,6 +91,16 @@ ErrorControl=%SERVICE_ERROR_NORMAL%
 ServiceBinary=%12%\xenvif.sys 
 LoadOrderGroup="NDIS"
 AddReg = XenVif_BootFlags, XenVif_Parameters, XenVif_Unplug
+
+[XenVif_Service_25H2]
+DisplayName=%XenVifName%
+ServiceType=%SERVICE_KERNEL_DRIVER%
+StartType=%SERVICE_DEMAND_START%
+ErrorControl=%SERVICE_ERROR_NORMAL%
+ServiceBinary=%12%\xenvif.sys
+LoadOrderGroup="NDIS"
+AddReg = XenVif_Parameters, XenVif_Unplug
+BootFlags = 0x81
 
 [XenVif_BootFlags]
 HKR,,"BootFlags",0x00010003,0x81
