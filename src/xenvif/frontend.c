@@ -402,8 +402,12 @@ FrontendEject(
                               NULL);
         KeClearEvent(Event);
 
-        if (ThreadIsAlerted(Self))
+        if (ThreadIsAlerted(Self)) {
+            Trace("alerted\n");
             break;
+        }
+
+        Trace("awake\n");
 
         KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
@@ -903,10 +907,12 @@ FrontendMib(
                                      NULL);
         KeClearEvent(Event);
 
-        Trace("awake\n");
-
-        if (ThreadIsAlerted(Self))
+        if (ThreadIsAlerted(Self)) {
+            Trace("alerted\n");
             break;
+        }
+
+        Trace("awake\n");
 
         IfTable = NULL;
         UnicastIpAddressTable = NULL;

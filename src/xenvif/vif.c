@@ -106,10 +106,12 @@ VifMac(
                                      NULL);
         KeClearEvent(Event);
 
-        Trace("awake\n");
-
-        if (ThreadIsAlerted(Self))
+        if (ThreadIsAlerted(Self)) {
+            Trace("alerted\n");
             break;
+        }
+
+        Trace("awake\n");
 
         if (Context->Enabled)
             Context->Callback(Context->Argument, XENVIF_MAC_STATE_CHANGE, NULL);

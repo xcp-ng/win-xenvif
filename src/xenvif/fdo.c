@@ -957,8 +957,12 @@ FdoScan(
                                      NULL);
         KeClearEvent(Event);
 
-        if (ThreadIsAlerted(Self))
+        if (ThreadIsAlerted(Self)) {
+            Trace("alerted\n");
             break;
+        }
+
+        Trace("awake\n");
 
         // It is not safe to use interfaces before this point
         if (__FdoGetDevicePnpState(Fdo) != Started) {
