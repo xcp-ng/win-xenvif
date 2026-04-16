@@ -1553,12 +1553,14 @@ __TransmitterRingUnprepareFragments(
         Fragment->Length = 0;
         Fragment->Offset = 0;
 
-        (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
-                             &Transmitter->GnttabInterface,
-                             Ring->GnttabCache,
-                             TRUE,
-                             Fragment->Entry);
-        Fragment->Entry = NULL;
+        if (Fragment->Entry != NULL) {
+            (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
+                                 &Transmitter->GnttabInterface,
+                                 Ring->GnttabCache,
+                                 TRUE,
+                                 Fragment->Entry);
+            Fragment->Entry = NULL;
+        }
 
         switch (Fragment->Type) {
         case XENVIF_TRANSMITTER_FRAGMENT_TYPE_BUFFER: {
