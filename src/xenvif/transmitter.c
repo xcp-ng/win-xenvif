@@ -248,6 +248,8 @@ __TransmitterFree(
     __FreePoolWithTag(Buffer, XENVIF_TRANSMITTER_TAG);
 }
 
+_Acquires_nonreentrant_lock_(Argument)
+_IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 TransmitterPacketAcquireLock(
     IN  PVOID           Argument
@@ -258,6 +260,8 @@ TransmitterPacketAcquireLock(
     KeAcquireSpinLockAtDpcLevel(&Transmitter->Lock);
 }
 
+_Requires_lock_held_(Argument)
+_IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 TransmitterPacketReleaseLock(
     IN  PVOID           Argument
@@ -265,7 +269,6 @@ TransmitterPacketReleaseLock(
 {
     PXENVIF_TRANSMITTER Transmitter = Argument;
 
-#pragma prefast(suppress:26110)
     KeReleaseSpinLockFromDpcLevel(&Transmitter->Lock);
 }
 
@@ -5301,7 +5304,7 @@ TransmitterQueueMulticastControl(
     (VOID) __TransmitterRingQueueMulticastControl(Ring, Address, Add);
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 TransmitterQueryRingSize(
     IN  PXENVIF_TRANSMITTER Transmitter,
@@ -5332,7 +5335,7 @@ TransmitterNotify(
         Ring->PollDpcs++;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 TransmitterQueryOffloadOptions(
     IN  PXENVIF_TRANSMITTER         Transmitter,
@@ -5453,7 +5456,7 @@ TransmitterQueryOffloadOptions(
                                                          MAXIMUM_IPV6_OPTIONS_LENGTH -          \
                                                          MAXIMUM_TCP_HEADER_LENGTH)
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 TransmitterQueryLargePacketSize(
     IN  PXENVIF_TRANSMITTER     Transmitter,

@@ -983,7 +983,7 @@ fail1:
     return status;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetMulticastAddresses(
     IN  PXENVIF_FRONTEND    Frontend,
@@ -1151,7 +1151,7 @@ fail1:
     return status;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetFilterLevel(
     IN  PXENVIF_FRONTEND        Frontend,
@@ -1193,7 +1193,7 @@ fail1:
     return status;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 FrontendAdvertiseIpAddresses(
     IN  PXENVIF_FRONTEND    Frontend
@@ -1977,7 +1977,7 @@ fail1:
     return status;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashAlgorithm(
     IN  PXENVIF_FRONTEND                Frontend,
@@ -2044,7 +2044,7 @@ fail1:
     return status;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendQueryHashTypes(
     IN  PXENVIF_FRONTEND    Frontend,
@@ -2084,7 +2084,7 @@ fail1:
     return status;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashMapping(
     IN  PXENVIF_FRONTEND    Frontend,
@@ -2128,7 +2128,7 @@ fail1:
     return status;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashKey(
     IN  PXENVIF_FRONTEND    Frontend,
@@ -2163,7 +2163,7 @@ fail1:
     return status;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashTypes(
     IN  PXENVIF_FRONTEND    Frontend,
@@ -2533,7 +2533,7 @@ FrontendDisable(
     Trace("<====\n");
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetState(
     IN  PXENVIF_FRONTEND        Frontend,
@@ -2711,6 +2711,7 @@ __FrontendSuspend(
     (VOID) FrontendSetState(Frontend, FRONTEND_UNKNOWN);
 }
 
+_IRQL_requires_(HIGH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 FrontendSuspendCallbackEarly(
     IN  PVOID           Argument
@@ -2721,6 +2722,7 @@ FrontendSuspendCallbackEarly(
     Frontend->Online = FALSE;
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 FrontendSuspendCallbackLate(
     IN  PVOID           Argument

@@ -118,10 +118,11 @@ __ControllerReleaseLock(
     IN  PXENVIF_CONTROLLER  Controller
     )
 {
-#pragma prefast(suppress:26110) // Caller failing to hold lock
     KeReleaseSpinLockFromDpcLevel(&Controller->Lock);
 }
 
+_Acquires_nonreentrant_lock_(Controller)
+_IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 ControllerAcquireLock(
     IN  PXENVIF_CONTROLLER  Controller
@@ -130,6 +131,8 @@ ControllerAcquireLock(
     __ControllerAcquireLock(Controller);
 }
 
+_Requires_lock_held_(Controller)
+_IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 ControllerReleaseLock(
     IN  PXENVIF_CONTROLLER  Controller

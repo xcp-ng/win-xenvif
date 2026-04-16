@@ -91,21 +91,21 @@ ReceiverWaitForPackets(
     IN  PXENVIF_RECEIVER    Receiver
     );
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 ReceiverQueryRingSize(
     IN  PXENVIF_RECEIVER    Receiver,
     OUT PULONG              Size
     );
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 ReceiverSetOffloadOptions(
     IN  PXENVIF_RECEIVER            Receiver,
     IN  XENVIF_VIF_OFFLOAD_OPTIONS  Options
     );
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 ReceiverSetBackfillSize(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -133,21 +133,21 @@ ReceiverSend(
     IN  ULONG               Index
     );
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverSetHashAlgorithm(
     IN  PXENVIF_RECEIVER                Receiver,
     IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
     );
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverQueryHashCapabilities(
     IN  PXENVIF_RECEIVER    Receiver,
     OUT PULONG              Types
     );
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverUpdateHashParameters(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -155,7 +155,7 @@ ReceiverUpdateHashParameters(
     IN  PUCHAR              Key
     );
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverUpdateHashMapping(
     IN  PXENVIF_RECEIVER    Receiver,

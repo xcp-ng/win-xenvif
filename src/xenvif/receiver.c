@@ -2282,11 +2282,11 @@ __ReceiverRingUnmask(
                           Force);
 }
 
-__drv_functionClass(KDEFERRED_ROUTINE)
-__drv_maxIRQL(DISPATCH_LEVEL)
-__drv_minIRQL(DISPATCH_LEVEL)
-__drv_requiresIRQL(DISPATCH_LEVEL)
-__drv_sameIRQL
+_Function_class_(KDEFERRED_ROUTINE)
+_IRQL_requires_max_(DISPATCH_LEVEL)
+_IRQL_requires_min_(DISPATCH_LEVEL)
+_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_same_
 static VOID
 ReceiverRingPollDpc(
     IN  PKDPC               Dpc,
@@ -3694,7 +3694,7 @@ ReceiverTeardown(
     __ReceiverFree(Receiver);
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 ReceiverSetOffloadOptions(
     IN  PXENVIF_RECEIVER            Receiver,
@@ -3725,7 +3725,7 @@ ReceiverSetOffloadOptions(
     }    
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 ReceiverSetBackfillSize(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3752,7 +3752,7 @@ ReceiverSetBackfillSize(
     }
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 ReceiverQueryRingSize(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3875,7 +3875,7 @@ ReceiverSend(
     __ReceiverRingSend(Ring, FALSE);
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverSetHashAlgorithm(
     IN  PXENVIF_RECEIVER                Receiver,
@@ -3919,7 +3919,7 @@ fail1:
     return status;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverQueryHashCapabilities(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -3943,7 +3943,7 @@ fail1:
     return status;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverUpdateHashParameters(
     IN  PXENVIF_RECEIVER    Receiver,
@@ -4039,7 +4039,7 @@ fail1:
     return status;
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverUpdateHashMapping(
     IN  PXENVIF_RECEIVER    Receiver,

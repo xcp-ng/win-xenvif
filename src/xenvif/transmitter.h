@@ -121,7 +121,7 @@ TransmitterQueueMulticastControl(
     IN  BOOLEAN                 Add
     );
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueryRingSize(
     IN  PXENVIF_TRANSMITTER Transmitter,
@@ -143,14 +143,14 @@ TransmitterQueuePacket(
     IN  PVOID                       Cookie
     );
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueryOffloadOptions(
     IN  PXENVIF_TRANSMITTER         Transmitter,
     OUT PXENVIF_VIF_OFFLOAD_OPTIONS Options
     );
 
-_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueryLargePacketSize(
     IN  PXENVIF_TRANSMITTER     Transmitter,
