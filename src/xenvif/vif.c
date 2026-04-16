@@ -47,7 +47,7 @@
 
 struct _XENVIF_VIF_CONTEXT {
     PXENVIF_PDO                 Pdo;
-    XENVIF_MRSW_LOCK            Lock;
+    MRSW_LOCK                   Lock;
     LONG                        References;
     PXENVIF_FRONTEND            Frontend;
     BOOLEAN                     Enabled;
@@ -150,13 +150,12 @@ VifEnable(
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
-    KIRQL                   Irql;
     BOOLEAN                 Exclusive;
     NTSTATUS                status;
 
     Trace("====>\n");
 
-    AcquireMrswLockExclusive(&Context->Lock, &Irql);
+    AcquireMrswLockExclusive(&Context->Lock);
     Exclusive = TRUE;
 
     if (Context->Enabled)
@@ -188,7 +187,7 @@ VifEnable(
 
 done:
     ASSERT(Exclusive);
-    ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
+    ReleaseMrswLockExclusive(&Context->Lock);
 
     Trace("<====\n");
 
@@ -199,7 +198,7 @@ fail3:
 
     (VOID) FrontendSetState(Context->Frontend, FRONTEND_CONNECTED);
 
-    ReleaseMrswLockExclusive(&Context->Lock, Irql, TRUE);
+    DowngradeMrswLockExclusive(&Context->Lock);
     Exclusive = FALSE;
 
     ReceiverWaitForPackets(FrontendGetReceiver(Context->Frontend));
@@ -234,7 +233,7 @@ fail1:
     Context->Callback = NULL;
 
     if (Exclusive)
-        ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
+        ReleaseMrswLockExclusive(&Context->Lock);
     else
         ReleaseMrswLockShared(&Context->Lock);
 
@@ -389,17 +388,16 @@ VifEnableVersion9(
     )
 {
     PXENVIF_VIF_CONTEXT             Context = Interface->Context;
-    KIRQL                           Irql;
     NTSTATUS                        status;
 
     Trace("====>\n");
 
-    AcquireMrswLockExclusive(&Context->Lock, &Irql);
+    AcquireMrswLockExclusive(&Context->Lock);
 
     Context->CallbackVersion9 = Callback;
     Context->ArgumentVersion9 = Argument;
 
-    ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
+    ReleaseMrswLockExclusive(&Context->Lock);
 
     status = VifEnable(Interface, VifCallbackVersion9, Context);
 
@@ -416,17 +414,16 @@ VifEnableVersion8(
     )
 {
     PXENVIF_VIF_CONTEXT             Context = Interface->Context;
-    KIRQL                           Irql;
     NTSTATUS                        status;
 
     Trace("====>\n");
 
-    AcquireMrswLockExclusive(&Context->Lock, &Irql);
+    AcquireMrswLockExclusive(&Context->Lock);
 
     Context->CallbackVersion8 = Callback;
     Context->ArgumentVersion8 = Argument;
 
-    ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
+    ReleaseMrswLockExclusive(&Context->Lock);
 
     status = VifEnableVersion9(Interface, VifCallbackVersion8, Context);
 
@@ -441,14 +438,13 @@ VifDisable(
     )
 {
     PXENVIF_VIF_CONTEXT Context = Interface->Context;
-    KIRQL               Irql;
 
     Trace("====>\n");
 
-    AcquireMrswLockExclusive(&Context->Lock, &Irql);
+    AcquireMrswLockExclusive(&Context->Lock);
 
     if (!Context->Enabled) {
-        ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
+        ReleaseMrswLockExclusive(&Context->Lock);
         goto done;
     }
 
@@ -463,7 +459,7 @@ VifDisable(
 
     (VOID) FrontendSetState(Context->Frontend, FRONTEND_CONNECTED);
 
-    ReleaseMrswLockExclusive(&Context->Lock, Irql, TRUE);
+    DowngradeMrswLockExclusive(&Context->Lock);
 
     ReceiverWaitForPackets(FrontendGetReceiver(Context->Frontend));
     TransmitterAbortPackets(FrontendGetTransmitter(Context->Frontend));
@@ -511,7 +507,7 @@ VifQueryStatistic(
     status = STATUS_INVALID_PARAMETER;
     if (Index >= XENVIF_VIF_STATISTIC_COUNT)
         goto done;
-        
+
     AcquireMrswLockShared(&Context->Lock);
 
     FrontendQueryStatistic(Context->Frontend, Index, Value);
@@ -567,7 +563,8 @@ VifReceiverReturnPacket(
 {
     PXENVIF_VIF_CONTEXT Context = Interface->Context;
 
-    AcquireMrswLockShared(&Context->Lock);
+    // Called from MINIPORT_RETURN_NET_BUFFER_LISTS
+    SpinAcquireMrswLockShared(&Context->Lock);
 
     ReceiverReturnPacket(FrontendGetReceiver(Context->Frontend),
                          Cookie);
@@ -592,9 +589,10 @@ VifTransmitterQueuePacket(
     PXENVIF_VIF_CONTEXT             Context = Interface->Context;
     NTSTATUS                        status;
 
-    AcquireMrswLockShared(&Context->Lock);
-
     status = STATUS_UNSUCCESSFUL;
+    if (!TryAcquireMrswLockShared(&Context->Lock))
+        return status;
+
     if (!Context->Enabled)
         goto done;
 
@@ -948,9 +946,8 @@ VifAcquire(
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
-    KIRQL                   Irql;
 
-    AcquireMrswLockExclusive(&Context->Lock, &Irql);
+    AcquireMrswLockExclusive(&Context->Lock);
 
     if (Context->References++ != 0)
         goto done;
@@ -963,7 +960,7 @@ VifAcquire(
     Trace("<====\n");
 
 done:
-    ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
+    ReleaseMrswLockExclusive(&Context->Lock);
 
     return STATUS_SUCCESS;
 }
@@ -974,9 +971,8 @@ VifRelease(
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
-    KIRQL                   Irql;
 
-    AcquireMrswLockExclusive(&Context->Lock, &Irql);
+    AcquireMrswLockExclusive(&Context->Lock);
 
     if (--Context->References > 0)
         goto done;
@@ -991,7 +987,7 @@ VifRelease(
     Trace("<====\n");
 
 done:
-    ReleaseMrswLockExclusive(&Context->Lock, Irql, FALSE);
+    ReleaseMrswLockExclusive(&Context->Lock);
 }
 
 static struct _XENVIF_VIF_INTERFACE_V8 VifInterfaceVersion8 = {
@@ -1100,7 +1096,9 @@ VifInitialize(
     if (*Context == NULL)
         goto fail1;
 
-    InitializeMrswLock(&(*Context)->Lock);
+    status = InitializeMrswLock(&(*Context)->Lock, XENVIF_VIF_TAG);
+    if (!NT_SUCCESS(status))
+        goto fail2;
 
     FdoGetSuspendInterface(PdoGetFdo(Pdo),&(*Context)->SuspendInterface);
 
@@ -1110,7 +1108,7 @@ VifInitialize(
                           *Context,
                           &(*Context)->MacThread);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail3;
 
     (*Context)->Pdo = Pdo;
 
@@ -1118,7 +1116,7 @@ VifInitialize(
 
     return STATUS_SUCCESS;
 
-fail2:
+fail3:
     Error("fail3\n");
 
     RtlZeroMemory(&(*Context)->MacEvent, sizeof (KEVENT));
@@ -1126,7 +1124,10 @@ fail2:
     RtlZeroMemory(&(*Context)->SuspendInterface,
                   sizeof (XENBUS_SUSPEND_INTERFACE));
 
-    RtlZeroMemory(&(*Context)->Lock, sizeof (XENVIF_MRSW_LOCK));
+    TeardownMrswLock(&(*Context)->Lock);
+
+fail2:
+    Error("fail2\n");
 
     ASSERT(IsZeroMemory(*Context, sizeof (XENVIF_VIF_CONTEXT)));
     __VifFree(*Context);
@@ -1205,7 +1206,7 @@ VifGetInterface(
     }
 
     return status;
-}   
+}
 
 VOID
 VifTeardown(
@@ -1228,7 +1229,7 @@ VifTeardown(
     RtlZeroMemory(&Context->SuspendInterface,
                   sizeof (XENBUS_SUSPEND_INTERFACE));
 
-    RtlZeroMemory(&Context->Lock, sizeof (XENVIF_MRSW_LOCK));
+    TeardownMrswLock(&Context->Lock);
 
     ASSERT(IsZeroMemory(Context, sizeof (XENVIF_VIF_CONTEXT)));
     __VifFree(Context);
