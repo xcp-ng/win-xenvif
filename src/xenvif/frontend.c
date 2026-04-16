@@ -1603,7 +1603,7 @@ FrontendPrepare(
     status = XENBUS_STORE(WatchAdd,
                           &Frontend->StoreInterface,
                           __FrontendGetBackendPath(Frontend),
-                          "online",
+                          "state",
                           ThreadGetEvent(Frontend->EjectThread),
                           &Frontend->Watch);
     if (!NT_SUCCESS(status))
