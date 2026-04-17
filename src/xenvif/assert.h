@@ -136,29 +136,14 @@ __Bug(
             __analysis_assume(_EXP);    \
         } while (FALSE)
 
-#define ASSERT3U(_X, _OP, _Y)                       \
-        do {                                        \
-            ULONGLONG   _Lval = (ULONGLONG)(_X);    \
-            ULONGLONG   _Rval = (ULONGLONG)(_Y);    \
-                                                    \
-            __analysis_assume(_Lval _OP _Rval);     \
-        } while (FALSE)
+#define ASSERT3U(_X, _OP, _Y)           \
+        ASSERT((ULONGLONG)(_X) _OP (ULONGLONG)(_Y))
 
-#define ASSERT3S(_X, _OP, _Y)                       \
-        do {                                        \
-            LONGLONG    _Lval = (LONGLONG)(_X);     \
-            LONGLONG    _Rval = (LONGLONG)(_Y);     \
-                                                    \
-            __analysis_assume(_Lval _OP _Rval);     \
-        } while (FALSE)
+#define ASSERT3S(_X, _OP, _Y)           \
+        ASSERT((LONGLONG)(_X) _OP (LONGLONG)(_Y))
 
-#define ASSERT3P(_X, _OP, _Y)                       \
-        do {                                        \
-            PVOID   _Lval = (PVOID)(_X);            \
-            PVOID   _Rval = (PVOID)(_Y);            \
-                                                    \
-            __analysis_assume(_Lval _OP _Rval);     \
-        } while (FALSE)
+#define ASSERT3P(_X, _OP, _Y)           \
+        ASSERT((PVOID)(_X) _OP (PVOID)(_Y))
 
 #endif  // DBG
 
