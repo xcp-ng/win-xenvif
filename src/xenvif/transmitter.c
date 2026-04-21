@@ -2525,7 +2525,9 @@ TransmitterRingPoll(
             Fragment = Ring->Pending[id];
             Ring->Pending[id] = NULL;
 
-            ASSERT(Fragment != NULL);
+            if (Fragment == NULL)
+                continue;
+
             ASSERT3U(Fragment->Id, ==, id);
 
             switch (Fragment->Type) {
