@@ -565,13 +565,8 @@ VifReceiverReturnPacket(
 {
     PXENVIF_VIF_CONTEXT Context = Interface->Context;
 
-    // Called from MINIPORT_RETURN_NET_BUFFER_LISTS
-    SpinAcquireMrswLockShared(&Context->Lock);
-
     ReceiverReturnPacket(FrontendGetReceiver(Context->Frontend),
                          Cookie);
-
-    ReleaseMrswLockShared(&Context->Lock);
 }
 
 static NTSTATUS
