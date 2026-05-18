@@ -2482,12 +2482,12 @@ TransmitterRingPoll(
         RING_IDX    rsp_cons;
         ULONG       Extra;
 
-        KeMemoryBarrier();
+        xen_mb();
 
         rsp_prod = Ring->Shared->rsp_prod;
         rsp_cons = Ring->Front.rsp_cons;
 
-        KeMemoryBarrier();
+        xen_rmb();
 
         if (rsp_cons == rsp_prod) {
             RING_IDX WorkToDo;
@@ -2633,7 +2633,8 @@ TransmitterRingPoll(
         }
         ASSERT3U(Extra, ==, 0);
 
-        KeMemoryBarrier();
+        xen_rmb();
+        xen_wmb();
 
         Ring->Front.rsp_cons = rsp_cons;
     }
@@ -3114,8 +3115,6 @@ __TransmitterRingTryAcquireLock(
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
 
-    KeMemoryBarrier();
-
     Old = (ULONG_PTR)Ring->Lock & ~XENVIF_TRANSMITTER_LOCK_BIT;
     New = Old | XENVIF_TRANSMITTER_LOCK_BIT;
 
@@ -3123,13 +3122,10 @@ __TransmitterRingTryAcquireLock(
                                                              (PVOID)New,
                                                              (PVOID)Old) == Old) ? TRUE : FALSE;
 
-    KeMemoryBarrier();
-
 #if DBG
     if (Acquired) {
         ASSERT3P(Ring->LockThread, ==, NULL);
         Ring->LockThread = KeGetCurrentThread();
-        KeMemoryBarrier();
     }
 #endif
 
@@ -3183,19 +3179,14 @@ __TransmitterRingTryReleaseLock(
     Ring->LockThread = NULL;
 #endif
 
-    KeMemoryBarrier();
-
     Released = ((ULONG_PTR)InterlockedCompareExchangePointer(&Ring->Lock,
                                                              (PVOID)New,
                                                              (PVOID)Old) == Old) ? TRUE : FALSE;
-
-    KeMemoryBarrier();
 
 #if DBG
     if (!Released) {
         ASSERT3P(Ring->LockThread, ==, NULL);
         Ring->LockThread = KeGetCurrentThread();
-        KeMemoryBarrier();
     }
 #endif
 

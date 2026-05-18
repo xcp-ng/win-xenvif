@@ -1350,8 +1350,6 @@ __ReceiverRingSwizzle(
 
     InitializeListHead(&List);
 
-    KeMemoryBarrier();
-
     // Only process the PacketQueue if the ring is not paused or it is being flushed
     if (!Ring->Paused || Ring->Flush) {
         ListEntry = InterlockedExchangePointer(&Ring->PacketQueue, NULL);
@@ -1838,12 +1836,12 @@ ReceiverRingFill(
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
-    KeMemoryBarrier();
+    xen_mb();
 
     req_prod = Ring->Front.req_prod_pvt;
     rsp_cons = Ring->Front.rsp_cons;
 
-    KeMemoryBarrier();
+    xen_rmb();
 
     while (req_prod - rsp_cons < RING_SIZE(&Ring->Front)) {
         PXENVIF_RECEIVER_PACKET     Packet;
@@ -1881,7 +1879,8 @@ ReceiverRingFill(
         Ring->Pending[id] = Fragment;
     }
 
-    KeMemoryBarrier();
+    xen_rmb();
+    xen_wmb();
 
     Ring->Front.req_prod_pvt = req_prod;
 
@@ -2052,12 +2051,12 @@ ReceiverRingPoll(
         TailMdl = NULL;
         EOP = TRUE;
 
-        KeMemoryBarrier();
+        xen_mb();
 
         rsp_prod = Ring->Shared->rsp_prod;
         rsp_cons = Ring->Front.rsp_cons;
 
-        KeMemoryBarrier();
+        xen_rmb();
 
         if (rsp_cons == rsp_prod) {
             RING_IDX WorkToDo;
@@ -2246,7 +2245,8 @@ ReceiverRingPoll(
         ASSERT3P(TailMdl, ==, NULL);
         ASSERT(EOP);
 
-        KeMemoryBarrier();
+        xen_rmb();
+        xen_wmb();
 
         Ring->Front.rsp_cons = rsp_cons;
     }
@@ -3780,12 +3780,7 @@ ReceiverReturnPacket(
 
     __ReceiverRingReturnPacket(Ring, Packet, FALSE);
 
-    KeMemoryBarrier();
-
     Returned = InterlockedIncrement(&Receiver->Returned);
-
-    // Make sure Loaned is not sampled before Returned
-    KeMemoryBarrier();
 
     Loaned = Receiver->Loaned;
 
