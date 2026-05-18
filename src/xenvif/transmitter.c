@@ -188,7 +188,9 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     BOOLEAN                         Enabled;
     BOOLEAN                         Stopped;
     PVOID                           Lock;
+#if DBG
     PKTHREAD                        LockThread;
+#endif
     LIST_ENTRY                      PacketQueue;
     LIST_ENTRY                      RequestQueue;
     XENVIF_TRANSMITTER_STATE        State;
@@ -2733,7 +2735,9 @@ TransmitterRingSwizzle(
     LIST_ENTRY                      List;
     ULONG                           Count;
 
+#if DBG
     ASSERT3P(Ring->LockThread, ==, KeGetCurrentThread());
+#endif
 
     InitializeListHead(&List);
 
@@ -3121,11 +3125,13 @@ __TransmitterRingTryAcquireLock(
 
     KeMemoryBarrier();
 
+#if DBG
     if (Acquired) {
         ASSERT3P(Ring->LockThread, ==, NULL);
         Ring->LockThread = KeGetCurrentThread();
         KeMemoryBarrier();
     }
+#endif
 
     return Acquired;
 }
@@ -3166,12 +3172,16 @@ __TransmitterRingTryReleaseLock(
     BOOLEAN                         Released;
 
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
+#if DBG
     ASSERT3P(KeGetCurrentThread(), ==, Ring->LockThread);
+#endif
 
     Old = XENVIF_TRANSMITTER_LOCK_BIT;
     New = 0;
 
+#if DBG
     Ring->LockThread = NULL;
+#endif
 
     KeMemoryBarrier();
 
@@ -3181,11 +3191,13 @@ __TransmitterRingTryReleaseLock(
 
     KeMemoryBarrier();
 
+#if DBG
     if (!Released) {
         ASSERT3P(Ring->LockThread, ==, NULL);
         Ring->LockThread = KeGetCurrentThread();
         KeMemoryBarrier();
     }
+#endif
 
     return Released;
 }
