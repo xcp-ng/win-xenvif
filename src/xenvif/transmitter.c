@@ -2482,12 +2482,12 @@ TransmitterRingPoll(
         RING_IDX    rsp_cons;
         ULONG       Extra;
 
-        xen_mb();
+        KeMemoryBarrier();
 
         rsp_prod = Ring->Shared->rsp_prod;
         rsp_cons = Ring->Front.rsp_cons;
 
-        xen_rmb();
+        KeMemoryBarrier();
 
         if (rsp_cons == rsp_prod) {
             RING_IDX WorkToDo;
@@ -2633,8 +2633,7 @@ TransmitterRingPoll(
         }
         ASSERT3U(Extra, ==, 0);
 
-        xen_rmb();
-        xen_wmb();
+        KeMemoryBarrier();
 
         Ring->Front.rsp_cons = rsp_cons;
     }

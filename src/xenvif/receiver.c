@@ -1836,12 +1836,12 @@ ReceiverRingFill(
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
 
-    xen_mb();
+    KeMemoryBarrier();
 
     req_prod = Ring->Front.req_prod_pvt;
     rsp_cons = Ring->Front.rsp_cons;
 
-    xen_rmb();
+    KeMemoryBarrier();
 
     while (req_prod - rsp_cons < RING_SIZE(&Ring->Front)) {
         PXENVIF_RECEIVER_PACKET     Packet;
@@ -1879,8 +1879,7 @@ ReceiverRingFill(
         Ring->Pending[id] = Fragment;
     }
 
-    xen_rmb();
-    xen_wmb();
+    KeMemoryBarrier();
 
     Ring->Front.req_prod_pvt = req_prod;
 
@@ -2051,12 +2050,12 @@ ReceiverRingPoll(
         TailMdl = NULL;
         EOP = TRUE;
 
-        xen_mb();
+        KeMemoryBarrier();
 
         rsp_prod = Ring->Shared->rsp_prod;
         rsp_cons = Ring->Front.rsp_cons;
 
-        xen_rmb();
+        KeMemoryBarrier();
 
         if (rsp_cons == rsp_prod) {
             RING_IDX WorkToDo;
@@ -2245,8 +2244,7 @@ ReceiverRingPoll(
         ASSERT3P(TailMdl, ==, NULL);
         ASSERT(EOP);
 
-        xen_rmb();
-        xen_wmb();
+        KeMemoryBarrier();
 
         Ring->Front.rsp_cons = rsp_cons;
     }
