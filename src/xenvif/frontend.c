@@ -670,6 +670,56 @@ fail1:
 }
 
 static NTSTATUS
+FrontendDumpIPv4Address(
+    _In_ PXENVIF_FRONTEND           Frontend,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_ PSTR                       Node,
+    _In_ PIPV4_ADDRESS              Address
+    )
+{
+    NTSTATUS                        status;
+
+    status = XENBUS_STORE(Printf,
+                          &Frontend->StoreInterface,
+                          Transaction,
+                          __FrontendGetPrefix(Frontend),
+                          Node,
+                          "%u.%u.%u.%u",
+                          Address->Byte[0],
+                          Address->Byte[1],
+                          Address->Byte[2],
+                          Address->Byte[3]);
+    return status;
+}
+
+static NTSTATUS
+FrontendDumpIPv6Address(
+    _In_ PXENVIF_FRONTEND           Frontend,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_ PSTR                       Node,
+    _In_ PIPV6_ADDRESS              Address
+    )
+{
+    NTSTATUS                        status;
+
+    status = XENBUS_STORE(Printf,
+                          &Frontend->StoreInterface,
+                          Transaction,
+                          __FrontendGetPrefix(Frontend),
+                          Node,
+                          "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
+                          NTOHS(Address->Word[0]),
+                          NTOHS(Address->Word[1]),
+                          NTOHS(Address->Word[2]),
+                          NTOHS(Address->Word[3]),
+                          NTOHS(Address->Word[4]),
+                          NTOHS(Address->Word[5]),
+                          NTOHS(Address->Word[6]),
+                          NTOHS(Address->Word[7]));
+    return status;
+}
+
+static NTSTATUS
 FrontendDumpAddressTable(
     IN  PXENVIF_FRONTEND        Frontend
     )
@@ -727,16 +777,10 @@ FrontendDumpAddressTable(
             if (!NT_SUCCESS(status))
                 continue;
 
-            status = XENBUS_STORE(Printf,
-                                  &Frontend->StoreInterface,
-                                  Transaction,
-                                  __FrontendGetPrefix(Frontend),
-                                  Node,
-                                  "%u.%u.%u.%u",
-                                  Address.Byte[0],
-                                  Address.Byte[1],
-                                  Address.Byte[2],
-                                  Address.Byte[3]);
+            status = FrontendDumpIPv4Address(Frontend,
+                                             Transaction,
+                                             Node,
+                                             &Address);
             if (!NT_SUCCESS(status))
                 goto fail4;
 
@@ -759,20 +803,10 @@ FrontendDumpAddressTable(
             if (!NT_SUCCESS(status))
                 continue;
 
-            status = XENBUS_STORE(Printf,
-                                  &Frontend->StoreInterface,
-                                  Transaction,
-                                  __FrontendGetPrefix(Frontend),
-                                  Node,
-                                  "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
-                                  NTOHS(Address.Word[0]),
-                                  NTOHS(Address.Word[1]),
-                                  NTOHS(Address.Word[2]),
-                                  NTOHS(Address.Word[3]),
-                                  NTOHS(Address.Word[4]),
-                                  NTOHS(Address.Word[5]),
-                                  NTOHS(Address.Word[6]),
-                                  NTOHS(Address.Word[7]));
+            status = FrontendDumpIPv6Address(Frontend,
+                                             Transaction,
+                                             Node,
+                                             &Address);
             if (!NT_SUCCESS(status))
                 goto fail4;
 
