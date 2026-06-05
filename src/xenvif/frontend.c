@@ -700,22 +700,81 @@ FrontendDumpIPv6Address(
     _In_ PIPV6_ADDRESS              Address
     )
 {
+    ULONG                           Index;
+    ULONG                           Count;
+    ULONG                           ZeroIndex;
+    ULONG                           ZeroCount;
     NTSTATUS                        status;
 
-    status = XENBUS_STORE(Printf,
-                          &Frontend->StoreInterface,
-                          Transaction,
-                          __FrontendGetPrefix(Frontend),
-                          Node,
-                          "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
-                          NTOHS(Address->Word[0]),
-                          NTOHS(Address->Word[1]),
-                          NTOHS(Address->Word[2]),
-                          NTOHS(Address->Word[3]),
-                          NTOHS(Address->Word[4]),
-                          NTOHS(Address->Word[5]),
-                          NTOHS(Address->Word[6]),
-                          NTOHS(Address->Word[7]));
+    Count = ZeroIndex = ZeroCount = 0;
+    for (Index = 0; Index < 8; Index++) {
+        if (Address->Word[Index] == 0)
+            Count++;
+        else
+            Count = 0;
+
+        if (Count > ZeroCount) {
+            if (Count == 1)
+                ZeroIndex = Index;
+            ZeroCount = Count;
+        }
+    }
+
+    if (ZeroCount > 1) {
+        CHAR                        Parts[8][sizeof(":XXXX")];
+
+        for (Index = 0; Index < 8; Index++) {
+            // Consecutive 0s are collapsed into a single semicolon, so that
+            // appending :xxxx segments would work naturally.
+            // Compensate for the missing appended semicolon if the last word
+            // was also collapsed.
+            if (Index == ZeroIndex || (Index == 7 &&
+                                       Index == ZeroIndex + ZeroCount - 1)) {
+                Parts[Index][0] = ':';
+                Parts[Index][1] = '\0';
+            } else if (Index > ZeroIndex && Index < ZeroIndex + ZeroCount) {
+                Parts[Index][0] = '\0';
+            } else {
+                status = RtlStringCchPrintfA(Parts[Index],
+                                             sizeof(Parts[Index]),
+                                             Index == 0 ? "%hx" : ":%hx",
+                                             NTOHS(Address->Word[Index]));
+                if (!NT_SUCCESS(status))
+                    return status;
+            }
+        }
+
+        status = XENBUS_STORE(Printf,
+                              &Frontend->StoreInterface,
+                              Transaction,
+                              __FrontendGetPrefix(Frontend),
+                              Node,
+                              "%s%s%s%s%s%s%s%s",
+                              Parts[0],
+                              Parts[1],
+                              Parts[2],
+                              Parts[3],
+                              Parts[4],
+                              Parts[5],
+                              Parts[6],
+                              Parts[7]);
+    } else {
+        status = XENBUS_STORE(Printf,
+                              &Frontend->StoreInterface,
+                              Transaction,
+                              __FrontendGetPrefix(Frontend),
+                              Node,
+                              "%hx:%hx:%hx:%hx:%hx:%hx:%hx:%hx",
+                              NTOHS(Address->Word[0]),
+                              NTOHS(Address->Word[1]),
+                              NTOHS(Address->Word[2]),
+                              NTOHS(Address->Word[3]),
+                              NTOHS(Address->Word[4]),
+                              NTOHS(Address->Word[5]),
+                              NTOHS(Address->Word[6]),
+                              NTOHS(Address->Word[7]));
+    }
+
     return status;
 }
 
