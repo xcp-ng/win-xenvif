@@ -4615,7 +4615,7 @@ TransmitterInitialize(
 fail7:
     Error("fail7\n");
 
-    while (--Index > 0) {
+    while (--Index >= 0) {
         PXENVIF_TRANSMITTER_RING    Ring = (*Transmitter)->Ring[Index];
 
         (*Transmitter)->Ring[Index] = NULL;
