@@ -44,6 +44,22 @@
 #include "assert.h"
 #include "util.h"
 
+static FORCEINLINE BOOLEAN
+__ParsePullup(
+    IN      XENVIF_PARSE_PULLUP         Pullup,
+    IN      PVOID                       Argument,
+    IN      PUCHAR                      StartVa,
+    IN      ULONG                       Offset,
+    IN      PXENVIF_PACKET_PAYLOAD      Payload,
+    IN      ULONG                       Length
+    )
+{
+    return Pullup(Argument,
+                  StartVa + Offset,
+                  Payload,
+                  Length);
+}
+
 static FORCEINLINE NTSTATUS
 __ParseTcpHeader(
     IN      PUCHAR                      StartVa,
@@ -58,10 +74,12 @@ __ParseTcpHeader(
 
     Info->TcpHeader.Offset = Offset;
 
-    if (!Pullup(Argument,
-                StartVa + Offset,
-                Payload,
-                sizeof (TCP_HEADER)))
+    if (!__ParsePullup(Pullup,
+                       Argument,
+                       StartVa,
+                       Offset,
+                       Payload,
+                       sizeof (TCP_HEADER)))
         goto fail1;
 
     Header = (PTCP_HEADER)(StartVa + Offset);
@@ -80,10 +98,12 @@ __ParseTcpHeader(
 
         Extra = TCP_HEADER_LENGTH(Header) - Info->TcpHeader.Length;
 
-        if (!Pullup(Argument,
-                    StartVa + Offset,
-                    Payload,
-                    Extra))
+        if (!__ParsePullup(Pullup,
+                           Argument,
+                           StartVa,
+                           Offset,
+                           Payload,
+                           Extra))
             goto fail3;
 
         Offset += Extra;
@@ -119,10 +139,12 @@ __ParseUdpHeader(
 {
     Info->UdpHeader.Offset = Offset;
 
-    if (!Pullup(Argument,
-                StartVa + Offset,
-                Payload,
-                sizeof (UDP_HEADER)))
+    if (!__ParsePullup(Pullup,
+                       Argument,
+                       StartVa,
+                       Offset,
+                       Payload,
+                       sizeof (UDP_HEADER)))
         goto fail1;
 
     Offset += sizeof (UDP_HEADER);
@@ -156,7 +178,12 @@ __ParseIpVersion4Header(
 
     Info->IpHeader.Offset = Offset;
 
-    if (!Pullup(Argument, StartVa + Offset, Payload, sizeof (IPV4_HEADER)))
+    if (!__ParsePullup(Pullup,
+                       Argument,
+                       StartVa,
+                       Offset,
+                       Payload,
+                       sizeof (IPV4_HEADER)))
         goto fail1;
 
     Header = (PIPV4_HEADER)(StartVa + Offset);
@@ -181,10 +208,12 @@ __ParseIpVersion4Header(
 
         Extra = IPV4_HEADER_LENGTH(Header) - Info->IpHeader.Length;
 
-        if (!Pullup(Argument,
-                    StartVa + Offset,
-                    Payload,
-                    Extra))
+        if (!__ParsePullup(Pullup,
+                           Argument,
+                           StartVa,
+                           Offset,
+                           Payload,
+                           Extra))
             goto fail5;
 
         Offset += Extra;
@@ -261,10 +290,12 @@ __ParseIpVersion6Header(
 
     Info->IpHeader.Offset = Offset;
 
-    if (!Pullup(Argument,
-                StartVa + Offset,
-                Payload,
-                sizeof (IPV6_HEADER)))
+    if (!__ParsePullup(Pullup,
+                       Argument,
+                       StartVa,
+                       Offset,
+                       Payload,
+                       sizeof (IPV6_HEADER)))
         goto fail1;
 
     Header = (PIPV6_HEADER)(StartVa + Offset);
@@ -291,10 +322,12 @@ __ParseIpVersion6Header(
             PIPV6_FRAGMENT_HEADER   Fragment;
             USHORT                  FragmentOffsetAndFlags;
 
-            if (!Pullup(Argument,
-                        StartVa + Offset,
-                        Payload,
-                        sizeof (IPV6_FRAGMENT_HEADER)))
+            if (!__ParsePullup(Pullup,
+                               Argument,
+                               StartVa,
+                               Offset,
+                               Payload,
+                               sizeof (IPV6_FRAGMENT_HEADER)))
                 goto fail4;
 
             Fragment = (PIPV6_FRAGMENT_HEADER)(StartVa + Offset);
@@ -310,10 +343,12 @@ __ParseIpVersion6Header(
             PIP_AUTHENTICATION_HEADER   Authentication;
             ULONG                       Extra;
 
-            if (!Pullup(Argument,
-                        StartVa + Offset,
-                        Payload,
-                        sizeof (IP_AUTHENTICATION_HEADER)))
+            if (!__ParsePullup(Pullup,
+                               Argument,
+                               StartVa,
+                               Offset,
+                               Payload,
+                               sizeof (IP_AUTHENTICATION_HEADER)))
                 goto fail4;
 
             Authentication = (PIP_AUTHENTICATION_HEADER)(StartVa + Offset);
@@ -322,10 +357,12 @@ __ParseIpVersion6Header(
             Extra = ((ULONG)(Authentication->Length + 2) << 2) -
                     ((ULONG)sizeof (IP_AUTHENTICATION_HEADER));
 
-            if (!Pullup(Argument,
-                        StartVa + Offset,
-                        Payload,
-                        Extra))
+            if (!__ParsePullup(Pullup,
+                               Argument,
+                               StartVa,
+                               Offset,
+                               Payload,
+                               Extra))
                 goto fail5;
 
             Offset += Extra;
@@ -339,10 +376,12 @@ __ParseIpVersion6Header(
             PIPV6_OPTION_HEADER Option;
             ULONG               Extra;
 
-            if (!Pullup(Argument,
-                        StartVa + Offset,
-                        Payload,
-                        sizeof (IPV6_OPTION_HEADER)))
+            if (!__ParsePullup(Pullup,
+                               Argument,
+                               StartVa,
+                               Offset,
+                               Payload,
+                               sizeof (IPV6_OPTION_HEADER)))
                 goto fail4;
 
             Option = (PIPV6_OPTION_HEADER)(StartVa + Offset);
@@ -351,10 +390,12 @@ __ParseIpVersion6Header(
             Extra = ((ULONG)(Option->Length + 1) << 3) -
                     ((ULONG)sizeof (IPV6_OPTION_HEADER));
 
-            if (!Pullup(Argument,
-                        StartVa + Offset,
-                        Payload,
-                        Extra))
+            if (!__ParsePullup(Pullup,
+                               Argument,
+                               StartVa,
+                               Offset,
+                               Payload,
+                               Extra))
                 goto fail5;
 
             Offset += Extra;
@@ -439,10 +480,12 @@ __ParseLLCSnapHeader(
 
     Info->LLCSnapHeader.Offset = Offset;
 
-    if (!Pullup(Argument,
-                StartVa + Offset,
-                Payload,
-                sizeof (LLC_U_HEADER)))
+    if (!__ParsePullup(Pullup,
+                       Argument,
+                       StartVa,
+                       Offset,
+                       Payload,
+                       sizeof (LLC_U_HEADER)))
         goto fail1;
 
     Header = (PLLC_SNAP_HEADER)(StartVa + Offset);
@@ -455,10 +498,12 @@ __ParseLLCSnapHeader(
 
         Extra = sizeof (LLC_SNAP_HEADER) - sizeof (LLC_U_HEADER);
 
-        if (!Pullup(Argument,
-                    StartVa + Offset,
-                    Payload,
-                    Extra))
+        if (!__ParsePullup(Pullup,
+                           Argument,
+                           StartVa,
+                           Offset,
+                           Payload,
+                           Extra))
             goto fail2;
 
         Offset += Extra;
@@ -494,10 +539,12 @@ __ParseEthernetHeader(
 
     Info->EthernetHeader.Offset = Offset;
 
-    if (!Pullup(Argument,
-                StartVa + Offset,
-                Payload,
-                sizeof (ETHERNET_UNTAGGED_HEADER)))
+    if (!__ParsePullup(Pullup,
+                       Argument,
+                       StartVa,
+                       Offset,
+                       Payload,
+                       sizeof (ETHERNET_UNTAGGED_HEADER)))
         goto fail1;
 
     Header = (PETHERNET_HEADER)(StartVa + Offset);
@@ -512,10 +559,12 @@ __ParseEthernetHeader(
         Extra = sizeof (ETHERNET_TAGGED_HEADER) -
                 sizeof (ETHERNET_UNTAGGED_HEADER);
 
-        if (!Pullup(Argument,
-                    StartVa + Offset,
-                    Payload,
-                    Extra))
+        if (!__ParsePullup(Pullup,
+                           Argument,
+                           StartVa,
+                           Offset,
+                           Payload,
+                           Extra))
             goto fail2;
 
         Offset += Extra;
