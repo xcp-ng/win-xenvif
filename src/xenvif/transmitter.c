@@ -5209,7 +5209,12 @@ TransmitterQueuePacket(
 
     Info = &Packet->Info;
 
-    (VOID) ParsePacket(BaseVa, TransmitterPullup, Transmitter, Payload, Info);
+    (VOID) ParsePacket(BaseVa,
+                       XENVIF_TRANSMITTER_MAXIMUM_HEADER_LENGTH,
+                       TransmitterPullup,
+                       Transmitter,
+                       Payload,
+                       Info);
 
     Algorithm = Hash->Algorithm;
 

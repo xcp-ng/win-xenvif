@@ -49,11 +49,17 @@ __ParsePullup(
     IN      XENVIF_PARSE_PULLUP         Pullup,
     IN      PVOID                       Argument,
     IN      PUCHAR                      StartVa,
+    IN      ULONG                       StartLen,
     IN      ULONG                       Offset,
     IN      PXENVIF_PACKET_PAYLOAD      Payload,
     IN      ULONG                       Length
     )
 {
+    ASSERT3U(StartLen, >, Offset);
+
+    if (StartLen - Offset < Length)
+        return FALSE;
+
     return Pullup(Argument,
                   StartVa + Offset,
                   Payload,
@@ -63,6 +69,7 @@ __ParsePullup(
 static FORCEINLINE NTSTATUS
 __ParseTcpHeader(
     IN      PUCHAR                      StartVa,
+    IN      ULONG                       StartLen,
     IN      ULONG                       Offset,
     IN      XENVIF_PARSE_PULLUP         Pullup,
     IN      PVOID                       Argument,
@@ -77,6 +84,7 @@ __ParseTcpHeader(
     if (!__ParsePullup(Pullup,
                        Argument,
                        StartVa,
+                       StartLen,
                        Offset,
                        Payload,
                        sizeof (TCP_HEADER)))
@@ -101,6 +109,7 @@ __ParseTcpHeader(
         if (!__ParsePullup(Pullup,
                            Argument,
                            StartVa,
+                           StartLen,
                            Offset,
                            Payload,
                            Extra))
@@ -130,6 +139,7 @@ fail1:
 static FORCEINLINE NTSTATUS
 __ParseUdpHeader(
     IN      PUCHAR                      StartVa,
+    IN      ULONG                       StartLen,
     IN      ULONG                       Offset,
     IN      XENVIF_PARSE_PULLUP         Pullup,
     IN      PVOID                       Argument,
@@ -142,6 +152,7 @@ __ParseUdpHeader(
     if (!__ParsePullup(Pullup,
                        Argument,
                        StartVa,
+                       StartLen,
                        Offset,
                        Payload,
                        sizeof (UDP_HEADER)))
@@ -164,6 +175,7 @@ fail1:
 static FORCEINLINE NTSTATUS
 __ParseIpVersion4Header(
     IN      PUCHAR                      StartVa,
+    IN      ULONG                       StartLen,
     IN      ULONG                       Offset,
     IN      XENVIF_PARSE_PULLUP         Pullup,
     IN      PVOID                       Argument,
@@ -181,6 +193,7 @@ __ParseIpVersion4Header(
     if (!__ParsePullup(Pullup,
                        Argument,
                        StartVa,
+                       StartLen,
                        Offset,
                        Payload,
                        sizeof (IPV4_HEADER)))
@@ -211,6 +224,7 @@ __ParseIpVersion4Header(
         if (!__ParsePullup(Pullup,
                            Argument,
                            StartVa,
+                           StartLen,
                            Offset,
                            Payload,
                            Extra))
@@ -233,6 +247,7 @@ __ParseIpVersion4Header(
     switch (Header->Protocol) {
     case IPPROTO_TCP:
         status = __ParseTcpHeader(StartVa,
+                                  StartLen,
                                   Offset,
                                   Pullup,
                                   Argument,
@@ -242,6 +257,7 @@ __ParseIpVersion4Header(
 
     case IPPROTO_UDP:
         status = __ParseUdpHeader(StartVa,
+                                  StartLen,
                                   Offset,
                                   Pullup,
                                   Argument,
@@ -274,6 +290,7 @@ fail1:
 static FORCEINLINE NTSTATUS
 __ParseIpVersion6Header(
     IN      PUCHAR                      StartVa,
+    IN      ULONG                       StartLen,
     IN      ULONG                       Offset,
     IN      XENVIF_PARSE_PULLUP         Pullup,
     IN      PVOID                       Argument,
@@ -293,6 +310,7 @@ __ParseIpVersion6Header(
     if (!__ParsePullup(Pullup,
                        Argument,
                        StartVa,
+                       StartLen,
                        Offset,
                        Payload,
                        sizeof (IPV6_HEADER)))
@@ -325,6 +343,7 @@ __ParseIpVersion6Header(
             if (!__ParsePullup(Pullup,
                                Argument,
                                StartVa,
+                               StartLen,
                                Offset,
                                Payload,
                                sizeof (IPV6_FRAGMENT_HEADER)))
@@ -346,6 +365,7 @@ __ParseIpVersion6Header(
             if (!__ParsePullup(Pullup,
                                Argument,
                                StartVa,
+                               StartLen,
                                Offset,
                                Payload,
                                sizeof (IP_AUTHENTICATION_HEADER)))
@@ -360,6 +380,7 @@ __ParseIpVersion6Header(
             if (!__ParsePullup(Pullup,
                                Argument,
                                StartVa,
+                               StartLen,
                                Offset,
                                Payload,
                                Extra))
@@ -379,6 +400,7 @@ __ParseIpVersion6Header(
             if (!__ParsePullup(Pullup,
                                Argument,
                                StartVa,
+                               StartLen,
                                Offset,
                                Payload,
                                sizeof (IPV6_OPTION_HEADER)))
@@ -393,6 +415,7 @@ __ParseIpVersion6Header(
             if (!__ParsePullup(Pullup,
                                Argument,
                                StartVa,
+                               StartLen,
                                Offset,
                                Payload,
                                Extra))
@@ -427,6 +450,7 @@ __ParseIpVersion6Header(
     switch (NextHeader) {
     case IPPROTO_TCP:
         status = __ParseTcpHeader(StartVa,
+                                  StartLen,
                                   Offset,
                                   Pullup,
                                   Argument,
@@ -436,6 +460,7 @@ __ParseIpVersion6Header(
 
     case IPPROTO_UDP:
         status = __ParseUdpHeader(StartVa,
+                                  StartLen,
                                   Offset,
                                   Pullup,
                                   Argument,
@@ -469,6 +494,7 @@ fail1:
 static FORCEINLINE NTSTATUS
 __ParseLLCSnapHeader(
     IN      PUCHAR                      StartVa,
+    IN      ULONG                       StartLen,
     IN      ULONG                       Offset,
     IN      XENVIF_PARSE_PULLUP         Pullup,
     IN      PVOID                       Argument,
@@ -483,6 +509,7 @@ __ParseLLCSnapHeader(
     if (!__ParsePullup(Pullup,
                        Argument,
                        StartVa,
+                       StartLen,
                        Offset,
                        Payload,
                        sizeof (LLC_U_HEADER)))
@@ -501,6 +528,7 @@ __ParseLLCSnapHeader(
         if (!__ParsePullup(Pullup,
                            Argument,
                            StartVa,
+                           StartLen,
                            Offset,
                            Payload,
                            Extra))
@@ -525,6 +553,7 @@ fail1:
 static FORCEINLINE NTSTATUS
 __ParseEthernetHeader(
     IN      PUCHAR                      StartVa,
+    IN      ULONG                       StartLen,
     IN      ULONG                       Offset,
     IN      XENVIF_PARSE_PULLUP         Pullup,
     IN      PVOID                       Argument,
@@ -542,6 +571,7 @@ __ParseEthernetHeader(
     if (!__ParsePullup(Pullup,
                        Argument,
                        StartVa,
+                       StartLen,
                        Offset,
                        Payload,
                        sizeof (ETHERNET_UNTAGGED_HEADER)))
@@ -562,6 +592,7 @@ __ParseEthernetHeader(
         if (!__ParsePullup(Pullup,
                            Argument,
                            StartVa,
+                           StartLen,
                            Offset,
                            Payload,
                            Extra))
@@ -580,6 +611,7 @@ __ParseEthernetHeader(
 
     if (IsLLC) {
         status = __ParseLLCSnapHeader(StartVa,
+                                      StartLen,
                                       Offset,
                                       Pullup,
                                       Argument,
@@ -589,6 +621,7 @@ __ParseEthernetHeader(
         switch (TypeOrLength) {
         case ETHERTYPE_IPV4:
             status = __ParseIpVersion4Header(StartVa,
+                                             StartLen,
                                              Offset,
                                              Pullup,
                                              Argument,
@@ -598,6 +631,7 @@ __ParseEthernetHeader(
 
         case ETHERTYPE_IPV6:
             status = __ParseIpVersion6Header(StartVa,
+                                             StartLen,
                                              Offset,
                                              Pullup,
                                              Argument,
@@ -623,6 +657,7 @@ fail1:
 NTSTATUS
 ParsePacket(
     IN      PUCHAR                      StartVa,
+    IN      ULONG                       StartLen,
     IN      XENVIF_PARSE_PULLUP         Pullup,
     IN      PVOID                       Argument,
     IN OUT  PXENVIF_PACKET_PAYLOAD      Payload,
@@ -632,6 +667,7 @@ ParsePacket(
     ASSERT(IsZeroMemory(Info, sizeof (XENVIF_PACKET_INFO)));
 
     return __ParseEthernetHeader(StartVa,
+                                 StartLen,
                                  0,
                                  Pullup,
                                  Argument,

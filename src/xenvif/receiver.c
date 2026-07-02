@@ -1268,7 +1268,12 @@ ReceiverRingProcessPacket(
 
     Info = &Packet->Info;
 
-    status = ParsePacket(BaseVa, ReceiverRingPullup, Ring, &Payload, Info);
+    status = ParsePacket(BaseVa,
+                         PAGE_SIZE - Packet->Offset,
+                         ReceiverRingPullup,
+                         Ring,
+                         &Payload,
+                         Info);
     if (!NT_SUCCESS(status)) {
         FrontendIncrementStatistic(Frontend,
                                    XENVIF_RECEIVER_FRONTEND_ERRORS,
