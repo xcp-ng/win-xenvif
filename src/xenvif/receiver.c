@@ -1562,11 +1562,12 @@ __ReceiverRingSwizzle(
             Pause = FALSE;
     }
 
+    // If there will be no more returns then we can't pause either
+    if (Pause && Receiver->Loaned == Receiver->Returned)
+        Pause = FALSE;
+
     if (Pause) {
         Ring->Paused = TRUE;
-
-        if (KeInsertQueueDpc(&Ring->QueueDpc, NULL, NULL))
-            Ring->QueueDpcs++;
     } else {
         BOOLEAN Paused = Ring->Paused;
 
@@ -3797,6 +3798,9 @@ ReceiverReturnPacket(
     Loaned = Receiver->Loaned;
 
     ASSERT3S(Loaned - Returned, >=, 0);
+
+    if (KeInsertQueueDpc(&Ring->QueueDpc, NULL, NULL))
+        Ring->QueueDpcs++;
 
     KeSetEvent(&Receiver->Event, 0, FALSE);
 }
