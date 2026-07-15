@@ -1787,7 +1787,7 @@ __ReceiverRingPushRequests(
     Ring->RequestsPushed = Ring->RequestsPosted;
 }
 
-static VOID
+static NTSTATUS
 ReceiverRingFill(
     IN  PXENVIF_RECEIVER_RING   Ring
     )
@@ -1796,6 +1796,7 @@ ReceiverRingFill(
     PXENVIF_FRONTEND            Frontend;
     RING_IDX                    req_prod;
     RING_IDX                    rsp_cons;
+    NTSTATUS                    status;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -1807,6 +1808,7 @@ ReceiverRingFill(
 
     KeMemoryBarrier();
 
+    status = STATUS_SUCCESS;
     while (req_prod - rsp_cons < RING_SIZE(&Ring->Front)) {
         PXENVIF_RECEIVER_PACKET     Packet;
         PXENVIF_RECEIVER_FRAGMENT   Fragment;
@@ -1816,6 +1818,7 @@ ReceiverRingFill(
         Packet = __ReceiverRingGetPacket(Ring, TRUE);
 
         if (Packet == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
             __ReceiverRingStop(Ring);
             break;
         }
@@ -1823,6 +1826,7 @@ ReceiverRingFill(
         Fragment = __ReceiverRingPreparePacket(Ring, Packet);
         
         if (Fragment == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
             __ReceiverRingPutPacket(Ring, Packet, TRUE);
             break;
         }
@@ -1848,6 +1852,8 @@ ReceiverRingFill(
     Ring->Front.req_prod_pvt = req_prod;
 
     __ReceiverRingPushRequests(Ring);
+
+    return status;
 }
 
 _IRQL_requires_(DISPATCH_LEVEL)
@@ -1881,7 +1887,8 @@ __ReceiverRingReturnPacket(
         if (!Locked)
             __ReceiverRingAcquireLock(Ring);
 
-        if (__ReceiverRingIsStopped(Ring)) {
+        if (__ReceiverRingIsStopped(Ring) &&
+            NT_SUCCESS(ReceiverRingFill(Ring))) {
             __ReceiverRingStart(Ring);
             __ReceiverRingTrigger(Ring, TRUE);
         }
