@@ -77,6 +77,8 @@ typedef struct _XENVIF_RECEIVER_HASH {
 
 #define XENVIF_RECEIVER_MAXIMUM_FRAGMENT_ID (XENVIF_RECEIVER_RING_SIZE - 1)
 
+#define XENVIF_RECEIVER_PACKET_CACHE_CAP    (XENVIF_RECEIVER_RING_SIZE * 8)
+
 typedef struct _XENVIF_RECEIVER_RING {
     PXENVIF_RECEIVER            Receiver;
     ULONG                       Index;
@@ -2488,7 +2490,7 @@ __ReceiverRingInitialize(
                           Name,
                           sizeof (XENVIF_RECEIVER_PACKET),
                           0,
-                          0,
+                          XENVIF_RECEIVER_PACKET_CACHE_CAP,
                           ReceiverPacketCtor,
                           ReceiverPacketDtor,
                           ReceiverRingAcquireLock,
