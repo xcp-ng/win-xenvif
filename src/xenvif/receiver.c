@@ -1711,49 +1711,6 @@ __ReceiverRingSend(
         __ReceiverRingReleaseLock(Ring);
 }
 
-_IRQL_requires_(DISPATCH_LEVEL)
-static FORCEINLINE VOID
-__ReceiverRingReturnPacket(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet,
-    IN  BOOLEAN                 Locked
-    )
-{
-    PMDL                        Mdl;
-
-    Mdl = &Packet->Mdl;
-
-    while (Mdl != NULL) {
-        PMDL    Next;
-
-        Next = Mdl->Next;
-        Mdl->Next = NULL;
-
-        __ReceiverRingPutMdl(Ring, Mdl, Locked);
-
-        Mdl = Next;
-    }
-
-    if (__ReceiverRingIsStopped(Ring)) {
-        KIRQL   Irql;
-
-        KeRaiseIrql(DISPATCH_LEVEL, &Irql);
-
-        if (!Locked)
-            __ReceiverRingAcquireLock(Ring);
-
-        if (__ReceiverRingIsStopped(Ring)) {
-            __ReceiverRingStart(Ring);
-            __ReceiverRingTrigger(Ring, TRUE);
-        }
-
-        if (!Locked)
-            __ReceiverRingReleaseLock(Ring);
-
-        KeLowerIrql(Irql);
-    }
-}
-
 static FORCEINLINE PXENVIF_RECEIVER_FRAGMENT
 __ReceiverRingPreparePacket(
     IN  PXENVIF_RECEIVER_RING   Ring,
@@ -1891,6 +1848,49 @@ ReceiverRingFill(
     Ring->Front.req_prod_pvt = req_prod;
 
     __ReceiverRingPushRequests(Ring);
+}
+
+_IRQL_requires_(DISPATCH_LEVEL)
+static FORCEINLINE VOID
+__ReceiverRingReturnPacket(
+    IN  PXENVIF_RECEIVER_RING   Ring,
+    IN  PXENVIF_RECEIVER_PACKET Packet,
+    IN  BOOLEAN                 Locked
+    )
+{
+    PMDL                        Mdl;
+
+    Mdl = &Packet->Mdl;
+
+    while (Mdl != NULL) {
+        PMDL    Next;
+
+        Next = Mdl->Next;
+        Mdl->Next = NULL;
+
+        __ReceiverRingPutMdl(Ring, Mdl, Locked);
+
+        Mdl = Next;
+    }
+
+    if (__ReceiverRingIsStopped(Ring)) {
+        KIRQL   Irql;
+
+        KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+
+        if (!Locked)
+            __ReceiverRingAcquireLock(Ring);
+
+        if (__ReceiverRingIsStopped(Ring)) {
+            __ReceiverRingStart(Ring);
+            __ReceiverRingTrigger(Ring, TRUE);
+        }
+
+        if (!Locked)
+            __ReceiverRingReleaseLock(Ring);
+
+        KeLowerIrql(Irql);
+    }
 }
 
 static FORCEINLINE VOID
