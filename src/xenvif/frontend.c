@@ -69,6 +69,7 @@ typedef struct _XENVIF_FRONTEND_HASH {
 
 typedef struct _XENVIF_ADDRESS {
     SOCKADDR_INET               Address;
+    UINT8                       Prefix;
 } XENVIF_ADDRESS, *PXENVIF_ADDRESS;
 
 struct _XENVIF_FRONTEND {
@@ -541,7 +542,8 @@ found:
 static NTSTATUS
 FrontendInsertAddress(
     IN  PXENVIF_FRONTEND    Frontend,
-    IN  const SOCKADDR_INET *Address
+    IN  const SOCKADDR_INET *Address,
+    IN  UINT8               Prefix
     )
 {
     ULONG                   Index;
@@ -559,14 +561,16 @@ FrontendInsertAddress(
         if (Address->si_family == AF_INET) {
             if (RtlEqualMemory(&Address->Ipv4.sin_addr.s_addr,
                                &Entry->Address.Ipv4.sin_addr.s_addr,
-                                 IPV4_ADDRESS_LENGTH))
+                                 IPV4_ADDRESS_LENGTH) &&
+                Prefix == Entry->Prefix)
                 goto done;
         } else {
             ASSERT3U(Address->si_family, ==, AF_INET6);
 
             if (RtlEqualMemory(&Address->Ipv6.sin6_addr.s6_addr,
                                &Entry->Address.Ipv6.sin6_addr.s6_addr,
-                               IPV6_ADDRESS_LENGTH))
+                               IPV6_ADDRESS_LENGTH) &&
+                Prefix == Entry->Prefix)
                 goto done;
         }
     }
@@ -585,7 +589,7 @@ FrontendInsertAddress(
     if (Frontend->AddressCount != 0)
         __FrontendFree(Frontend->AddressTable);
 
-    Table[Frontend->AddressCount++] = (XENVIF_ADDRESS){ *Address };
+    Table[Frontend->AddressCount++] = (XENVIF_ADDRESS){ *Address, Prefix };
     Frontend->AddressTable = Table;
 
 done:
@@ -627,7 +631,9 @@ FrontendProcessAddressTable(
             Row->Address.si_family != AF_INET6)
             continue;
 
-        status = FrontendInsertAddress(Frontend, &Row->Address);
+        status = FrontendInsertAddress(Frontend,
+                                       &Row->Address,
+                                       Row->OnLinkPrefixLength);
         if (!NT_SUCCESS(status))
             goto fail1;
     }
@@ -685,7 +691,7 @@ FrontendDumpIPv4Address(
     _In_ PXENVIF_ADDRESS            Entry
     )
 {
-    CHAR                            Node[sizeof ("ipv4/XXXXXXXXXX")];
+    CHAR                            Node[sizeof ("ipv4/XXXXXXXXXX/prefix")];
     PIN_ADDR                        Address;
     NTSTATUS                        status;
 
@@ -711,6 +717,26 @@ FrontendDumpIPv4Address(
     if (!NT_SUCCESS(status))
         return status;
 
+    if (Entry->Prefix > 32)
+        return STATUS_SUCCESS;
+
+    status = RtlStringCbPrintfA(Node,
+                                sizeof (Node),
+                                "ipv4/%u/prefix",
+                                AddressIndex);
+    if (!NT_SUCCESS(status))
+        return status;
+
+    status = XENBUS_STORE(Printf,
+                          &Frontend->StoreInterface,
+                          Transaction,
+                          __FrontendGetPrefix(Frontend),
+                          Node,
+                          "%hhu",
+                          Entry->Prefix);
+    if (!NT_SUCCESS(status))
+        return status;
+
     return STATUS_SUCCESS;
 }
 
@@ -722,7 +748,7 @@ FrontendDumpIPv6Address(
     _In_ PXENVIF_ADDRESS            Entry
     )
 {
-    CHAR                            Node[sizeof ("ipv6/XXXXXXXXXX")];
+    CHAR                            Node[sizeof ("ipv6/XXXXXXXXXX/prefix")];
     ULONG                           Index;
     ULONG                           Count;
     ULONG                           ZeroIndex;
@@ -807,6 +833,26 @@ FrontendDumpIPv6Address(
                               NTOHS(Address->u.Word[6]),
                               NTOHS(Address->u.Word[7]));
     }
+    if (!NT_SUCCESS(status))
+        return status;
+
+    if (Entry->Prefix > 128)
+        return STATUS_SUCCESS;
+
+    status = RtlStringCbPrintfA(Node,
+                                sizeof (Node),
+                                "ipv6/%u/prefix",
+                                AddressIndex);
+    if (!NT_SUCCESS(status))
+        return status;
+
+    status = XENBUS_STORE(Printf,
+                          &Frontend->StoreInterface,
+                          Transaction,
+                          __FrontendGetPrefix(Frontend),
+                          Node,
+                          "%hhu",
+                          Entry->Prefix);
     if (!NT_SUCCESS(status))
         return status;
 
