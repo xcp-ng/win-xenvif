@@ -681,11 +681,22 @@ static NTSTATUS
 FrontendDumpIPv4Address(
     _In_ PXENVIF_FRONTEND           Frontend,
     _In_ PXENBUS_STORE_TRANSACTION  Transaction,
-    _In_ PSTR                       Node,
-    _In_ PIPV4_ADDRESS              Address
+    _In_ ULONG                      AddressIndex,
+    _In_ PXENVIF_ADDRESS            Entry
     )
 {
+    CHAR                            Node[sizeof ("ipv4/XXXXXXXXXX")];
+    PIN_ADDR                        Address;
     NTSTATUS                        status;
+
+    Address = &Entry->Address.Ipv4.sin_addr;
+
+    status = RtlStringCbPrintfA(Node,
+                                sizeof (Node),
+                                "ipv4/%u",
+                                AddressIndex);
+    if (!NT_SUCCESS(status))
+        return status;
 
     status = XENBUS_STORE(Printf,
                           &Frontend->StoreInterface,
@@ -693,30 +704,44 @@ FrontendDumpIPv4Address(
                           __FrontendGetPrefix(Frontend),
                           Node,
                           "%u.%u.%u.%u",
-                          Address->Byte[0],
-                          Address->Byte[1],
-                          Address->Byte[2],
-                          Address->Byte[3]);
-    return status;
+                          Address->S_un.S_un_b.s_b1,
+                          Address->S_un.S_un_b.s_b2,
+                          Address->S_un.S_un_b.s_b3,
+                          Address->S_un.S_un_b.s_b4);
+    if (!NT_SUCCESS(status))
+        return status;
+
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS
 FrontendDumpIPv6Address(
     _In_ PXENVIF_FRONTEND           Frontend,
     _In_ PXENBUS_STORE_TRANSACTION  Transaction,
-    _In_ PSTR                       Node,
-    _In_ PIPV6_ADDRESS              Address
+    _In_ ULONG                      AddressIndex,
+    _In_ PXENVIF_ADDRESS            Entry
     )
 {
+    CHAR                            Node[sizeof ("ipv6/XXXXXXXXXX")];
     ULONG                           Index;
     ULONG                           Count;
     ULONG                           ZeroIndex;
     ULONG                           ZeroCount;
+    PIN6_ADDR                       Address;
     NTSTATUS                        status;
+
+    Address = &Entry->Address.Ipv6.sin6_addr;
+
+    status = RtlStringCbPrintfA(Node,
+                                sizeof (Node),
+                                "ipv6/%u",
+                                AddressIndex);
+    if (!NT_SUCCESS(status))
+        return status;
 
     Count = ZeroIndex = ZeroCount = 0;
     for (Index = 0; Index < 8; Index++) {
-        if (Address->Word[Index] == 0)
+        if (Address->u.Word[Index] == 0)
             Count++;
         else
             Count = 0;
@@ -746,7 +771,7 @@ FrontendDumpIPv6Address(
                 status = RtlStringCchPrintfA(Parts[Index],
                                              sizeof(Parts[Index]),
                                              Index == 0 ? "%hx" : ":%hx",
-                                             NTOHS(Address->Word[Index]));
+                                             NTOHS(Address->u.Word[Index]));
                 if (!NT_SUCCESS(status))
                     return status;
             }
@@ -773,17 +798,19 @@ FrontendDumpIPv6Address(
                               __FrontendGetPrefix(Frontend),
                               Node,
                               "%hx:%hx:%hx:%hx:%hx:%hx:%hx:%hx",
-                              NTOHS(Address->Word[0]),
-                              NTOHS(Address->Word[1]),
-                              NTOHS(Address->Word[2]),
-                              NTOHS(Address->Word[3]),
-                              NTOHS(Address->Word[4]),
-                              NTOHS(Address->Word[5]),
-                              NTOHS(Address->Word[6]),
-                              NTOHS(Address->Word[7]));
+                              NTOHS(Address->u.Word[0]),
+                              NTOHS(Address->u.Word[1]),
+                              NTOHS(Address->u.Word[2]),
+                              NTOHS(Address->u.Word[3]),
+                              NTOHS(Address->u.Word[4]),
+                              NTOHS(Address->u.Word[5]),
+                              NTOHS(Address->u.Word[6]),
+                              NTOHS(Address->u.Word[7]));
     }
+    if (!NT_SUCCESS(status))
+        return status;
 
-    return status;
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS
@@ -831,25 +858,10 @@ FrontendDumpAddressTable(
 
         switch (Entry->Address.si_family) {
         case AF_INET: {
-            IPV4_ADDRESS    Address;
-            CHAR            Node[sizeof ("ipv4/XXXXXXXXXX")];
-
-            RtlCopyMemory(Address.Byte,
-                          &Entry->Address.Ipv4.sin_addr.s_addr,
-                          IPV4_ADDRESS_LENGTH);
-
-            status = RtlStringCbPrintfA(Node,
-                                        sizeof (Node),
-                                        "ipv4/%u",
-                                        IpVersion4Count);
-            ASSERT(NT_SUCCESS(status));
-            if (!NT_SUCCESS(status))
-                continue;
-
             status = FrontendDumpIPv4Address(Frontend,
                                              Transaction,
-                                             Node,
-                                             &Address);
+                                             Index,
+                                             Entry);
             if (!NT_SUCCESS(status))
                 goto fail4;
 
@@ -857,25 +869,10 @@ FrontendDumpAddressTable(
             break;
         }
         case AF_INET6: {
-            IPV6_ADDRESS    Address;
-            CHAR            Node[sizeof ("ipv6/XXXXXXXXXX")];
-
-            RtlCopyMemory(Address.Byte,
-                          &Entry->Address.Ipv6.sin6_addr.s6_addr,
-                          IPV6_ADDRESS_LENGTH);
-
-            status = RtlStringCbPrintfA(Node,
-                                        sizeof (Node),
-                                        "ipv6/%u",
-                                        IpVersion6Count);
-            ASSERT(NT_SUCCESS(status));
-            if (!NT_SUCCESS(status))
-                continue;
-
             status = FrontendDumpIPv6Address(Frontend,
                                              Transaction,
-                                             Node,
-                                             &Address);
+                                             Index,
+                                             Entry);
             if (!NT_SUCCESS(status))
                 goto fail4;
 
