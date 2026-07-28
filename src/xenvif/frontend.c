@@ -67,6 +67,10 @@ typedef struct _XENVIF_FRONTEND_HASH {
     ULONG                           Size;
 } XENVIF_FRONTEND_HASH, *PXENVIF_FRONTEND_HASH;
 
+typedef struct _XENVIF_ADDRESS {
+    SOCKADDR_INET               Address;
+} XENVIF_ADDRESS, *PXENVIF_ADDRESS;
+
 struct _XENVIF_FRONTEND {
     PXENVIF_PDO                 Pdo;
     PCHAR                       Path;
@@ -104,7 +108,7 @@ struct _XENVIF_FRONTEND {
     PXENVIF_THREAD              MibThread;
     CHAR                        Alias[IF_MAX_STRING_SIZE + 1];
     NET_IFINDEX                 InterfaceIndex;
-    PSOCKADDR_INET              AddressTable;
+    PXENVIF_ADDRESS             AddressTable;
     ULONG                       AddressCount;
 
     XENVIF_FRONTEND_HASH        Hash;
@@ -541,43 +545,47 @@ FrontendInsertAddress(
     )
 {
     ULONG                   Index;
-    PSOCKADDR_INET          Table;
+    PXENVIF_ADDRESS         Table;
     NTSTATUS                status;
 
     Trace("====>\n");
 
     for (Index = 0; Index < Frontend->AddressCount; Index++) {
-        if (Frontend->AddressTable[Index].si_family != Address->si_family)
+        PXENVIF_ADDRESS     Entry = &Frontend->AddressTable[Index];
+
+        if (Entry->Address.si_family != Address->si_family)
             continue;
 
         if (Address->si_family == AF_INET) {
             if (RtlEqualMemory(&Address->Ipv4.sin_addr.s_addr,
-                               &Frontend->AddressTable[Index].Ipv4.sin_addr.s_addr,
+                               &Entry->Address.Ipv4.sin_addr.s_addr,
                                  IPV4_ADDRESS_LENGTH))
                 goto done;
         } else {
             ASSERT3U(Address->si_family, ==, AF_INET6);
 
             if (RtlEqualMemory(&Address->Ipv6.sin6_addr.s6_addr,
-                               &Frontend->AddressTable[Index].Ipv6.sin6_addr.s6_addr,
+                               &Entry->Address.Ipv6.sin6_addr.s6_addr,
                                IPV6_ADDRESS_LENGTH))
                 goto done;
         }
     }
 
     // We have an address we've not seen before so grow the table
-    Table = __FrontendAllocate(sizeof (SOCKADDR_INET) * (Frontend->AddressCount + 1));
+    Table = __FrontendAllocate(sizeof (XENVIF_ADDRESS) * (Frontend->AddressCount + 1));
 
     status = STATUS_NO_MEMORY;
     if (Table == NULL)
         goto fail1;
 
-    RtlCopyMemory(Table, Frontend->AddressTable, sizeof (SOCKADDR_INET) * Frontend->AddressCount);
+    RtlCopyMemory(Table,
+                  Frontend->AddressTable,
+                  sizeof (XENVIF_ADDRESS) * Frontend->AddressCount);
 
     if (Frontend->AddressCount != 0)
         __FrontendFree(Frontend->AddressTable);
 
-    Table[Frontend->AddressCount++] = *Address;
+    Table[Frontend->AddressCount++] = (XENVIF_ADDRESS){ *Address };
     Frontend->AddressTable = Table;
 
 done:
@@ -819,13 +827,15 @@ FrontendDumpAddressTable(
     IpVersion6Count = 0;
 
     for (Index = 0; Index < Frontend->AddressCount; Index++) {
-        switch (Frontend->AddressTable[Index].si_family) {
+        PXENVIF_ADDRESS     Entry = &Frontend->AddressTable[Index];
+
+        switch (Entry->Address.si_family) {
         case AF_INET: {
             IPV4_ADDRESS    Address;
             CHAR            Node[sizeof ("ipv4/XXXXXXXXXX")];
 
             RtlCopyMemory(Address.Byte,
-                          &Frontend->AddressTable[Index].Ipv4.sin_addr.s_addr,
+                          &Entry->Address.Ipv4.sin_addr.s_addr,
                           IPV4_ADDRESS_LENGTH);
 
             status = RtlStringCbPrintfA(Node,
@@ -851,7 +861,7 @@ FrontendDumpAddressTable(
             CHAR            Node[sizeof ("ipv6/XXXXXXXXXX")];
 
             RtlCopyMemory(Address.Byte,
-                          &Frontend->AddressTable[Index].Ipv6.sin6_addr.s6_addr,
+                          &Entry->Address.Ipv6.sin6_addr.s6_addr,
                           IPV6_ADDRESS_LENGTH);
 
             status = RtlStringCbPrintfA(Node,
@@ -1307,12 +1317,14 @@ FrontendAdvertiseIpAddresses(
     KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
     for (Index = 0; Index < Frontend->AddressCount; Index++) {
-        switch (Frontend->AddressTable[Index].si_family) {
+        PXENVIF_ADDRESS     Entry = &Frontend->AddressTable[Index];
+
+        switch (Entry->Address.si_family) {
         case AF_INET: {
             IPV4_ADDRESS    Address;
 
             RtlCopyMemory(Address.Byte,
-                          &Frontend->AddressTable[Index].Ipv4.sin_addr.s_addr,
+                          &Entry->Address.Ipv4.sin_addr.s_addr,
                           IPV4_ADDRESS_LENGTH);
 
             TransmitterQueueArp(Transmitter, &Address);
@@ -1322,7 +1334,7 @@ FrontendAdvertiseIpAddresses(
             IPV6_ADDRESS    Address;
 
             RtlCopyMemory(Address.Byte,
-                          &Frontend->AddressTable[Index].Ipv6.sin6_addr.s6_addr,
+                          &Entry->Address.Ipv6.sin6_addr.s6_addr,
                           IPV6_ADDRESS_LENGTH);
 
             TransmitterQueueNeighbourAdvertisement(Transmitter, &Address);
