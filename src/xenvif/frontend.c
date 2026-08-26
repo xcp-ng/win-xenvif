@@ -129,6 +129,7 @@ FrontendStateName(
     _STATE_NAME(CLOSED);
     _STATE_NAME(PREPARED);
     _STATE_NAME(CONNECTED);
+    _STATE_NAME(POISONED);
     _STATE_NAME(ENABLED);
     default:
         break;
@@ -2687,6 +2688,15 @@ FrontendDisable(
     Trace("<====\n");
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
+static FORCEINLINE BOOLEAN
+FrontendIsPoisoned(
+    IN  PXENVIF_FRONTEND    Frontend
+    )
+{
+    return TransmitterIsPoisoned(__FrontendGetTransmitter(Frontend));
+}
+
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetState(
@@ -2809,6 +2819,24 @@ FrontendSetState(
             }
             break;
 
+        case FRONTEND_POISONED:
+            switch (State) {
+            case FRONTEND_CONNECTED:
+            case FRONTEND_PREPARED:
+            case FRONTEND_CLOSED:
+            case FRONTEND_UNKNOWN:
+                FrontendClose(Frontend);
+                Frontend->State = FRONTEND_CLOSED;
+
+                FrontendDisconnect(Frontend);
+                break;
+
+            default:
+                ASSERT(FALSE);
+                break;
+            }
+            break;
+
         case FRONTEND_ENABLED:
             switch (State) {
             case FRONTEND_CONNECTED:
@@ -2816,7 +2844,11 @@ FrontendSetState(
             case FRONTEND_CLOSED:
             case FRONTEND_UNKNOWN:
                 FrontendDisable(Frontend);
-                Frontend->State = FRONTEND_CONNECTED;
+                if (FrontendIsPoisoned(Frontend)) {
+                    Frontend->State = FRONTEND_POISONED;
+                } else {
+                    Frontend->State = FRONTEND_CONNECTED;
+                }
                 break;
 
             default:

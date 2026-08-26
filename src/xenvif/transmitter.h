@@ -81,6 +81,11 @@ TransmitterDisconnect(
     IN  PXENVIF_TRANSMITTER Transmitter
     );
 
+extern BOOLEAN
+TransmitterIsPoisoned(
+    IN  PXENVIF_TRANSMITTER Transmitter
+    );
+
 _IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 TransmitterTeardown(

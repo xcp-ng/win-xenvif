@@ -187,6 +187,7 @@ typedef struct _XENVIF_TRANSMITTER_RING {
     BOOLEAN                         Connected;
     BOOLEAN                         Enabled;
     BOOLEAN                         Stopped;
+    BOOLEAN                         Poisoned;
     PVOID                           Lock;
 #if DBG
     PKTHREAD                        LockThread;
@@ -2440,6 +2441,8 @@ __TransmitterRingFakeResponses(
         PXENVIF_TRANSMITTER Transmitter;
         PXENVIF_FRONTEND    Frontend;
 
+        Ring->Poisoned = TRUE;
+
         Transmitter = Ring->Transmitter;
         Frontend = Transmitter->Frontend;
 
@@ -3920,6 +3923,7 @@ __TransmitterRingEnable(
 
     __TransmitterRingAcquireLock(Ring);
 
+    BUG_ON(Ring->Poisoned);
     ASSERT(!Ring->Enabled);
     Ring->Enabled = TRUE;
 
@@ -4076,6 +4080,7 @@ __TransmitterRingDisconnect(
     Ring->ResponsesProcessed = 0;
     Ring->RequestsPushed = 0;
     Ring->RequestsPosted = 0;
+    Ring->Poisoned = FALSE;
 
     XENBUS_DEBUG(Deregister,
                  &Transmitter->DebugInterface,
@@ -4978,6 +4983,25 @@ TransmitterDisconnect(
     XENBUS_DEBUG(Release, &Transmitter->DebugInterface);
 
     Trace("<====\n");
+}
+
+BOOLEAN
+TransmitterIsPoisoned(
+    IN  PXENVIF_TRANSMITTER Transmitter
+    )
+{
+    ULONG                   NumQueues;
+    ULONG                   Index;
+
+    NumQueues = FrontendGetNumQueues(Transmitter->Frontend);
+    for (Index = 0; Index < NumQueues; Index++) {
+        PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
+
+        if (Ring->Poisoned)
+            return TRUE;
+    }
+
+    return FALSE;
 }
 
 _IRQL_requires_(PASSIVE_LEVEL)
