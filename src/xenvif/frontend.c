@@ -907,7 +907,7 @@ FrontendDumpAddressTable(
         case AF_INET: {
             status = FrontendDumpIPv4Address(Frontend,
                                              Transaction,
-                                             Index,
+                                             IpVersion4Count,
                                              Entry);
             if (!NT_SUCCESS(status))
                 goto fail4;
@@ -918,7 +918,7 @@ FrontendDumpAddressTable(
         case AF_INET6: {
             status = FrontendDumpIPv6Address(Frontend,
                                              Transaction,
-                                             Index,
+                                             IpVersion6Count,
                                              Entry);
             if (!NT_SUCCESS(status))
                 goto fail4;
