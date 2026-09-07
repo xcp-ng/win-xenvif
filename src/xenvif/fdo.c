@@ -2597,7 +2597,7 @@ FdoRequestSetDevicePowerDownComplete(
         Exchange = InterlockedExchangePointer(&Fdo->SystemPowerIrp, Irp);
         ASSERT(Exchange == NULL);
 
-        IoQueueWorkItem(Fdo->DevicePowerWorkItem,
+        IoQueueWorkItem(Fdo->SystemPowerWorkItem,
                         FdoSystemPowerDownWorker,
                         DelayedWorkQueue,
                         Fdo);
