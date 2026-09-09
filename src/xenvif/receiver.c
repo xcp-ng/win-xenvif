@@ -2466,7 +2466,7 @@ __ReceiverRingInitialize(
     *Ring = __ReceiverAllocate(sizeof (XENVIF_RECEIVER_RING));
 
     status = STATUS_NO_MEMORY;
-    if (Ring == NULL)
+    if (*Ring == NULL)
         goto fail1;
 
     KeInitializeSpinLock(&(*Ring)->Lock);
