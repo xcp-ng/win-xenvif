@@ -774,22 +774,21 @@ FrontendDumpIPv6Address(
             Count = 0;
 
         if (Count > ZeroCount) {
-            if (Count == 1)
-                ZeroIndex = Index;
+            ZeroIndex = 1 + Index - Count;
             ZeroCount = Count;
         }
     }
 
     if (ZeroCount > 1) {
-        CHAR                        Parts[8][sizeof(":XXXX")];
+        CHAR                        Parts[8][sizeof(":XXXX")] = { 0 };
 
         for (Index = 0; Index < 8; Index++) {
             // Consecutive 0s are collapsed into a single semicolon, so that
             // appending :xxxx segments would work naturally.
             // Compensate for the missing appended semicolon if the last word
             // was also collapsed.
-            if (Index == ZeroIndex || (Index == 7 &&
-                                       Index == ZeroIndex + ZeroCount - 1)) {
+            if (Index == ZeroIndex ||
+                (Index == 7 && ZeroIndex + ZeroCount == 8)) {
                 Parts[Index][0] = ':';
                 Parts[Index][1] = '\0';
             } else if (Index > ZeroIndex && Index < ZeroIndex + ZeroCount) {
