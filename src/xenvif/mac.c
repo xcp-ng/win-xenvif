@@ -700,10 +700,13 @@ __MacGetSpeed(
     PXENVIF_FRONTEND    Frontend;
     PCHAR               Buffer;
     ULONG64             Speed;
-    PCHAR               Unit;
+    CHAR                Unit;
     NTSTATUS            status;
 
     Frontend = Mac->Frontend;
+
+    Speed = Mac->Speed;
+    Unit = 'G';
 
     status = XENBUS_STORE(Read,
                           &Mac->StoreInterface,
@@ -711,27 +714,28 @@ __MacGetSpeed(
                           FrontendGetPath(Mac->Frontend),
                           "speed",
                           &Buffer);
-    if (!NT_SUCCESS(status)) {
-        Speed = Mac->Speed;
-        Unit = "G";
-    } else {
-        Speed = _strtoui64(Buffer, &Unit, 10);
+    if (NT_SUCCESS(status)) {
+        PCHAR           End;
+
+        Speed = _strtoui64(Buffer, &End, 10);
         if (Speed == _UI64_MAX)
             Speed = Mac->Speed;
-        if (*Unit == '\0')
-            Unit = "G";
+
+        if (*End != '\0') {
+            Unit = *End;
+
+            if (*(End + 1) != '\0') {
+                Warning("INVALID SPEED: %s\n", Buffer);
+                Speed = 0;
+            }
+        }
 
         XENBUS_STORE(Free,
                      &Mac->StoreInterface,
                      Buffer);
     }
 
-    if (*(Unit + 1) != '\0') {
-        Warning("INVALID SPEED: %s\n", Buffer);
-        return 0;
-    }
-
-    switch (*Unit) {
+    switch (Unit) {
     case 'g':
     case 'G':
         Speed *= 1000000000ull;
@@ -748,7 +752,7 @@ __MacGetSpeed(
         break;
 
     default:
-        Warning("INVALID SPEED UNIT: %c\n", *Unit);
+        Warning("INVALID SPEED UNIT: %c\n", Unit);
         return 0;
     }
 
