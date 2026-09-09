@@ -771,15 +771,15 @@ __MacGetDisconnect(
 
     Frontend = Mac->Frontend;
 
+    Disconnect = FALSE;
+
     status = XENBUS_STORE(Read,
                           &Mac->StoreInterface,
                           NULL,
                           FrontendGetPath(Mac->Frontend),
                           "disconnect",
                           &Buffer);
-    if (!NT_SUCCESS(status)) {
-        Disconnect = FALSE;
-    } else {
+    if (NT_SUCCESS(status)) {
         Disconnect = (BOOLEAN)strtol(Buffer, NULL, 2);
 
         XENBUS_STORE(Free,
@@ -793,9 +793,9 @@ __MacGetDisconnect(
 VOID
 MacQueryState(
     IN  PXENVIF_MAC                 Mac,
-    OUT PNET_IF_MEDIA_CONNECT_STATE MediaConnectState OPTIONAL,
-    OUT PULONG64                    LinkSpeed OPTIONAL,
-    OUT PNET_IF_MEDIA_DUPLEX_STATE  MediaDuplexState OPTIONAL
+    OUT PNET_IF_MEDIA_CONNECT_STATE MediaConnectState   OPTIONAL,
+    OUT PULONG64                    LinkSpeed           OPTIONAL,
+    OUT PNET_IF_MEDIA_DUPLEX_STATE  MediaDuplexState    OPTIONAL
     )
 {
     ULONG64 Speed = __MacGetSpeed(Mac);
@@ -804,17 +804,15 @@ MacQueryState(
     if (Speed == 0)
         Disconnect = TRUE;
 
-    if (MediaConnectState != NULL || MediaDuplexState != NULL) {
-        if (MediaConnectState != NULL)
-            *MediaConnectState = (Disconnect) ?
-                                 MediaConnectStateDisconnected :
-                                 MediaConnectStateConnected;
+    if (MediaConnectState != NULL)
+        *MediaConnectState = (Disconnect) ?
+                             MediaConnectStateDisconnected :
+                             MediaConnectStateConnected;
 
-        if (MediaDuplexState != NULL)
-            *MediaDuplexState = (Disconnect) ?
-                                MediaDuplexStateUnknown :
-                                MediaDuplexStateFull;
-    }
+    if (MediaDuplexState != NULL)
+        *MediaDuplexState = (Disconnect) ?
+                            MediaDuplexStateUnknown :
+                            MediaDuplexStateFull;
 
     if (LinkSpeed != NULL)
         *LinkSpeed = Speed;
@@ -823,7 +821,7 @@ MacQueryState(
 VOID
 MacQueryMaximumFrameSize(
     IN  PXENVIF_MAC Mac,
-    OUT PULONG      Size                     
+    OUT PULONG      Size
     )
 {
     *Size = Mac->MaximumFrameSize;
