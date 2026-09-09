@@ -702,6 +702,10 @@ __PdoParseAddress(
         else
             break;
 
+        status = STATUS_INVALID_PARAMETER;
+        if (Length == ETHERNET_ADDRESS_LENGTH)
+            goto fail1;
+
         Address->Byte[Length++] = Byte;
 
         // Skip over any separator
@@ -711,9 +715,12 @@ __PdoParseAddress(
 
     status = STATUS_INVALID_PARAMETER;
     if (Length != ETHERNET_ADDRESS_LENGTH)
-        goto fail1;
+        goto fail2;
 
     return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
