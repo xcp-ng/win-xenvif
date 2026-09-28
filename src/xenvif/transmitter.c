@@ -5245,7 +5245,6 @@ TransmitterQueuePacket(
     switch (Algorithm) {
     case XENVIF_PACKET_HASH_ALGORITHM_NONE:
         Value = __TransmitterHashPacket(Transmitter, Packet);
-        More = FALSE;
         break;
 
     case XENVIF_PACKET_HASH_ALGORITHM_UNSPECIFIED:
