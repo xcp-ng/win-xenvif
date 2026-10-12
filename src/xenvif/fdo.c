@@ -3136,6 +3136,7 @@ FdoQueryInterface(
 
     KeInitializeEvent(&Event, NotificationEvent, FALSE);
     RtlZeroMemory(&StatusBlock, sizeof(IO_STATUS_BLOCK));
+    RtlZeroMemory(Interface, Size);
 
     Irp = IoBuildSynchronousFsdRequest(IRP_MJ_PNP,
                                        Fdo->LowerDeviceObject,
