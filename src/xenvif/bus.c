@@ -94,7 +94,7 @@ BusTranslateAddress(
     _In_ PHYSICAL_ADDRESS       BusAddress,
     _In_ ULONG                  Length,
     _Inout_ PULONG              AddressSpace,
-    _Outptr_ PPHYSICAL_ADDRESS  TranslatedAddress
+    _Out_ PPHYSICAL_ADDRESS     TranslatedAddress
     )
 {
     PXENVIF_BUS_CONTEXT         Context = _Context;

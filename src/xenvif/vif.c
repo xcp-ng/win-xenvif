@@ -939,7 +939,7 @@ VifTransmitterQueryRingSize(
 
 static NTSTATUS
 VifAcquire(
-    PINTERFACE              Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;

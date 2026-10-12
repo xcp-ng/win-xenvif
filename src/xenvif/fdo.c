@@ -926,8 +926,8 @@ __FdoFreeAnsi(
 
 static NTSTATUS
 FdoScan(
-    PXENVIF_THREAD      Self,
-    PVOID               Context
+    _In_ PXENVIF_THREAD Self,
+    _In_ PVOID          Context
     )
 {
     PXENVIF_FDO         Fdo = Context;
@@ -3205,8 +3205,8 @@ fail1:
 #define DEFINE_FDO_GET_INTERFACE(_Interface, _Type)                     \
 VOID                                                                    \
 FdoGet ## _Interface ## Interface(                                      \
-    IN  PXENVIF_FDO Fdo,                                                \
-    OUT _Type       _Interface ## Interface                             \
+    _In_  PXENVIF_FDO Fdo,                                                \
+    _Out_ _Type       _Interface ## Interface                             \
     )                                                                   \
 {                                                                       \
     * ## _Interface ## Interface = Fdo-> ## _Interface ## Interface;    \

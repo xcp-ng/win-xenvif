@@ -329,7 +329,7 @@ FrontendFreePath(
 #define DEFINE_FRONTEND_GET_FUNCTION(_Function, _Type)  \
 static FORCEINLINE _Type                                \
 __FrontendGet ## _Function(                             \
-    IN  PXENVIF_FRONTEND    Frontend                    \
+    _In_  PXENVIF_FRONTEND    Frontend                    \
     )                                                   \
 {                                                       \
     return Frontend-> ## _Function;                     \
@@ -337,7 +337,7 @@ __FrontendGet ## _Function(                             \
                                                         \
 _Type                                                   \
 FrontendGet ## _Function(                               \
-    IN  PXENVIF_FRONTEND    Frontend                    \
+    _In_ PXENVIF_FRONTEND    Frontend                   \
     )                                                   \
 {                                                       \
     return __FrontendGet ## _Function ## (Frontend);    \
@@ -2052,17 +2052,17 @@ FrontendIsSplit(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE NTSTATUS
 __FrontendUpdateHash(
-    PXENVIF_FRONTEND        Frontend,
-    PXENVIF_FRONTEND_HASH   Hash
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _In_ PXENVIF_FRONTEND_HASH  Hash
     )
 {
-    PXENVIF_CONTROLLER      Controller;
-    ULONG                   Zero = 0;
-    ULONG                   NetifAlgorithm;
-    ULONG                   Size;
-    PULONG                  Mapping;
-    ULONG                   Flags;
-    NTSTATUS                status;
+    PXENVIF_CONTROLLER          Controller;
+    ULONG                       Zero = 0;
+    ULONG                       NetifAlgorithm;
+    ULONG                       Size;
+    PULONG                      Mapping;
+    ULONG                       Flags;
+    NTSTATUS                    status;
 
     Controller = __FrontendGetController(Frontend);
 

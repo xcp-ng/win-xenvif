@@ -1430,7 +1430,7 @@ fail1:
 
 static PKEY_VALUE_PARTIAL_INFORMATION
 RegistryAnsiToSz(
-    PANSI_STRING                    Ansi
+    _In_ PANSI_STRING               Ansi
     )
 {
     ULONG                           Length;
@@ -1476,7 +1476,7 @@ fail1:
 
 static PKEY_VALUE_PARTIAL_INFORMATION
 RegistryAnsiToMultiSz(
-    PANSI_STRING                    Ansi
+    _In_ PANSI_STRING               Ansi
     )
 {
     ULONG                           Length;
