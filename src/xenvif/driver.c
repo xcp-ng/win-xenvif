@@ -73,7 +73,7 @@ DriverSafeMode(
 
 static FORCEINLINE VOID
 __DriverSetDriverObject(
-    _In_ PDRIVER_OBJECT DriverObject
+    _In_opt_ PDRIVER_OBJECT DriverObject
     )
 {
     Driver.DriverObject = DriverObject;
@@ -97,7 +97,7 @@ DriverGetDriverObject(
 
 static FORCEINLINE VOID
 __DriverSetParametersKey(
-    _In_ HANDLE Key
+    _In_opt_ HANDLE Key
     )
 {
     Driver.ParametersKey = Key;
@@ -121,7 +121,7 @@ DriverGetParametersKey(
 
 static FORCEINLINE VOID
 __DriverSetAddressesKey(
-    _In_ HANDLE Key
+    _In_opt_ HANDLE Key
     )
 {
     Driver.AddressesKey = Key;
@@ -145,7 +145,7 @@ DriverGetAddressesKey(
 
 static FORCEINLINE VOID
 __DriverSetSettingsKey(
-    _In_ HANDLE Key
+    _In_opt_ HANDLE Key
     )
 {
     Driver.SettingsKey = Key;
