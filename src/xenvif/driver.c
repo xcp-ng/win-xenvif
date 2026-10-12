@@ -248,7 +248,7 @@ DRIVER_DISPATCH Dispatch;
 NTSTATUS 
 Dispatch(
     _In_ PDEVICE_OBJECT DeviceObject,
-    _In_ PIRP           Irp
+    _Inout_ PIRP        Irp
     )
 {
     PXENVIF_DX          Dx;
