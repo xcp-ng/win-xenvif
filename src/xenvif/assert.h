@@ -1,32 +1,32 @@
 /* Copyright (c) Xen Project.
  * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -39,11 +39,11 @@
 
 static FORCEINLINE VOID
 __Bug(
-    IN  ULONG       Code,
-    IN  ULONG_PTR   Parameter1,
-    IN  ULONG_PTR   Parameter2,
-    IN  ULONG_PTR   Parameter3,
-    IN  ULONG_PTR   Parameter4
+    _In_ ULONG      Code,
+    _In_ ULONG_PTR  Parameter1,
+    _In_ ULONG_PTR  Parameter2,
+    _In_ ULONG_PTR  Parameter3,
+    _In_ ULONG_PTR  Parameter4
     )
 {
 #pragma prefast(suppress:28159)
@@ -58,8 +58,8 @@ __Bug(
 
 #define BUG(_TEXT)                                              \
         do {                                                    \
-            const CHAR  *_Text = (_TEXT);                       \
-            const CHAR  *_File = __FILE__;                      \
+            PCSTR       _Text = (_TEXT);                       \
+            PCSTR       _File = __FILE__;                      \
             ULONG       _Line = __LINE__;                       \
                                                                 \
             Error("BUG: " _TEXT "\n");                          \
@@ -77,17 +77,19 @@ __Bug(
 
 #if DBG
 
-#define __ASSERT_FAIL(_EXP)                                     \
+#define __NT_ASSERT(_EXP)                                       \
+        ((!(_EXP)) ?                                            \
         (Error("ASSERTION FAILED: " #_EXP "\n"),                \
          __annotation(L"Debug", L"AssertFail", L#_EXP),         \
-         DbgRaiseAssertionFailure())
+         DbgRaiseAssertionFailure(), FALSE) :                   \
+        TRUE)
 
-#define ASSERT(_EXP)                     \
-        do {                             \
-            if (!(_EXP)) {               \
-                __ASSERT_FAIL(_EXP);     \
-                __analysis_assume(_EXP); \
-            }                            \
+#define __ASSERT(_EXP)  __NT_ASSERT(_EXP)
+
+#define ASSERT(_EXP)                    \
+        do {                            \
+            __ASSERT(_EXP);             \
+            _Analysis_assume_(_EXP);    \
         } while (FALSE)
 
 #define ASSERT3U(_X, _OP, _Y)                       \
@@ -97,8 +99,7 @@ __Bug(
             if (!(_Lval _OP _Rval)) {               \
                 Error("%s = %llu\n", #_X, _Lval);   \
                 Error("%s = %llu\n", #_Y, _Rval);   \
-                __ASSERT_FAIL(_X _OP _Y);           \
-                __analysis_assume(_Lval _OP _Rval); \
+                ASSERT((_X) _OP (_Y));              \
             }                                       \
         } while (FALSE)
 
@@ -109,8 +110,7 @@ __Bug(
             if (!(_Lval _OP _Rval)) {               \
                 Error("%s = %lld\n", #_X, _Lval);   \
                 Error("%s = %lld\n", #_Y, _Rval);   \
-                __ASSERT_FAIL(_X _OP _Y);           \
-                __analysis_assume(_Lval _OP _Rval); \
+                ASSERT((_X) _OP (_Y));              \
             }                                       \
         } while (FALSE)
 
@@ -121,8 +121,7 @@ __Bug(
             if (!(_Lval _OP _Rval)) {               \
                 Error("%s = %p\n", #_X, _Lval);     \
                 Error("%s = %p\n", #_Y, _Rval);     \
-                __ASSERT_FAIL(_X _OP _Y);           \
-                __analysis_assume(_Lval _OP _Rval); \
+                ASSERT((_X) _OP (_Y));              \
             }                                       \
         } while (FALSE)
 
@@ -133,17 +132,17 @@ __Bug(
 
 #define ASSERT(_EXP)                    \
         do {                            \
-            __analysis_assume(_EXP);    \
+            _Analysis_assume_(_EXP);    \
         } while (FALSE)
 
 #define ASSERT3U(_X, _OP, _Y)           \
-        ASSERT((ULONGLONG)(_X) _OP (ULONGLONG)(_Y))
+        ASSERT((_X) _OP (_Y))
 
 #define ASSERT3S(_X, _OP, _Y)           \
-        ASSERT((LONGLONG)(_X) _OP (LONGLONG)(_Y))
+        ASSERT((_X) _OP (_Y))
 
 #define ASSERT3P(_X, _OP, _Y)           \
-        ASSERT((PVOID)(_X) _OP (PVOID)(_Y))
+        ASSERT((_X) _OP (_Y))
 
 #endif  // DBG
 
@@ -155,10 +154,10 @@ __Bug(
 
 static __inline BOOLEAN
 _IsZeroMemory(
-    IN  const PCHAR Caller,
-    IN  const PCHAR Name,
-    IN  PVOID       Buffer,
-    IN  ULONG       Length
+    _In_ PCSTR      Caller,
+    _In_ PCSTR      Name,
+    _In_ PVOID      Buffer,
+    _In_ ULONG      Length
     )
 {
     ULONG           Offset;
@@ -179,10 +178,10 @@ _IsZeroMemory(
 
 static __inline BOOLEAN
 _IsZeroMemory(
-    IN  const PCHAR Caller,
-    IN  const PCHAR Name,
-    IN  PVOID       Buffer,
-    IN  ULONG       Length
+    _In_ PCSTR  Caller,
+    _In_ PCSTR  Name,
+    _In_ PVOID  Buffer,
+    _In_ ULONG  Length
     )
 {
     UNREFERENCED_PARAMETER(Caller);

@@ -39,37 +39,37 @@ typedef struct _XENVIF_THREAD XENVIF_THREAD, *PXENVIF_THREAD;
 
 typedef NTSTATUS (*XENVIF_THREAD_FUNCTION)(PXENVIF_THREAD, PVOID);
 
-__drv_requiresIRQL(PASSIVE_LEVEL)
+_IRQL_requires_(PASSIVE_LEVEL)
 extern NTSTATUS
 ThreadCreate(
-    IN  XENVIF_THREAD_FUNCTION  Function,
-    IN  PVOID                   Context,
-    OUT PXENVIF_THREAD          *Thread
+    _In_ XENVIF_THREAD_FUNCTION Function,
+    _In_ PVOID                  Context,
+    _Outptr_ PXENVIF_THREAD     *Thread
     );
 
 extern PKEVENT
 ThreadGetEvent(
-    IN  PXENVIF_THREAD  Self
+    _In_ PXENVIF_THREAD Self
     );
 
 extern BOOLEAN
 ThreadIsAlerted(
-    IN  PXENVIF_THREAD  Self
+    _In_ PXENVIF_THREAD Self
     );
 
 extern VOID
 ThreadWake(
-    IN  PXENVIF_THREAD  Thread
+    _In_ PXENVIF_THREAD Thread
     );
 
 extern VOID
 ThreadAlert(
-    IN  PXENVIF_THREAD  Thread
+    _In_ PXENVIF_THREAD Thread
     );
 
 extern VOID
 ThreadJoin(
-    IN  PXENVIF_THREAD  Thread
+    _In_ PXENVIF_THREAD Thread
     );
 
 #endif  // _XENVIF_THREAD_H

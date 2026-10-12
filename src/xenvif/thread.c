@@ -50,7 +50,7 @@ struct _XENVIF_THREAD {
 
 static FORCEINLINE PVOID
 __ThreadAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, THREAD_POOL);
@@ -58,7 +58,7 @@ __ThreadAllocate(
 
 static FORCEINLINE VOID
 __ThreadFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, THREAD_POOL);
@@ -66,7 +66,7 @@ __ThreadFree(
 
 static FORCEINLINE VOID
 __ThreadWake(
-    IN  PXENVIF_THREAD  Thread
+    _In_ PXENVIF_THREAD Thread
     )
 {
     KeSetEvent(&Thread->Event, IO_NO_INCREMENT, FALSE);
@@ -74,7 +74,7 @@ __ThreadWake(
 
 VOID
 ThreadWake(
-    IN  PXENVIF_THREAD  Thread
+    _In_ PXENVIF_THREAD Thread
     )
 {
     __ThreadWake(Thread);
@@ -82,7 +82,7 @@ ThreadWake(
 
 static FORCEINLINE VOID
 __ThreadAlert(
-    IN  PXENVIF_THREAD  Thread
+    _In_ PXENVIF_THREAD Thread
     )
 {
     Thread->Alerted = TRUE;
@@ -91,7 +91,7 @@ __ThreadAlert(
 
 VOID
 ThreadAlert(
-    IN  PXENVIF_THREAD  Thread
+    _In_ PXENVIF_THREAD Thread
     )
 {
     __ThreadAlert(Thread);
@@ -101,11 +101,11 @@ KSTART_ROUTINE  ThreadFunction;
 
 VOID
 ThreadFunction(
-    IN  PVOID       Argument
+    _In_ PVOID          Argument
     )
 {
-    PXENVIF_THREAD  Self = Argument;
-    NTSTATUS        status;
+    PXENVIF_THREAD      Self = Argument;
+    NTSTATUS            status;
 
     status = Self->Function(Self, Self->Context);
 
@@ -116,12 +116,12 @@ ThreadFunction(
     // NOT REACHED
 }
 
-__drv_requiresIRQL(PASSIVE_LEVEL)
+_IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS
 ThreadCreate(
-    IN  XENVIF_THREAD_FUNCTION  Function,
-    IN  PVOID                   Context,
-    OUT PXENVIF_THREAD          *Thread
+    _In_ XENVIF_THREAD_FUNCTION Function,
+    _In_ PVOID                  Context,
+    _Outptr_ PXENVIF_THREAD     *Thread
     )
 {
     HANDLE                      Handle;
@@ -130,6 +130,8 @@ ThreadCreate(
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
     (*Thread) = __ThreadAllocate(sizeof (XENVIF_THREAD));
+
+    Trace("Create thread %p %p\n", Function, Thread);
 
     status = STATUS_NO_MEMORY;
     if (*Thread == NULL)
@@ -189,7 +191,7 @@ fail1:
 
 PKEVENT
 ThreadGetEvent(
-    IN  PXENVIF_THREAD  Thread
+    _In_ PXENVIF_THREAD Thread
     )
 {
     return &Thread->Event;
@@ -197,7 +199,7 @@ ThreadGetEvent(
 
 BOOLEAN
 ThreadIsAlerted(
-    IN  PXENVIF_THREAD  Thread
+    _In_ PXENVIF_THREAD Thread
     )
 {
     return Thread->Alerted;
@@ -205,10 +207,10 @@ ThreadIsAlerted(
 
 VOID
 ThreadJoin(
-    IN  PXENVIF_THREAD  Thread
+    _In_ PXENVIF_THREAD     Thread
     )
 {
-    LONG                References;
+    LONG                    References;
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
     ASSERT3P(KeGetCurrentThread(), !=, Thread->Thread);

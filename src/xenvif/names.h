@@ -36,14 +36,16 @@
 #include <ntddk.h>
 #include <xen.h>
 
+#include "types.h"
+
 static FORCEINLINE const CHAR *
 PowerTypeName(
-    IN  POWER_STATE_TYPE    Type
+    _In_ POWER_STATE_TYPE   Type
     )
 {
 #define _POWER_TYPE_NAME(_Type) \
     case _Type:                 \
-        return #_Type;
+            return #_Type;
 
     switch (Type) {
     _POWER_TYPE_NAME(SystemPowerState);
@@ -58,12 +60,12 @@ PowerTypeName(
 
 static FORCEINLINE const CHAR *
 PowerSystemStateName(
-    IN  SYSTEM_POWER_STATE State
+    _In_ SYSTEM_POWER_STATE State
     )
 {
 #define _POWER_SYSTEM_STATE_NAME(_State)    \
     case PowerSystem ## _State:             \
-        return #_State;
+            return #_State;
 
     switch (State) {
     _POWER_SYSTEM_STATE_NAME(Unspecified);
@@ -84,7 +86,7 @@ PowerSystemStateName(
 
 static FORCEINLINE const CHAR *
 PowerDeviceStateName(
-    IN  DEVICE_POWER_STATE State
+    _In_ DEVICE_POWER_STATE State
     )
 {
 #define _POWER_DEVICE_STATE_NAME(_State)    \
@@ -108,12 +110,12 @@ PowerDeviceStateName(
 
 static FORCEINLINE const CHAR *
 PowerActionName(
-    IN  POWER_ACTION    Type
+    _In_ POWER_ACTION   Type
     )
 {
 #define _POWER_ACTION_NAME(_Type)   \
     case PowerAction ## _Type:      \
-        return #_Type;
+            return #_Type;
 
     switch (Type) {
     _POWER_ACTION_NAME(None);
@@ -134,7 +136,7 @@ PowerActionName(
 
 static FORCEINLINE const CHAR *
 PowerMinorFunctionName(
-    IN  ULONG   MinorFunction
+    _In_ ULONG  MinorFunction
     )
 {
 #define _POWER_MINOR_FUNCTION_NAME(_Function)   \
@@ -146,18 +148,44 @@ PowerMinorFunctionName(
     _POWER_MINOR_FUNCTION_NAME(POWER_SEQUENCE);
     _POWER_MINOR_FUNCTION_NAME(SET_POWER);
     _POWER_MINOR_FUNCTION_NAME(QUERY_POWER);
+
+    default:
+        return "UNKNOWN";
+    }
+
+#undef  _POWER_MINOR_FUNCTION_NAME
+}
+
+static FORCEINLINE const CHAR *
+PnpDeviceStateName(
+    _In_ DEVICE_PNP_STATE   State
+    )
+{
+#define _PNP_DEVICE_STATE_NAME(_State) \
+    case  _State:               \
+        return #_State;
+
+    switch (State) {
+    _PNP_DEVICE_STATE_NAME(Invalid);
+    _PNP_DEVICE_STATE_NAME(Added);
+    _PNP_DEVICE_STATE_NAME(Started);
+    _PNP_DEVICE_STATE_NAME(StopPending);
+    _PNP_DEVICE_STATE_NAME(Stopped);
+    _PNP_DEVICE_STATE_NAME(RemovePending);
+    _PNP_DEVICE_STATE_NAME(SurpriseRemovePending);
+    _PNP_DEVICE_STATE_NAME(Deleted);
     default:
         break;
     }
 
     return "UNKNOWN";
 
-#undef  _POWER_MINOR_FUNCTION_NAME
+#undef  _STATE_NAME
 }
 
 static FORCEINLINE const CHAR *
 PnpMinorFunctionName(
-    IN  ULONG   Function
+    _In_ ULONG  Function
     )
 {
 #define _PNP_MINOR_FUNCTION_NAME(_Function) \
@@ -200,7 +228,7 @@ PnpMinorFunctionName(
 
 static FORCEINLINE const CHAR *
 PartialResourceDescriptorTypeName(
-    IN  UCHAR   Type
+    _In_ UCHAR  Type
     )
 {
 #define _PARTIAL_RESOURCE_DESCRIPTOR_TYPE_NAME(_Type)   \
@@ -229,7 +257,7 @@ PartialResourceDescriptorTypeName(
 
 static FORCEINLINE const CHAR *
 DeviceUsageTypeName(
-    IN  DEVICE_USAGE_NOTIFICATION_TYPE  Type
+    _In_ DEVICE_USAGE_NOTIFICATION_TYPE Type
     )
 {
 #define _DEVICE_USAGE_TYPE_NAME(_Type)  \
