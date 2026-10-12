@@ -49,27 +49,27 @@ MacInitialize(
 
 extern NTSTATUS
 MacConnect(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     );
 
 extern NTSTATUS
 MacEnable(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     );
 
 extern VOID
 MacDisable(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     );
 
 extern VOID
 MacDisconnect(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     );
 
 extern VOID
 MacTeardown(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     );
 
 extern VOID
@@ -98,38 +98,38 @@ MacQueryBroadcastAddress(
 
 extern NTSTATUS
 MacDumpAddressTable(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     );
 
 extern NTSTATUS
 MacAddMulticastAddress(
-    _In_ PXENVIF_MAC        Mac,
+    _Out_ PXENVIF_MAC       Mac,
     _Out_ PETHERNET_ADDRESS Address
     );
 
 extern NTSTATUS
 MacRemoveMulticastAddress(
-    _In_ PXENVIF_MAC        Mac,
+    _Out_ PXENVIF_MAC       Mac,
     _Out_ PETHERNET_ADDRESS Address
     );
 
 extern NTSTATUS
 MacQueryMulticastAddresses(
-    _In_ PXENVIF_MAC            Mac,
-    _Out_opt_ PETHERNET_ADDRESS Address,
-    _Inout_ PULONG              Count
+    _Out_ PXENVIF_MAC               Mac,
+    _Inout_opt_ PETHERNET_ADDRESS   Address,
+    _Inout_ PULONG                  Count
     );
 
 extern NTSTATUS
 MacSetFilterLevel(
-    _In_ PXENVIF_MAC                Mac,
+    _Out_ PXENVIF_MAC               Mac,
     _In_ ETHERNET_ADDRESS_TYPE      Type,
     _In_ XENVIF_MAC_FILTER_LEVEL    Level
     );
 
 extern NTSTATUS
 MacQueryFilterLevel(
-    _In_ PXENVIF_MAC                Mac,
+    _Out_ PXENVIF_MAC               Mac,
     _In_ ETHERNET_ADDRESS_TYPE      Type,
     _Out_ PXENVIF_MAC_FILTER_LEVEL  Level
     );
@@ -144,7 +144,7 @@ MacQueryState(
 
 extern BOOLEAN
 MacApplyFilters(
-    _In_ PXENVIF_MAC        Mac,
+    _Out_ PXENVIF_MAC       Mac,
     _In_ PETHERNET_ADDRESS  DestinationAddress
     );
 

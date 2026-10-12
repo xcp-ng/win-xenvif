@@ -211,7 +211,7 @@ __PdoGetDevicePowerState(
 
 static FORCEINLINE VOID
 __PdoSetMissing(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PCSTR          Reason
     )
 {
@@ -221,7 +221,7 @@ __PdoSetMissing(
 
 VOID
 PdoSetMissing(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PCSTR          Reason
     )
 {
@@ -296,7 +296,7 @@ PdoGetName(
 
 static FORCEINLINE BOOLEAN
 __PdoSetEjectRequested(
-    _In_ PXENVIF_PDO    Pdo
+    _Out_ PXENVIF_PDO   Pdo
     )
 {
     return (InterlockedBitTestAndSet(&Pdo->Eject, 0) == 0) ? TRUE : FALSE;
@@ -304,7 +304,7 @@ __PdoSetEjectRequested(
 
 VOID
 PdoRequestEject(
-    _In_ PXENVIF_PDO    Pdo
+    _Out_ PXENVIF_PDO   Pdo
     )
 {
     PXENVIF_DX          Dx = Pdo->Dx;
@@ -324,7 +324,7 @@ PdoRequestEject(
 
 static FORCEINLINE BOOLEAN
 __PdoClearEjectRequested(
-    _In_ PXENVIF_PDO    Pdo
+    _Out_ PXENVIF_PDO   Pdo
     )
 {
     return (InterlockedBitTestAndReset(&Pdo->Eject, 0) != 0) ? TRUE : FALSE;
@@ -353,7 +353,7 @@ DEFINE_GUID(GUID_CONTAINER_ID_NAME_SPACE,
 
 static NTSTATUS
 __PdoSetContainerID(
-    _In_ PXENVIF_PDO    Pdo
+    _Out_ PXENVIF_PDO   Pdo
     )
 {
     BCRYPT_ALG_HANDLE   Algorithm;
@@ -730,7 +730,7 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __PdoSetPermanentAddress(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PSTR           Buffer
     )
 {
@@ -782,7 +782,7 @@ PdoGetPermanentAddress(
 
 static FORCEINLINE VOID
 __PdoClearPermanentAddress(
-    _In_ PXENVIF_PDO    Pdo
+    _Out_ PXENVIF_PDO   Pdo
     )
 {
     (VOID) RegistryDeleteValue(DriverGetAddressesKey(),
@@ -849,7 +849,7 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __PdoSetCurrentAddress(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ HANDLE         Key
     )
 {
@@ -912,7 +912,7 @@ PdoTranslateBusAddress(
     _In_ PHYSICAL_ADDRESS       BusAddress,
     _In_ ULONG                  Length,
     _Inout_ PULONG              AddressSpace,
-    _Outptr_ PPHYSICAL_ADDRESS  TranslatedAddress
+    _Out_ PPHYSICAL_ADDRESS     TranslatedAddress
     )
 {
     Trace("<===>\n");
@@ -1087,7 +1087,7 @@ fail1:
 // This function must not touch pageable code or data
 static DECLSPEC_NOINLINE VOID
 PdoD0ToD3(
-    _In_ PXENVIF_PDO    Pdo
+    _Out_ PXENVIF_PDO   Pdo
     )
 {
     KIRQL               Irql;
@@ -1235,7 +1235,7 @@ fail1:
 
 static VOID
 PdoUnplugRequest(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ BOOLEAN        Make
     )
 {
@@ -1428,7 +1428,7 @@ fail1:
 
 static DECLSPEC_NOINLINE NTSTATUS
 PdoStartDevice(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     )
 {
@@ -1554,7 +1554,7 @@ PdoCancelStopDevice(
 
 static DECLSPEC_NOINLINE NTSTATUS
 PdoStopDevice(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     )
 {
@@ -1598,7 +1598,7 @@ PdoQueryRemoveDevice(
 
 static DECLSPEC_NOINLINE NTSTATUS
 PdoCancelRemoveDevice(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     )
 {
@@ -1637,7 +1637,7 @@ PdoSurpriseRemoval(
 
 static DECLSPEC_NOINLINE NTSTATUS
 PdoRemoveDevice(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     )
 {
@@ -2261,7 +2261,7 @@ PdoDeviceUsageNotification(
 
 static DECLSPEC_NOINLINE NTSTATUS
 PdoEject(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     )
 {
@@ -2290,7 +2290,7 @@ PdoEject(
 
 static DECLSPEC_NOINLINE NTSTATUS
 PdoDispatchPnp(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     )
 {
@@ -2447,7 +2447,7 @@ PdoDevicePowerWorker(
 
 static FORCEINLINE NTSTATUS
 __PdoSetDevicePower(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     )
 {
@@ -2537,7 +2537,7 @@ PdoSystemPowerWorker(
 
 static FORCEINLINE NTSTATUS
 __PdoSetSystemPower(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     )
 {
@@ -2569,7 +2569,7 @@ __PdoSetSystemPower(
 
 static FORCEINLINE NTSTATUS
 __PdoSetPower(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     )
 {
@@ -2614,7 +2614,7 @@ __PdoQueryPower(
 
 static NTSTATUS
 PdoDispatchPower(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     )
 {
@@ -2659,7 +2659,7 @@ PdoDispatchDefault(
 
 NTSTATUS
 PdoDispatch(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     )
 {
@@ -2871,7 +2871,7 @@ fail1:
 
 VOID
 PdoDestroy(
-    _In_ PXENVIF_PDO    Pdo
+    _Out_ PXENVIF_PDO   Pdo
     )
 {
     PXENVIF_DX          Dx = Pdo->Dx;

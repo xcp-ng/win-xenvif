@@ -51,7 +51,7 @@ ControllerInitialize(
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerConnect(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
@@ -63,76 +63,76 @@ ControllerStoreWrite(
 
 extern VOID
 ControllerEnable(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     );
 
 extern VOID
 ControllerDisable(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ControllerDisconnect(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     );
 
 _IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 ControllerTeardown(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashAlgorithm(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ ULONG              Algorithm
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _In_ ULONG                  Algorithm
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerGetHashFlags(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ PULONG             Flags
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _Out_ PULONG                Flags
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashFlags(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ ULONG              Flags
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _In_ ULONG                  Flags
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashKey(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ PUCHAR             Key,
-    _In_ ULONG              Size
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _In_ PUCHAR                 Key,
+    _In_ ULONG                  Size
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerGetHashMappingSize(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ PULONG             Size
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _Out_ PULONG                Size
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashMappingSize(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ ULONG              Size
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _In_ ULONG                  Size
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashMapping(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ PULONG             Mapping,
-    _In_ ULONG              Size,
-    _In_ ULONG              Offset
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _In_ PULONG                 Mapping,
+    _In_ ULONG                  Size,
+    _In_ ULONG                  Offset
     );
 
 

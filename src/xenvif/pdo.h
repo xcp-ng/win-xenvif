@@ -53,7 +53,7 @@ PdoGetDevicePnpState(
 
 extern VOID
 PdoSetMissing(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PCSTR          Reason
     );
 
@@ -64,7 +64,7 @@ PdoIsMissing(
 
 extern VOID
 PdoRequestEject(
-    _In_ PXENVIF_PDO    Pdo
+    _Out_ PXENVIF_PDO   Pdo
     );
 
 extern BOOLEAN
@@ -107,7 +107,7 @@ PdoTranslateBusAddress(
     _In_ PHYSICAL_ADDRESS       BusAddress,
     _In_ ULONG                  Length,
     _Inout_ PULONG              AddressSpace,
-    _Outptr_ PPHYSICAL_ADDRESS  TranslatedAddress
+    _Out_ PPHYSICAL_ADDRESS     TranslatedAddress
     );
 
 extern ULONG
@@ -157,7 +157,7 @@ PdoSuspend(
 
 extern VOID
 PdoDestroy(
-    _In_ PXENVIF_PDO    Pdo
+    _Out_ PXENVIF_PDO   Pdo
     );
 
 #include "frontend.h"
@@ -206,7 +206,7 @@ PdoGetVifInterface(
 
 extern NTSTATUS
 PdoDispatch(
-    _In_ PXENVIF_PDO    Pdo,
+    _Out_ PXENVIF_PDO   Pdo,
     _In_ PIRP           Irp
     );
 

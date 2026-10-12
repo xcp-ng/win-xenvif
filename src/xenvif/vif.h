@@ -58,7 +58,7 @@ VifGetInterface(
 
 extern VOID
 VifTeardown(
-    _In_ PXENVIF_VIF_CONTEXT    Context
+    _Out_ PXENVIF_VIF_CONTEXT   Context
     );
 
 // CALLBACKS

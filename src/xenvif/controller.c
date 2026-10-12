@@ -104,7 +104,7 @@ __ControllerFree(
 static FORCEINLINE VOID
 _IRQL_requires_(DISPATCH_LEVEL)
 __ControllerAcquireLock(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -115,7 +115,7 @@ __ControllerAcquireLock(
 static FORCEINLINE VOID
 _IRQL_requires_(DISPATCH_LEVEL)
 __ControllerReleaseLock(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     )
 {
     KeReleaseSpinLockFromDpcLevel(&Controller->Lock);
@@ -125,7 +125,7 @@ _Acquires_nonreentrant_lock_(Controller)
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 ControllerAcquireLock(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     )
 {
     __ControllerAcquireLock(Controller);
@@ -135,7 +135,7 @@ _Requires_lock_held_(Controller)
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 ControllerReleaseLock(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     )
 {
     __ControllerReleaseLock(Controller);
@@ -185,7 +185,7 @@ ControllerPoll(
 _IRQL_requires_min_(DISPATCH_LEVEL)
 static NTSTATUS
 ControllerPutRequest(
-    _In_ PXENVIF_CONTROLLER         Controller,
+    _Out_ PXENVIF_CONTROLLER        Controller,
     _In_ USHORT                     Type,
     _In_ ULONG                      Data0,
     _In_ ULONG                      Data1,
@@ -428,7 +428,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerConnect(
-    _In_ PXENVIF_CONTROLLER     Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     )
 {
     PXENVIF_FRONTEND            Frontend;
@@ -689,7 +689,7 @@ fail1:
 
 VOID
 ControllerEnable(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     )
 {
     __ControllerAcquireLock(Controller);
@@ -703,7 +703,7 @@ ControllerEnable(
 
 VOID
 ControllerDisable(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     )
 {
     __ControllerAcquireLock(Controller);
@@ -718,7 +718,7 @@ ControllerDisable(
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ControllerDisconnect(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     )
 {
     Trace("====>\n");
@@ -781,7 +781,7 @@ done:
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID
 ControllerTeardown(
-    _In_ PXENVIF_CONTROLLER Controller
+    _Out_ PXENVIF_CONTROLLER    Controller
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
@@ -812,12 +812,12 @@ ControllerTeardown(
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashAlgorithm(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ ULONG              Algorithm
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _In_ ULONG                  Algorithm
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND            Frontend;
+    NTSTATUS                    status;
 
     Frontend = Controller->Frontend;
 
@@ -853,12 +853,12 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerGetHashFlags(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ PULONG             Flags
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _Out_ PULONG                Flags
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND            Frontend;
+    NTSTATUS                    status;
 
     Frontend = Controller->Frontend;
 
@@ -894,12 +894,12 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashFlags(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ ULONG              Flags
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _In_ ULONG                  Flags
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND            Frontend;
+    NTSTATUS                    status;
 
     Frontend = Controller->Frontend;
 
@@ -935,17 +935,17 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashKey(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ PUCHAR             Key,
-    _In_ ULONG              Size
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _In_ PUCHAR                 Key,
+    _In_ ULONG                  Size
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    PMDL                    Mdl;
-    PUCHAR                  Buffer;
-    PFN_NUMBER              Pfn;
-    PXENBUS_GNTTAB_ENTRY    Entry;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND            Frontend;
+    PMDL                        Mdl;
+    PUCHAR                      Buffer;
+    PFN_NUMBER                  Pfn;
+    PXENBUS_GNTTAB_ENTRY        Entry;
+    NTSTATUS                    status;
 
     Frontend = Controller->Frontend;
 
@@ -1030,12 +1030,12 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerGetHashMappingSize(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ PULONG             Size
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _Out_ PULONG                Size
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND            Frontend;
+    NTSTATUS                    status;
 
     Frontend = Controller->Frontend;
 
@@ -1071,12 +1071,12 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashMappingSize(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ ULONG              Size
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _In_ ULONG                  Size
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND            Frontend;
+    NTSTATUS                    status;
 
     Frontend = Controller->Frontend;
 
@@ -1112,18 +1112,18 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashMapping(
-    _In_ PXENVIF_CONTROLLER Controller,
-    _In_ PULONG             Mapping,
-    _In_ ULONG              Size,
-    _In_ ULONG              Offset
+    _Out_ PXENVIF_CONTROLLER    Controller,
+    _In_ PULONG                 Mapping,
+    _In_ ULONG                  Size,
+    _In_ ULONG                  Offset
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    PMDL                    Mdl;
-    PUCHAR                  Buffer;
-    PFN_NUMBER              Pfn;
-    PXENBUS_GNTTAB_ENTRY    Entry;
-    NTSTATUS                status;
+    PXENVIF_FRONTEND            Frontend;
+    PMDL                        Mdl;
+    PUCHAR                      Buffer;
+    PFN_NUMBER                  Pfn;
+    PXENBUS_GNTTAB_ENTRY        Entry;
+    NTSTATUS                    status;
 
     Frontend = Controller->Frontend;
 

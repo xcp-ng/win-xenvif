@@ -76,19 +76,19 @@ ReceiverDisable(
 _IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ReceiverDisconnect(
-    _In_ PXENVIF_RECEIVER   Receiver
+    _Out_ PXENVIF_RECEIVER  Receiver
     );
 
 _IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 ReceiverTeardown(
-    _In_ PXENVIF_RECEIVER   Receiver
+    _Out_ PXENVIF_RECEIVER  Receiver
     );
 
 _IRQL_requires_max_(APC_LEVEL)
 extern VOID
 ReceiverWaitForPackets(
-    _In_ PXENVIF_RECEIVER   Receiver
+    _Out_ PXENVIF_RECEIVER  Receiver
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
@@ -115,7 +115,7 @@ ReceiverSetBackfillSize(
 _IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ReceiverReturnPacket(
-    _In_ PXENVIF_RECEIVER   Receiver,
+    _Out_ PXENVIF_RECEIVER  Receiver,
     _In_ PVOID              Cookie
     );
 

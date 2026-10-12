@@ -58,13 +58,13 @@ FdoGetName(
 
 extern NTSTATUS
 FdoAddPhysicalDeviceObject(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PXENVIF_PDO    Pdo
     );
 
 extern VOID
 FdoRemovePhysicalDeviceObject(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PXENVIF_PDO    Pdo
     );
 
@@ -75,7 +75,7 @@ FdoAcquireMutex(
 
 extern VOID
 FdoReleaseMutex(
-    _In_ PXENVIF_FDO    Fdo
+    _Out_ PXENVIF_FDO   Fdo
     );
 
 extern PDEVICE_OBJECT
@@ -92,11 +92,11 @@ FdoGetDmaAdapter(
 
 extern BOOLEAN
 FdoTranslateBusAddress(
-    _In_ PXENVIF_FDO            Fdo,
-    _In_ PHYSICAL_ADDRESS       BusAddress,
-    _In_ ULONG                  Length,
-    _Inout_ PULONG              AddressSpace,
-    _Outptr_ PPHYSICAL_ADDRESS  TranslatedAddress
+    _In_ PXENVIF_FDO         Fdo,
+    _In_ PHYSICAL_ADDRESS    BusAddress,
+    _In_ ULONG               Length,
+    _Inout_ PULONG           AddressSpace,
+    _Out_ PPHYSICAL_ADDRESS  TranslatedAddress
     );
 
 extern ULONG
@@ -125,7 +125,7 @@ FdoDelegateIrp(
 
 extern NTSTATUS
 FdoDispatch(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PIRP           Irp
     );
 
@@ -152,7 +152,7 @@ FdoCreate(
 
 extern VOID
 FdoDestroy(
-    _In_ PXENVIF_FDO    Fdo
+    _Out_ PXENVIF_FDO   Fdo
     );
 
 #endif  // _XENVIF_FDO_H

@@ -67,18 +67,18 @@ FrontendInitialize(
 _IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 FrontendTeardown(
-    _In_ PXENVIF_FRONTEND   Frontend
+    _Out_ PXENVIF_FRONTEND  Frontend
     );
 
 extern VOID
 FrontendEjectFailed(
-    _In_ PXENVIF_FRONTEND   Frontend
+    _Out_ PXENVIF_FRONTEND  Frontend
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetState(
-    _In_ PXENVIF_FRONTEND       Frontend,
+    _Out_ PXENVIF_FRONTEND      Frontend,
     _In_ XENVIF_FRONTEND_STATE  State
     );
 
@@ -86,14 +86,14 @@ _IRQL_requires_min_(PASSIVE_LEVEL)
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendResume(
-    _In_ PXENVIF_FRONTEND   Frontend
+    _Out_ PXENVIF_FRONTEND  Frontend
     );
 
 _IRQL_requires_min_(PASSIVE_LEVEL)
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 FrontendSuspend(
-    _In_ PXENVIF_FRONTEND   Frontend
+    _Out_ PXENVIF_FRONTEND  Frontend
     );
 
 extern PXENVIF_PDO
@@ -198,9 +198,9 @@ FrontendIncrementStatistic(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetMulticastAddresses(
-    _In_ PXENVIF_FRONTEND   Frontend,
-    _In_ PETHERNET_ADDRESS  Address,
-    _In_ ULONG              Count
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _Inout_ PETHERNET_ADDRESS   Address,
+    _In_ ULONG                  Count
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
@@ -214,27 +214,27 @@ FrontendSetFilterLevel(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 FrontendAdvertiseIpAddresses(
-    _In_ PXENVIF_FRONTEND   Frontend
+    _Out_ PXENVIF_FRONTEND  Frontend
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashAlgorithm(
-    _In_ PXENVIF_FRONTEND               Frontend,
+    _Out_ PXENVIF_FRONTEND              Frontend,
     _In_ XENVIF_PACKET_HASH_ALGORITHM   Algorithm
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendQueryHashTypes(
-    _In_ PXENVIF_FRONTEND   Frontend,
+    _Out_ PXENVIF_FRONTEND  Frontend,
     _Out_ PULONG            Types
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashMapping(
-    _In_ PXENVIF_FRONTEND   Frontend,
+    _Out_ PXENVIF_FRONTEND  Frontend,
     _In_ PULONG             Mapping,
     _In_ ULONG              Order
     );
@@ -242,14 +242,14 @@ FrontendSetHashMapping(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashKey(
-    _In_ PXENVIF_FRONTEND   Frontend,
+    _Out_ PXENVIF_FRONTEND  Frontend,
     _In_ PUCHAR             Key
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashTypes(
-    _In_ PXENVIF_FRONTEND   Frontend,
+    _Out_ PXENVIF_FRONTEND  Frontend,
     _In_ ULONG              Types
     );
 

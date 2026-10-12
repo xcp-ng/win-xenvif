@@ -306,7 +306,7 @@ static VOID
 VifCallbackVersion9(
     _In_opt_ PVOID                          _Argument,
     _In_ XENVIF_VIF_CALLBACK_TYPE           Type,
-    _In_ PXENVIF_VIF_CALLBACK_PARAMETERS    Parameters
+    _Out_ PXENVIF_VIF_CALLBACK_PARAMETERS   Parameters
     )
 {
 #define XENVIF_RECEIVER_QUEUE_MAX 1024 // Chosen to match IN_NDIS_MAX in XENNET
@@ -841,7 +841,7 @@ VifMacQueryMulticastAddresses(
 static NTSTATUS
 VifMacSetMulticastAddresses(
     _In_ PINTERFACE         Interface,
-    _In_ PETHERNET_ADDRESS  Address,
+    _Out_ PETHERNET_ADDRESS Address,
     _In_ ULONG              Count
     )
 {
@@ -1207,7 +1207,7 @@ VifGetInterface(
 
 VOID
 VifTeardown(
-    _In_ PXENVIF_VIF_CONTEXT    Context
+    _Out_ PXENVIF_VIF_CONTEXT   Context
     )
 {
     Trace("====>\n");

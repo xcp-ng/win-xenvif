@@ -89,7 +89,7 @@ __MacFree(
 
 static FORCEINLINE NTSTATUS
 __MacSetPermanentAddress(
-    _In_ PXENVIF_MAC        Mac,
+    _Out_ PXENVIF_MAC       Mac,
     _In_ PETHERNET_ADDRESS  Address
     )
 {
@@ -130,7 +130,7 @@ MacQueryPermanentAddress(
 
 static FORCEINLINE NTSTATUS
 __MacSetCurrentAddress(
-    _In_ PXENVIF_MAC        Mac,
+    _Out_ PXENVIF_MAC       Mac,
     _In_ PETHERNET_ADDRESS  Address
     )
 {
@@ -253,7 +253,7 @@ fail1:
 static FORCEINLINE VOID
 _IRQL_requires_(DISPATCH_LEVEL)
 __MacAcquireLockExclusive(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -264,7 +264,7 @@ __MacAcquireLockExclusive(
 static FORCEINLINE VOID
 _IRQL_requires_(DISPATCH_LEVEL)
 __MacReleaseLockExclusive(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -276,7 +276,7 @@ __MacReleaseLockExclusive(
 static FORCEINLINE VOID
 _IRQL_requires_(DISPATCH_LEVEL)
 __MacAcquireLockShared(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -287,7 +287,7 @@ __MacAcquireLockShared(
 static FORCEINLINE VOID
 _IRQL_requires_(DISPATCH_LEVEL)
 __MacReleaseLockShared(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -298,7 +298,7 @@ __MacReleaseLockShared(
 
 NTSTATUS
 MacDumpAddressTable(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -403,7 +403,7 @@ fail1:
 
 NTSTATUS
 MacConnect(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -516,7 +516,7 @@ fail1:
 
 NTSTATUS
 MacEnable(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -577,7 +577,7 @@ fail1:
 
 VOID
 MacDisable(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -610,7 +610,7 @@ MacDisable(
 
 VOID
 MacDisconnect(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -650,7 +650,7 @@ MacDisconnect(
 
 VOID
 MacTeardown(
-    _In_ PXENVIF_MAC    Mac
+    _Out_ PXENVIF_MAC   Mac
     )
 {
     while (!IsListEmpty(&Mac->MulticastList)) {
@@ -829,7 +829,7 @@ MacQueryMaximumFrameSize(
 
 NTSTATUS
 MacAddMulticastAddress(
-    _In_ PXENVIF_MAC            Mac,
+    _Out_ PXENVIF_MAC           Mac,
     _In_ PETHERNET_ADDRESS      Address
     )
 {
@@ -878,7 +878,7 @@ fail1:
 
 NTSTATUS
 MacRemoveMulticastAddress(
-    _In_ PXENVIF_MAC            Mac,
+    _Out_ PXENVIF_MAC           Mac,
     _In_ PETHERNET_ADDRESS      Address
     )
 {
@@ -941,14 +941,14 @@ fail1:
 
 NTSTATUS
 MacQueryMulticastAddresses(
-    _In_ PXENVIF_MAC            Mac,
-    _In_opt_ PETHERNET_ADDRESS  Address,
-    _Inout_ PULONG              Count
+    _Out_ PXENVIF_MAC               Mac,
+    _Inout_opt_ PETHERNET_ADDRESS   Address,
+    _Inout_ PULONG                  Count
     )
 {
-    PLIST_ENTRY                 ListEntry;
-    KIRQL                       Irql;
-    NTSTATUS                    status;
+    PLIST_ENTRY                     ListEntry;
+    KIRQL                           Irql;
+    NTSTATUS                        status;
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
     __MacAcquireLockShared(Mac);
@@ -996,7 +996,7 @@ MacQueryBroadcastAddress(
 
 NTSTATUS
 MacSetFilterLevel(
-    _In_ PXENVIF_MAC                Mac,
+    _Out_ PXENVIF_MAC               Mac,
     _In_ ETHERNET_ADDRESS_TYPE      Type,
     _In_ XENVIF_MAC_FILTER_LEVEL    Level
     )
@@ -1036,7 +1036,7 @@ fail1:
 
 NTSTATUS
 MacQueryFilterLevel(
-    _In_ PXENVIF_MAC                Mac,
+    _Out_ PXENVIF_MAC               Mac,
     _In_ ETHERNET_ADDRESS_TYPE      Type,
     _Out_ PXENVIF_MAC_FILTER_LEVEL  Level
     )
@@ -1066,7 +1066,7 @@ fail1:
 
 BOOLEAN
 MacApplyFilters(
-    _In_ PXENVIF_MAC        Mac,
+    _Out_ PXENVIF_MAC       Mac,
     _In_ PETHERNET_ADDRESS  DestinationAddress
     )
 {

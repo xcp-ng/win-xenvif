@@ -59,17 +59,17 @@ ThreadIsAlerted(
 
 extern VOID
 ThreadWake(
-    _In_ PXENVIF_THREAD Thread
+    _Out_ PXENVIF_THREAD    Thread
     );
 
 extern VOID
 ThreadAlert(
-    _In_ PXENVIF_THREAD Thread
+    _Out_ PXENVIF_THREAD    Thread
     );
 
 extern VOID
 ThreadJoin(
-    _In_ PXENVIF_THREAD Thread
+    _Out_ PXENVIF_THREAD    Thread
     );
 
 #endif  // _XENVIF_THREAD_H

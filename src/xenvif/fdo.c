@@ -232,7 +232,7 @@ FdoGetPhysicalDeviceObject(
 _IRQL_requires_(PASSIVE_LEVEL)
 static FORCEINLINE NTSTATUS
 __FdoAcquireLowerBusInterface(
-    _In_ PXENVIF_FDO        Fdo
+    _Out_ PXENVIF_FDO       Fdo
     )
 {
     PBUS_INTERFACE_STANDARD BusInterface;
@@ -315,7 +315,7 @@ fail1:
 
 static FORCEINLINE VOID
 __FdoReleaseLowerBusInterface(
-    _In_ PXENVIF_FDO        Fdo
+    _Out_ PXENVIF_FDO       Fdo
     )
 {
     PBUS_INTERFACE_STANDARD BusInterface;
@@ -351,14 +351,14 @@ FdoGetDmaAdapter(
 
 BOOLEAN
 FdoTranslateBusAddress(
-    _In_ PXENVIF_FDO            Fdo,
-    _In_ PHYSICAL_ADDRESS       BusAddress,
-    _In_ ULONG                  Length,
-    _Inout_ PULONG              AddressSpace,
-    _Outptr_ PPHYSICAL_ADDRESS  TranslatedAddress
+    _In_ PXENVIF_FDO        Fdo,
+    _In_ PHYSICAL_ADDRESS   BusAddress,
+    _In_ ULONG              Length,
+    _Inout_ PULONG          AddressSpace,
+    _Out_ PPHYSICAL_ADDRESS TranslatedAddress
     )
 {
-    PBUS_INTERFACE_STANDARD     BusInterface;
+    PBUS_INTERFACE_STANDARD BusInterface;
 
     BusInterface = Fdo->LowerBusInterface;
     ASSERT(BusInterface != NULL);
@@ -621,7 +621,7 @@ FdoForwardIrpSynchronously(
 
 NTSTATUS
 FdoAddPhysicalDeviceObject(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PXENVIF_PDO    Pdo
     )
 {
@@ -655,7 +655,7 @@ fail1:
 
 VOID
 FdoRemovePhysicalDeviceObject(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PXENVIF_PDO    Pdo
     )
 {
@@ -706,7 +706,7 @@ __FdoReleaseMutex(
 
 VOID
 FdoReleaseMutex(
-    _In_ PXENVIF_FDO    Fdo
+    _Out_ PXENVIF_FDO   Fdo
     )
 {
     __FdoReleaseMutex(Fdo);
@@ -848,7 +848,7 @@ done:
 
 static FORCEINLINE PANSI_STRING
 __FdoMultiSzToUpcaseAnsi(
-    _In_ PSTR       Buffer
+    _Out_ PSTR      Buffer
     )
 {
     PANSI_STRING    Ansi;
@@ -1055,7 +1055,7 @@ loop:
 
 static DECLSPEC_NOINLINE VOID
 FdoParseResources(
-    _In_ PXENVIF_FDO            Fdo,
+    _Inout_ PXENVIF_FDO         Fdo,
     _In_ PCM_RESOURCE_LIST      RawResourceList,
     _In_ PCM_RESOURCE_LIST      TranslatedResourceList
     )
@@ -1103,7 +1103,7 @@ FdoParseResources(
 static FORCEINLINE BOOLEAN
 __FdoMatchDistribution(
     _In_ PXENVIF_FDO    Fdo,
-    _In_ PSTR           Buffer
+    _Out_ PSTR          Buffer
     )
 {
     PCHAR               Vendor;
@@ -1359,7 +1359,7 @@ fail1:
 
 static FORCEINLINE VOID
 __FdoD0ToD3(
-    _In_ PXENVIF_FDO    Fdo
+    _Out_ PXENVIF_FDO   Fdo
     )
 {
     Trace("====>\n");
@@ -1399,7 +1399,7 @@ FdoSuspendCallbackLate(
 // This function must not touch pageable code or data
 static DECLSPEC_NOINLINE NTSTATUS
 FdoD3ToD0(
-    _In_ PXENVIF_FDO    Fdo
+    _Out_ PXENVIF_FDO   Fdo
     )
 {
     POWER_STATE         PowerState;
@@ -1492,7 +1492,7 @@ fail1:
 // This function must not touch pageable code or data
 static DECLSPEC_NOINLINE VOID
 FdoD0ToD3(
-    _In_ PXENVIF_FDO    Fdo
+    _Out_ PXENVIF_FDO   Fdo
     )
 {
     POWER_STATE         PowerState;
@@ -1574,7 +1574,7 @@ FdoS3ToS4(
 
 static DECLSPEC_NOINLINE NTSTATUS
 FdoStartDevice(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PIRP           Irp
     )
 {
@@ -1669,7 +1669,7 @@ FdoCancelStopDevice(
 
 static DECLSPEC_NOINLINE NTSTATUS
 FdoStopDevice(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PIRP           Irp
     )
 {
@@ -1767,7 +1767,7 @@ FdoSurpriseRemoval(
 
 static DECLSPEC_NOINLINE NTSTATUS
 FdoRemoveDevice(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PIRP           Irp
     )
 {
@@ -1849,7 +1849,7 @@ done:
 
 static DECLSPEC_NOINLINE NTSTATUS
 FdoQueryDeviceRelations(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PIRP           Irp
     )
 {
@@ -1973,7 +1973,7 @@ fail1:
 
 static DECLSPEC_NOINLINE NTSTATUS
 FdoQueryCapabilities(
-    _In_ PXENVIF_FDO        Fdo,
+    _Out_ PXENVIF_FDO       Fdo,
     _In_ PIRP               Irp
     )
 {
@@ -2013,7 +2013,7 @@ fail1:
 
 static DECLSPEC_NOINLINE NTSTATUS
 FdoDeviceUsageNotification(
-    _In_ PXENVIF_FDO                Fdo,
+    _Out_ PXENVIF_FDO               Fdo,
     _In_ PIRP                       Irp
     )
 {
@@ -2104,7 +2104,7 @@ done:
 
 static DECLSPEC_NOINLINE NTSTATUS
 FdoDispatchPnp(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PIRP           Irp
     )
 {
@@ -2292,7 +2292,7 @@ FdoDevicePowerDownWorker(
 
 static FORCEINLINE NTSTATUS
 __FdoSetDevicePowerDown(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PIRP           Irp
     )
 {
@@ -2336,7 +2336,7 @@ __FdoSetDevicePowerDown(
 
 static FORCEINLINE NTSTATUS
 __FdoSetDevicePower(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PIRP           Irp
     )
 {
@@ -2986,7 +2986,7 @@ done:
 
 static FORCEINLINE NTSTATUS
 __FdoDevicePower(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PIRP           Irp
     )
 {
@@ -3044,7 +3044,7 @@ __FdoSystemPower(
 
 static DECLSPEC_NOINLINE NTSTATUS
 FdoDispatchPower(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PIRP           Irp
     )
 {
@@ -3089,7 +3089,7 @@ FdoDispatchDefault(
 
 NTSTATUS
 FdoDispatch(
-    _In_ PXENVIF_FDO    Fdo,
+    _Out_ PXENVIF_FDO   Fdo,
     _In_ PIRP           Irp
     )
 {
@@ -3461,7 +3461,7 @@ fail1:
 
 VOID
 FdoDestroy(
-    _In_ PXENVIF_FDO    Fdo
+    _Out_ PXENVIF_FDO   Fdo
     )
 {
     PXENVIF_DX          Dx = Fdo->Dx;

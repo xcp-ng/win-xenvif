@@ -53,7 +53,7 @@ TransmitterInitialize(
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 TransmitterConnect(
-    _In_ PXENVIF_TRANSMITTER    Transmitter
+    _Out_ PXENVIF_TRANSMITTER   Transmitter
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
@@ -78,7 +78,7 @@ TransmitterDisable(
 _IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterDisconnect(
-    _In_ PXENVIF_TRANSMITTER    Transmitter
+    _Out_ PXENVIF_TRANSMITTER   Transmitter
     );
 
 extern BOOLEAN
@@ -89,7 +89,7 @@ TransmitterIsPoisoned(
 _IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 TransmitterTeardown(
-    _In_ PXENVIF_TRANSMITTER    Transmitter
+    _Out_ PXENVIF_TRANSMITTER   Transmitter
     );
 
 extern VOID
