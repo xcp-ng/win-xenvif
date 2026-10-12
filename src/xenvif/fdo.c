@@ -848,7 +848,7 @@ done:
 
 static FORCEINLINE PANSI_STRING
 __FdoMultiSzToUpcaseAnsi(
-    _Out_ PSTR      Buffer
+    _Inout_ PZZSTR  Buffer
     )
 {
     PANSI_STRING    Ansi;
