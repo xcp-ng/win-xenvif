@@ -499,9 +499,9 @@ typedef union _XENVIF_VIF_CALLBACK_PARAMETERS_V10 XENVIF_VIF_CALLBACK_PARAMETERS
 */
 typedef VOID
 (*XENVIF_VIF_CALLBACK)(
-    _In_opt_ PVOID                          Argument,
-    _In_ XENVIF_VIF_CALLBACK_TYPE           Type,
-    _In_ PXENVIF_VIF_CALLBACK_PARAMETERS    Parameters
+    _In_opt_ PVOID                              Argument,
+    _In_ XENVIF_VIF_CALLBACK_TYPE               Type,
+    _In_opt_ PXENVIF_VIF_CALLBACK_PARAMETERS    Parameters
     );
 
 typedef NTSTATUS
