@@ -717,16 +717,16 @@ FdoReleaseMutex(
 
 static FORCEINLINE BOOLEAN
 __FdoEnumerate(
-    _In_ PXENVIF_FDO    Fdo,
-    _In_ PANSI_STRING   Devices
+    _In_ PXENVIF_FDO            Fdo,
+    _Inout_opt_ PANSI_STRING    Devices
     )
 {
-    BOOLEAN             NeedInvalidate;
-    HANDLE              ParametersKey;
-    ULONG               Enumerate;
-    PLIST_ENTRY         ListEntry;
-    ULONG               Index;
-    NTSTATUS            status;
+    BOOLEAN                     NeedInvalidate;
+    HANDLE                      ParametersKey;
+    ULONG                       Enumerate;
+    PLIST_ENTRY                 ListEntry;
+    ULONG                       Index;
+    NTSTATUS                    status;
 
     Trace("====>\n");
 
