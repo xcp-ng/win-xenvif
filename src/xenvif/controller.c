@@ -354,8 +354,8 @@ KSERVICE_ROUTINE    ControllerEvtchnCallback;
 _Use_decl_annotations_
 BOOLEAN
 ControllerEvtchnCallback(
-    _In_ PKINTERRUPT            InterruptObject,
-    _In_ PVOID                  Argument
+    PKINTERRUPT                 InterruptObject,
+    PVOID                       Argument
     )
 {
     PXENVIF_CONTROLLER          Controller = Argument;

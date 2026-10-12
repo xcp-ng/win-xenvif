@@ -3303,8 +3303,8 @@ KSERVICE_ROUTINE    TransmitterRingEvtchnCallback;
 _Use_decl_annotations_
 BOOLEAN
 TransmitterRingEvtchnCallback(
-    _In_ PKINTERRUPT            InterruptObject,
-    _In_ PVOID                  Argument
+    PKINTERRUPT                 InterruptObject,
+    PVOID                       Argument
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Argument;
@@ -4803,13 +4803,13 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE NTSTATUS
 __TransmitterRequestMulticastControl(
-    _In_ PXENVIF_TRANSMITTER        Transmitter,
-    _In_ PXENBUS_STORE_TRANSACTION  Transaction,
-    _In_ BOOLEAN                    Enabled
+    _In_ PXENVIF_TRANSMITTER            Transmitter,
+    _In_opt_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_ BOOLEAN                        Enabled
     )
 {
-    PXENVIF_FRONTEND                Frontend;
-    NTSTATUS                        status;
+    PXENVIF_FRONTEND                    Frontend;
+    NTSTATUS                            status;
 
     Frontend = Transmitter->Frontend;
 
