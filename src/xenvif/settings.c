@@ -309,8 +309,8 @@ SettingsCopyInterfaceValue(
 
 static NTSTATUS
 SettingsCopyInterface(
-    _In_ PCHAR          InterfacePath,
-    _In_ PCHAR          InterfacePrefix,
+    _In_ PSTR           InterfacePath,
+    _In_ PSTR           InterfacePrefix,
     _In_ PANSI_STRING   OldGuid,
     _In_ PANSI_STRING   NewGuid
     )
@@ -458,7 +458,7 @@ fail1:
 
 static NTSTATUS
 SettingsCopy(
-    _In_ PCHAR          SubKeyName,
+    _In_ PSTR           SubKeyName,
     _In_ PANSI_STRING   OldGuid,
     _In_ PNET_LUID      OldLuid,
     _In_ PANSI_STRING   NewGuid,
@@ -530,9 +530,9 @@ fail1:
 
 NTSTATUS
 SettingsSave(
-    _In_ PCHAR      SubKeyName,
-    _In_ PWCHAR     Alias,
-    _In_ PWCHAR     Description,
+    _In_ PSTR       SubKeyName,
+    _In_ PWSTR      Alias,
+    _In_ PWSTR      Description,
     _In_ LPGUID     InterfaceGuid,
     _In_ PNET_LUID  InterfaceLuid
     )
@@ -601,9 +601,9 @@ fail1:
 
 NTSTATUS
 SettingsRestore(
-    _In_ PCHAR      SubKeyName,
-    _In_ PWCHAR     Alias,
-    _In_ PWCHAR     Description,
+    _In_ PSTR       SubKeyName,
+    _In_ PWSTR      Alias,
+    _In_ PWSTR      Description,
     _In_ LPGUID     InterfaceGuid,
     _In_ PNET_LUID  InterfaceLuid
     )

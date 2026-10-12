@@ -54,7 +54,7 @@ PdoGetDevicePnpState(
 extern VOID
 PdoSetMissing(
     _In_ PXENVIF_PDO    Pdo,
-    _In_ const CHAR     *Reason
+    _In_ PCSTR          Reason
     );
 
 extern BOOLEAN
@@ -142,7 +142,7 @@ extern NTSTATUS
 PdoCreate(
     _In_ PXENVIF_FDO    Fdo,
     _In_ ULONG          Number,
-    _In_ PCHAR          Address
+    _In_ PSTR           Address
     );
 
 extern NTSTATUS

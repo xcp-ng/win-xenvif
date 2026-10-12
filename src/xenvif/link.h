@@ -35,8 +35,8 @@
 
 extern NTSTATUS
 LinkGetRoutineAddress(
-    _In_ const CHAR *ModuleName,
-    _In_ const CHAR *FunctionName,
+    _In_ PCSTR      ModuleName,
+    _In_ PCSTR      FunctionName,
     _Outptr_ PVOID  *Address
      );
 

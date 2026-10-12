@@ -35,18 +35,18 @@
 
 extern NTSTATUS
 SettingsSave(
-    _In_ PCHAR      SubKeyName,
-    _In_ PWCHAR     Alias,
-    _In_ PWCHAR     Description,
+    _In_ PSTR       SubKeyName,
+    _In_ PWSTR      Alias,
+    _In_ PWSTR      Description,
     _In_ LPGUID     InterfaceGuid,
     _In_ PNET_LUID  InterfaceLuid
     );
 
 extern NTSTATUS
 SettingsRestore(
-    _In_ PCHAR      SubKeyName,
-    _In_ PWCHAR     Alias,
-    _In_ PWCHAR     Description,
+    _In_ PSTR       SubKeyName,
+    _In_ PWSTR      Alias,
+    _In_ PWSTR      Description,
     _In_ LPGUID     InterfaceGuid,
     _In_ PNET_LUID  InterfaceLuid
     );

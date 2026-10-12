@@ -110,8 +110,8 @@ RegistryCreateSubKey(
 
 extern NTSTATUS
 RegistryDeleteSubKey(
-    _In_ HANDLE     Key,
-    _In_ PSTR       Name
+    _In_ HANDLE Key,
+    _In_ PSTR   Name
     );
 
 extern NTSTATUS
@@ -130,15 +130,15 @@ RegistryEnumerateValues(
 
 extern NTSTATUS
 RegistryDeleteValue(
-    _In_ HANDLE     Key,
-    _In_ PSTR       Name
+    _In_ HANDLE Key,
+    _In_ PSTR   Name
     );
 
 extern NTSTATUS
 RegistryQueryDwordValue(
-    _In_ HANDLE         Key,
-    _In_ PSTR           Name,
-    _Out_ PULONG        Value
+    _In_ HANDLE     Key,
+    _In_ PSTR       Name,
+    _Out_ PULONG    Value
     );
 
 extern NTSTATUS
@@ -150,9 +150,9 @@ RegistryQueryQwordValue(
 
 extern NTSTATUS
 RegistryUpdateDwordValue(
-    _In_ HANDLE         Key,
-    _In_ PSTR           Name,
-    _In_ ULONG          Value
+    _In_ HANDLE Key,
+    _In_ PSTR   Name,
+    _In_ ULONG  Value
     );
 
 extern NTSTATUS
@@ -165,18 +165,18 @@ RegistryQuerySzValue(
 
 extern NTSTATUS
 RegistryQueryBinaryValue(
-    _In_ HANDLE         Key,
-    _In_ PSTR           Name,
-    _Outptr_ PVOID      *Buffer,
-    _Out_ PULONG        Length
+    _In_ HANDLE     Key,
+    _In_ PSTR       Name,
+    _Outptr_ PVOID  *Buffer,
+    _Out_ PULONG    Length
     );
 
 extern NTSTATUS
 RegistryUpdateBinaryValue(
-    _In_ HANDLE         Key,
-    _In_ PSTR           Name,
-    _In_ PVOID          Buffer,
-    _In_ ULONG          Length
+    _In_ HANDLE Key,
+    _In_ PSTR   Name,
+    _In_ PVOID  Buffer,
+    _In_ ULONG  Length
     );
 
 extern NTSTATUS
@@ -198,7 +198,7 @@ RegistryFreeSzValue(
 
 extern VOID
 RegistryFreeBinaryValue(
-    _In_ PVOID          Buffer
+    _In_ PVOID  Buffer
     );
 
 extern NTSTATUS

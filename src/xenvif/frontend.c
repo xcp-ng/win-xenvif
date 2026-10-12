@@ -318,7 +318,7 @@ fail1:
 VOID
 FrontendFreePath(
     _In_ PXENVIF_FRONTEND   Frontend,
-    _In_ PCHAR              Path
+    _In_ PSTR               Path
     )
 {
     UNREFERENCED_PARAMETER(Frontend);

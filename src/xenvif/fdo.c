@@ -848,7 +848,7 @@ done:
 
 static FORCEINLINE PANSI_STRING
 __FdoMultiSzToUpcaseAnsi(
-    _In_ PCHAR      Buffer
+    _In_ PSTR       Buffer
     )
 {
     PANSI_STRING    Ansi;
@@ -1103,7 +1103,7 @@ FdoParseResources(
 static FORCEINLINE BOOLEAN
 __FdoMatchDistribution(
     _In_ PXENVIF_FDO    Fdo,
-    _In_ PCHAR          Buffer
+    _In_ PSTR           Buffer
     )
 {
     PCHAR               Vendor;

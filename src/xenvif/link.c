@@ -59,7 +59,7 @@ __LinkFree(
 
 static FORCEINLINE NTSTATUS
 __LinkGetImageBase(
-    _In_ const CHAR             *ModuleName,
+    _In_ PCSTR                  ModuleName,
     _Outptr_ PVOID              *ImageBase
     )
 {
@@ -151,8 +151,8 @@ fail1:
 
 NTSTATUS
 LinkGetRoutineAddress(
-    _In_ const CHAR *ModuleName,
-    _In_ const CHAR *FunctionName,
+    _In_ PCSTR      ModuleName,
+    _In_ PCSTR      FunctionName,
     _Outptr_ PVOID  *Address
     )
 {

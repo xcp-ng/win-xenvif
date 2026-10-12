@@ -152,8 +152,8 @@ RegistryOpenKey(
     _Out_ PHANDLE           Key
     )
 {
-    OBJECT_ATTRIBUTES   Attributes;
-    NTSTATUS            status;
+    OBJECT_ATTRIBUTES       Attributes;
+    NTSTATUS                status;
 
     InitializeObjectAttributes(&Attributes,
                                Path,
@@ -214,13 +214,13 @@ RegistryCreateKey(
     _Out_ PHANDLE           Key
     )
 {
-    PWSTR               Buffer;
-    HANDLE              Root;
-    PWSTR               ChildPath;
-    PWSTR               ChildName;
-    PWSTR               Context;
-    HANDLE              Child;
-    NTSTATUS            status;
+    PWSTR                   Buffer;
+    HANDLE                  Root;
+    PWSTR                   ChildPath;
+    PWSTR                   ChildName;
+    PWSTR                   Context;
+    HANDLE                  Child;
+    NTSTATUS                status;
 
     //
     // UNICODE_STRINGs are not guaranteed to have NUL terminated
@@ -317,7 +317,7 @@ RegistryOpenServiceKey(
 
 NTSTATUS
 RegistryCreateServiceKey(
-    _Out_ PHANDLE       Key
+    _Out_ PHANDLE   Key
     )
 {
     return RegistryCreateKey(NULL, &RegistryPath, REG_OPTION_NON_VOLATILE, Key);

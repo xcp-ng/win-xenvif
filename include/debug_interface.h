@@ -111,8 +111,8 @@ typedef NTSTATUS
 */
 typedef VOID
 (*XENBUS_DEBUG_PRINTF)(
-    _In_ PINTERFACE             Interface,
-    _In_ PCSTR                  Format,
+    _In_ PINTERFACE Interface,
+    _In_ PCSTR      Format,
     ...
     );
 

@@ -212,7 +212,7 @@ __PdoGetDevicePowerState(
 static FORCEINLINE VOID
 __PdoSetMissing(
     _In_ PXENVIF_PDO    Pdo,
-    _In_ const CHAR     *Reason
+    _In_ PCSTR          Reason
     )
 {
     Pdo->Reason = Reason;
@@ -222,7 +222,7 @@ __PdoSetMissing(
 VOID
 PdoSetMissing(
     _In_ PXENVIF_PDO    Pdo,
-    _In_ const CHAR     *Reason
+    _In_ PCSTR          Reason
     )
 {
     __PdoSetMissing(Pdo, Reason);
@@ -662,7 +662,7 @@ PdoGetVifContext(
 
 static FORCEINLINE NTSTATUS
 __PdoParseAddress(
-    _In_ PCHAR              Buffer,
+    _In_ PSTR               Buffer,
     _Out_ PETHERNET_ADDRESS Address
     )
 {
@@ -731,7 +731,7 @@ fail1:
 static FORCEINLINE NTSTATUS
 __PdoSetPermanentAddress(
     _In_ PXENVIF_PDO    Pdo,
-    _In_ PCHAR          Buffer
+    _In_ PSTR           Buffer
     )
 {
     ANSI_STRING         Ansi[2];
@@ -2705,7 +2705,7 @@ NTSTATUS
 PdoCreate(
     _In_ PXENVIF_FDO    Fdo,
     _In_ ULONG          Number,
-    _In_ PCHAR          Address
+    _In_ PSTR           Address
     )
 {
     PDEVICE_OBJECT      PhysicalDeviceObject;
