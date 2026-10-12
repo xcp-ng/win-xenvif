@@ -521,7 +521,7 @@ VifQueryStatistic(
     NTSTATUS                    status;
 
     status = STATUS_INVALID_PARAMETER;
-    if (Index >= XENVIF_VIF_STATISTIC_COUNT)
+    if ((ULONG)Index >= XENVIF_VIF_STATISTIC_COUNT)
         goto done;
 
     AcquireMrswLockShared(&Context->Lock);
