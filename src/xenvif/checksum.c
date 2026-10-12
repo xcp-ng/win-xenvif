@@ -47,12 +47,12 @@
 #if !defined(_M_X64)
 VOID
 AccumulateChecksum(
-    _Inout_ PULONG  Accumulator,
-    _In_ PUCHAR     BaseVa,
-    _In_ ULONG      ByteCount
+    _Inout_ PULONG                      Accumulator,
+    _In_reads_bytes_(ByteCount) PUCHAR  BaseVa,
+    _In_ ULONG                          ByteCount
     )
 {
-    ULONG           Current;
+    ULONG                               Current;
 
     Current = *Accumulator;
 

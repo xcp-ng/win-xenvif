@@ -107,9 +107,9 @@ ControllerSetHashFlags(
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashKey(
-    _Out_ PXENVIF_CONTROLLER    Controller,
-    _In_ PUCHAR                 Key,
-    _In_ ULONG                  Size
+    _Out_ PXENVIF_CONTROLLER        Controller,
+    _In_reads_bytes_(Size) PUCHAR   Key,
+    _In_ ULONG                      Size
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
@@ -129,10 +129,10 @@ ControllerSetHashMappingSize(
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashMapping(
-    _Out_ PXENVIF_CONTROLLER    Controller,
-    _In_ PULONG                 Mapping,
-    _In_ ULONG                  Size,
-    _In_ ULONG                  Offset
+    _Out_ PXENVIF_CONTROLLER        Controller,
+    _In_reads_bytes_(Size) PULONG   Mapping,
+    _In_ ULONG                      Size,
+    _In_ ULONG                      Offset
     );
 
 

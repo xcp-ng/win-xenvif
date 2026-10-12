@@ -648,13 +648,13 @@ ReceiverRingProcessChecksum(
 
 static BOOLEAN
 ReceiverRingPullup(
-    _In_ PVOID                      Argument,
-    _Inout_ PUCHAR                  DestinationVa,
-    _Inout_ PXENVIF_PACKET_PAYLOAD  Payload,
-    _In_ ULONG                      Length
+    _In_ PVOID                          Argument,
+    _Out_writes_bytes_(Length) PUCHAR   DestinationVa,
+    _Inout_ PXENVIF_PACKET_PAYLOAD      Payload,
+    _In_ ULONG                          Length
     )
 {
-    PMDL                            Mdl;
+    PMDL                                Mdl;
 
     Mdl = Payload->Mdl;
     ASSERT3U(Payload->Offset, ==, 0);
@@ -4009,15 +4009,15 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE NTSTATUS
 __ReceiverSetQueueAffinities(
-    _In_ PXENVIF_RECEIVER   Receiver,
-    _In_ PPROCESSOR_NUMBER  QueueAffinities,
-    _In_ ULONG              Count
+    _In_ PXENVIF_RECEIVER               Receiver,
+    _In_reads_(Count) PPROCESSOR_NUMBER QueueAffinities,
+    _In_ ULONG                          Count
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    ULONG                   Index;
-    NTSTATUS                status;
-    KIRQL                   Irql;
+    PXENVIF_FRONTEND                    Frontend;
+    ULONG                               Index;
+    NTSTATUS                            status;
+    KIRQL                               Irql;
 
     Frontend = Receiver->Frontend;
 

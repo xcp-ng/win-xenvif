@@ -126,14 +126,14 @@ static
 _Function_class_(GET_SET_DEVICE_DATA)
 ULONG
 BusSetData(
-    _In_ PVOID          _Context,
-    _In_ ULONG          DataType,
-    _In_ PVOID          Buffer,
-    _In_ ULONG          Offset,
-    _In_ ULONG          Length
+    _In_ PVOID                      _Context,
+    _In_ ULONG                      DataType,
+    _In_reads_bytes_(Length) PVOID  Buffer,
+    _In_ ULONG                      Offset,
+    _In_ ULONG                      Length
     )
 {
-    PXENVIF_BUS_CONTEXT Context = _Context;
+    PXENVIF_BUS_CONTEXT             Context = _Context;
 
     return PdoSetBusData(Context->Pdo,
                          DataType,
@@ -146,14 +146,14 @@ static
 _Function_class_(GET_SET_DEVICE_DATA)
 ULONG
 BusGetData(
-    _In_ PVOID          _Context,
-    _In_ ULONG          DataType,
-    _In_ PVOID          Buffer,
-    _In_ ULONG          Offset,
-    _In_ ULONG          Length
+    _In_ PVOID                      _Context,
+    _In_ ULONG                      DataType,
+    _In_reads_bytes_(Length) PVOID  Buffer,
+    _In_ ULONG                      Offset,
+    _In_ ULONG                      Length
     )
 {
-    PXENVIF_BUS_CONTEXT Context = _Context;
+    PXENVIF_BUS_CONTEXT             Context = _Context;
 
     return PdoGetBusData(Context->Pdo,
                          DataType,

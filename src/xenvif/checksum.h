@@ -37,9 +37,9 @@
 
 extern VOID
 AccumulateChecksum(
-    _Inout_ PULONG  Accumulator,
-    _In_ PVOID      MappedSystemVa,
-    _In_ ULONG      ByteCount
+    _Inout_ PULONG                      Accumulator,
+    _In_reads_bytes_(ByteCount) PVOID   MappedSystemVa,
+    _In_ ULONG                          ByteCount
     );
 
 extern USHORT

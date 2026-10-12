@@ -788,14 +788,14 @@ TransmitterRingDebugCallback(
 
 static BOOLEAN
 TransmitterPullup(
-    _In_ PVOID                      Argument,
-    _Inout_ PUCHAR                  DestinationVa,
-    _Inout_ PXENVIF_PACKET_PAYLOAD  Payload,
-    _In_ ULONG                      Length
+    _In_ PVOID                          Argument,
+    _Out_writes_bytes_(Length) PUCHAR   DestinationVa,
+    _Inout_ PXENVIF_PACKET_PAYLOAD      Payload,
+    _In_ ULONG                          Length
     )
 {
-    PMDL                            Mdl;
-    ULONG                           Offset;
+    PMDL                                Mdl;
+    ULONG                               Offset;
 
     UNREFERENCED_PARAMETER(Argument);
 
@@ -5073,9 +5073,9 @@ TransmitterTeardown(
 
 static FORCEINLINE VOID
 __TransmitterHashAccumulate(
-    _Inout_ PULONG  Accumulator,
-    _In_ PUCHAR     Array,
-    _In_ ULONG      Length
+    _Inout_ PULONG                  Accumulator,
+    _In_reads_bytes_(Length) PUCHAR Array,
+    _In_ ULONG                      Length
     )
 {
     ULONG           Current;

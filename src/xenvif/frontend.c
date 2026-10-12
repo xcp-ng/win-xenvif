@@ -1138,20 +1138,20 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetMulticastAddresses(
-    _In_ PXENVIF_FRONTEND       Frontend,
-    _Inout_ PETHERNET_ADDRESS   Address,
-    _In_ ULONG                  Count
+    _In_ PXENVIF_FRONTEND               Frontend,
+    _In_reads_(Count) PETHERNET_ADDRESS Address,
+    _In_ ULONG                          Count
     )
 {
-    PXENVIF_TRANSMITTER         Transmitter;
-    PXENVIF_MAC                 Mac;
-    KIRQL                       Irql;
-    PETHERNET_ADDRESS           MulticastAddress;
-    ULONG                       MulticastCount;
-    ULONG                       MulticastIndex;
-    ULONG                       Index;
-    BOOLEAN                     Change;
-    NTSTATUS                    status;
+    PXENVIF_TRANSMITTER                 Transmitter;
+    PXENVIF_MAC                         Mac;
+    KIRQL                               Irql;
+    PETHERNET_ADDRESS                   MulticastAddress;
+    ULONG                               MulticastCount;
+    ULONG                               MulticastIndex;
+    ULONG                               Index;
+    BOOLEAN                             Change;
+    NTSTATUS                            status;
 
     Transmitter = FrontendGetTransmitter(Frontend);
     Mac = FrontendGetMac(Frontend);
@@ -2242,7 +2242,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashMapping(
     _Out_ PXENVIF_FRONTEND  Frontend,
-    _In_ PULONG             Mapping,
+    _In_reads_(Size) PULONG Mapping,
     _In_ ULONG              Size
     )
 {

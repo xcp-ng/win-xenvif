@@ -198,9 +198,9 @@ FrontendIncrementStatistic(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetMulticastAddresses(
-    _In_ PXENVIF_FRONTEND       Frontend,
-    _Inout_ PETHERNET_ADDRESS   Address,
-    _In_ ULONG                  Count
+    _In_ PXENVIF_FRONTEND               Frontend,
+    _In_reads_(Count) PETHERNET_ADDRESS Address,
+    _In_ ULONG                          Count
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)

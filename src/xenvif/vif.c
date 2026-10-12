@@ -840,14 +840,14 @@ VifMacQueryMulticastAddresses(
 
 static NTSTATUS
 VifMacSetMulticastAddresses(
-    _In_ PINTERFACE         Interface,
-    _Out_ PETHERNET_ADDRESS Address,
-    _In_ ULONG              Count
+    _In_ PINTERFACE                     Interface,
+    _In_reads_(Count) PETHERNET_ADDRESS Address,
+    _In_ ULONG                          Count
     )
 {
-    PXENVIF_VIF_CONTEXT     Context = Interface->Context;
-    ULONG                   Index;
-    NTSTATUS                status;
+    PXENVIF_VIF_CONTEXT                 Context = Interface->Context;
+    ULONG                               Index;
+    NTSTATUS                            status;
 
     status = STATUS_INVALID_PARAMETER;
     for (Index = 0; Index < Count; Index++) {

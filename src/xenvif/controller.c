@@ -935,17 +935,17 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashKey(
-    _Out_ PXENVIF_CONTROLLER    Controller,
-    _In_ PUCHAR                 Key,
-    _In_ ULONG                  Size
+    _Out_ PXENVIF_CONTROLLER        Controller,
+    _In_reads_bytes_(Size) PUCHAR   Key,
+    _In_ ULONG                      Size
     )
 {
-    PXENVIF_FRONTEND            Frontend;
-    PMDL                        Mdl;
-    PUCHAR                      Buffer;
-    PFN_NUMBER                  Pfn;
-    PXENBUS_GNTTAB_ENTRY        Entry;
-    NTSTATUS                    status;
+    PXENVIF_FRONTEND                Frontend;
+    PMDL                            Mdl;
+    PUCHAR                          Buffer;
+    PFN_NUMBER                      Pfn;
+    PXENBUS_GNTTAB_ENTRY            Entry;
+    NTSTATUS                        status;
 
     Frontend = Controller->Frontend;
 
@@ -1112,18 +1112,18 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashMapping(
-    _Out_ PXENVIF_CONTROLLER    Controller,
-    _In_ PULONG                 Mapping,
-    _In_ ULONG                  Size,
-    _In_ ULONG                  Offset
+    _Out_ PXENVIF_CONTROLLER        Controller,
+    _In_reads_bytes_(Size) PULONG   Mapping,
+    _In_ ULONG                      Size,
+    _In_ ULONG                      Offset
     )
 {
-    PXENVIF_FRONTEND            Frontend;
-    PMDL                        Mdl;
-    PUCHAR                      Buffer;
-    PFN_NUMBER                  Pfn;
-    PXENBUS_GNTTAB_ENTRY        Entry;
-    NTSTATUS                    status;
+    PXENVIF_FRONTEND                Frontend;
+    PMDL                            Mdl;
+    PUCHAR                          Buffer;
+    PFN_NUMBER                      Pfn;
+    PXENBUS_GNTTAB_ENTRY            Entry;
+    NTSTATUS                        status;
 
     Frontend = Controller->Frontend;
 
