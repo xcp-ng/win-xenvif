@@ -2569,7 +2569,7 @@ __PdoSetSystemPower(
 
 static FORCEINLINE NTSTATUS
 __PdoSetPower(
-    _Out_ PXENVIF_PDO   Pdo,
+    _Inout_ PXENVIF_PDO Pdo,
     _In_ PIRP           Irp
     )
 {
