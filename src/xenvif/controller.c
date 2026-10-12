@@ -104,7 +104,7 @@ __ControllerFree(
 static FORCEINLINE VOID
 _IRQL_requires_(DISPATCH_LEVEL)
 __ControllerAcquireLock(
-    _Out_ PXENVIF_CONTROLLER    Controller
+    _Inout_ PXENVIF_CONTROLLER    Controller
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -115,7 +115,7 @@ __ControllerAcquireLock(
 static FORCEINLINE VOID
 _IRQL_requires_(DISPATCH_LEVEL)
 __ControllerReleaseLock(
-    _Out_ PXENVIF_CONTROLLER    Controller
+    _Inout_ PXENVIF_CONTROLLER    Controller
     )
 {
     KeReleaseSpinLockFromDpcLevel(&Controller->Lock);
@@ -125,7 +125,7 @@ _Acquires_nonreentrant_lock_(Controller)
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 ControllerAcquireLock(
-    _Out_ PXENVIF_CONTROLLER    Controller
+    _Inout_ PXENVIF_CONTROLLER    Controller
     )
 {
     __ControllerAcquireLock(Controller);
@@ -135,7 +135,7 @@ _Requires_lock_held_(Controller)
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 ControllerReleaseLock(
-    _Out_ PXENVIF_CONTROLLER    Controller
+    _Inout_ PXENVIF_CONTROLLER    Controller
     )
 {
     __ControllerReleaseLock(Controller);
