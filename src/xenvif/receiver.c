@@ -2335,13 +2335,13 @@ KSERVICE_ROUTINE    ReceiverRingEvtchnCallback;
 _Use_decl_annotations_
 BOOLEAN
 ReceiverRingEvtchnCallback(
-    _In_ PKINTERRUPT            InterruptObject,
-    _In_ PVOID                  Argument
+    PKINTERRUPT            InterruptObject,
+    PVOID                  Argument
     )
 {
-    PXENVIF_RECEIVER_RING       Ring = Argument;
-    PXENVIF_RECEIVER            Receiver;
-    PXENVIF_FRONTEND            Frontend;
+    PXENVIF_RECEIVER_RING  Ring = Argument;
+    PXENVIF_RECEIVER       Receiver;
+    PXENVIF_FRONTEND       Frontend;
 
     UNREFERENCED_PARAMETER(InterruptObject);
 
@@ -2992,7 +2992,7 @@ __ReceiverRingDisconnect(
 
 static FORCEINLINE VOID
 __ReceiverRingTeardown(
-    _Out_ PXENVIF_RECEIVER_RING Ring
+    _Inout_ PXENVIF_RECEIVER_RING Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -3649,11 +3649,11 @@ ReceiverDisconnect(
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID
 ReceiverTeardown(
-    _Out_ PXENVIF_RECEIVER  Receiver
+    _Inout_ PXENVIF_RECEIVER    Receiver
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    LONG                    Index;
+    PXENVIF_FRONTEND            Frontend;
+    LONG                        Index;
 
     Frontend = Receiver->Frontend;
 

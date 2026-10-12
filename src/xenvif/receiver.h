@@ -82,7 +82,7 @@ ReceiverDisconnect(
 _IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 ReceiverTeardown(
-    _Out_ PXENVIF_RECEIVER  Receiver
+    _Inout_ PXENVIF_RECEIVER    Receiver
     );
 
 _IRQL_requires_max_(APC_LEVEL)
