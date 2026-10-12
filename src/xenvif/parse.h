@@ -51,12 +51,12 @@ typedef BOOLEAN
 
 extern NTSTATUS
 ParsePacket(
-    _In_ PUCHAR                     StartVa,
-    _In_ ULONG                      StartLen,
-    _In_ XENVIF_PARSE_PULLUP        Pullup,
-    _In_ PVOID                      Argument,
-    _Inout_ PXENVIF_PACKET_PAYLOAD  Payload,
-    _Out_ PXENVIF_PACKET_INFO       Info
+    _Inout_updates_bytes_(StartLen) PUCHAR  StartVa,
+    _In_ ULONG                              StartLen,
+    _In_ XENVIF_PARSE_PULLUP                Pullup,
+    _In_ PVOID                              Argument,
+    _Inout_ PXENVIF_PACKET_PAYLOAD          Payload,
+    _Out_ PXENVIF_PACKET_INFO               Info
     );
 
 #endif  // _XENVIF_PARSE_H

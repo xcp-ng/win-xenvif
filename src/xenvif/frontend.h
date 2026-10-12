@@ -235,8 +235,8 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashMapping(
     _Out_ PXENVIF_FRONTEND  Frontend,
-    _In_ PULONG             Mapping,
-    _In_ ULONG              Order
+    _In_reads_(Size) PULONG Mapping,
+    _In_ ULONG              Size
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)

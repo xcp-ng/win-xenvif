@@ -104,13 +104,13 @@ MacDumpAddressTable(
 extern NTSTATUS
 MacAddMulticastAddress(
     _Out_ PXENVIF_MAC       Mac,
-    _Out_ PETHERNET_ADDRESS Address
+    _In_ PETHERNET_ADDRESS  Address
     );
 
 extern NTSTATUS
 MacRemoveMulticastAddress(
     _Out_ PXENVIF_MAC       Mac,
-    _Out_ PETHERNET_ADDRESS Address
+    _In_ PETHERNET_ADDRESS  Address
     );
 
 extern NTSTATUS
