@@ -44,52 +44,52 @@ typedef struct _XENVIF_VIF_CONTEXT  XENVIF_VIF_CONTEXT, *PXENVIF_VIF_CONTEXT;
 
 extern NTSTATUS
 VifInitialize(
-    IN  PXENVIF_PDO         Pdo,
-    OUT PXENVIF_VIF_CONTEXT *Context
+    _In_ PXENVIF_PDO                Pdo,
+    _Outptr_ PXENVIF_VIF_CONTEXT    *Context
     );
 
 extern NTSTATUS
 VifGetInterface(
-    IN      PXENVIF_VIF_CONTEXT Context,
-    IN      ULONG               Version,
-    IN OUT  PINTERFACE          Interface,
-    IN      ULONG               Size
+    _In_ PXENVIF_VIF_CONTEXT    Context,
+    _In_ ULONG                  Version,
+    _Inout_ PINTERFACE          Interface,
+    _In_ ULONG                  Size
     );
 
 extern VOID
 VifTeardown(
-    IN  PXENVIF_VIF_CONTEXT Context
+    _In_ PXENVIF_VIF_CONTEXT    Context
     );
 
 // CALLBACKS
 
 extern VOID
 VifReceiverQueuePacket(
-    IN  PXENVIF_VIF_CONTEXT             Context,
-    IN  ULONG                           Index,
-    IN  PMDL                            Mdl,
-    IN  ULONG                           Offset,
-    IN  ULONG                           Length,
-    IN  XENVIF_PACKET_CHECKSUM_FLAGS    Flags,
-    IN  USHORT                          MaximumSegmentSize,
-    IN  USHORT                          TagControlInformation,
-    IN  PXENVIF_PACKET_INFO             Info,
-    IN  PXENVIF_PACKET_HASH             Hash,
-    IN  BOOLEAN                         More,
-    IN  PVOID                           Cookie,
-    OUT PBOOLEAN                        Pause
+    _In_ PXENVIF_VIF_CONTEXT            Context,
+    _In_ ULONG                          Index,
+    _In_ PMDL                           Mdl,
+    _In_ ULONG                          Offset,
+    _In_ ULONG                          Length,
+    _In_ XENVIF_PACKET_CHECKSUM_FLAGS   Flags,
+    _In_ USHORT                         MaximumSegmentSize,
+    _In_ USHORT                         TagControlInformation,
+    _In_ PXENVIF_PACKET_INFO            Info,
+    _In_ PXENVIF_PACKET_HASH            Hash,
+    _In_ BOOLEAN                        More,
+    _In_ PVOID                          Cookie,
+    _Out_ PBOOLEAN                      Pause
     );
 
 extern VOID
 VifTransmitterReturnPacket(
-    IN  PXENVIF_VIF_CONTEXT                         Context,
-    IN  PVOID                                       Cookie,
-    IN  PXENVIF_TRANSMITTER_PACKET_COMPLETION_INFO  Completion
+    _In_ PXENVIF_VIF_CONTEXT                        Context,
+    _In_ PVOID                                      Cookie,
+    _In_ PXENVIF_TRANSMITTER_PACKET_COMPLETION_INFO Completion
     );
 
 extern PXENVIF_THREAD
 VifGetMacThread(
-    IN  PXENVIF_VIF_CONTEXT Context
+    _In_ PXENVIF_VIF_CONTEXT    Context
     );
 
 #endif  // _XENVIF_VIF_H

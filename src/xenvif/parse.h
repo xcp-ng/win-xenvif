@@ -43,20 +43,20 @@ typedef struct _XENVIF_PACKET_PAYLOAD {
 
 typedef BOOLEAN
 (*XENVIF_PARSE_PULLUP)(
-    IN  PVOID                   Argument,
-    IN  PUCHAR                  Buffer,
-    IN  PXENVIF_PACKET_PAYLOAD  Payload,
-    IN  ULONG                   Length
+    _In_ PVOID                  Argument,
+    _In_ PUCHAR                 Buffer,
+    _In_ PXENVIF_PACKET_PAYLOAD Payload,
+    _In_ ULONG                  Length
     );
 
 extern NTSTATUS
 ParsePacket(
-    IN      PUCHAR                  StartVa,
-    IN      ULONG                   StartLen,
-    IN      XENVIF_PARSE_PULLUP     Pullup,
-    IN      PVOID                   Argument,
-    IN OUT  PXENVIF_PACKET_PAYLOAD  Payload,
-    OUT     PXENVIF_PACKET_INFO     Info
+    _In_ PUCHAR                     StartVa,
+    _In_ ULONG                      StartLen,
+    _In_ XENVIF_PARSE_PULLUP        Pullup,
+    _In_ PVOID                      Argument,
+    _Inout_ PXENVIF_PACKET_PAYLOAD  Payload,
+    _Out_ PXENVIF_PACKET_INFO       Info
     );
 
 #endif  // _XENVIF_PARSE_H

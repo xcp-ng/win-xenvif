@@ -43,7 +43,7 @@
 
 static FORCEINLINE PVOID
 __LinkAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, LINK_TAG);
@@ -51,7 +51,7 @@ __LinkAllocate(
 
 static FORCEINLINE VOID
 __LinkFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, LINK_TAG);
@@ -59,8 +59,8 @@ __LinkFree(
 
 static FORCEINLINE NTSTATUS
 __LinkGetImageBase(
-    IN  const CHAR              *ModuleName,
-    OUT PVOID                   *ImageBase
+    _In_ const CHAR             *ModuleName,
+    _Outptr_ PVOID              *ImageBase
     )
 {
     ULONG                       BufferSize;
@@ -151,9 +151,9 @@ fail1:
 
 NTSTATUS
 LinkGetRoutineAddress(
-    IN  const CHAR  *ModuleName,
-    IN  const CHAR  *FunctionName,
-    OUT PVOID       *Address
+    _In_ const CHAR *ModuleName,
+    _In_ const CHAR *FunctionName,
+    _Outptr_ PVOID  *Address
     )
 {
 #define MK_PTR(_ImageBase, _Type, _RVA) \

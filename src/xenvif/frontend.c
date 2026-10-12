@@ -117,7 +117,7 @@ struct _XENVIF_FRONTEND {
 
 static const PCHAR
 FrontendStateName(
-    IN  XENVIF_FRONTEND_STATE   State
+    _In_ XENVIF_FRONTEND_STATE  State
     )
 {
 #define _STATE_NAME(_State)     \
@@ -144,7 +144,7 @@ FrontendStateName(
 
 static FORCEINLINE PVOID
 __FrontendAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, FRONTEND_POOL);
@@ -152,7 +152,7 @@ __FrontendAllocate(
 
 static FORCEINLINE VOID
 __FrontendFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, FRONTEND_POOL);
@@ -160,7 +160,7 @@ __FrontendFree(
 
 static FORCEINLINE PXENVIF_PDO
 __FrontendGetPdo(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return Frontend->Pdo;
@@ -168,7 +168,7 @@ __FrontendGetPdo(
 
 PXENVIF_PDO
 FrontendGetPdo(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return __FrontendGetPdo(Frontend);
@@ -176,7 +176,7 @@ FrontendGetPdo(
 
 static FORCEINLINE PCHAR
 __FrontendGetPath(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return Frontend->Path;
@@ -184,7 +184,7 @@ __FrontendGetPath(
 
 PCHAR
 FrontendGetPath(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return __FrontendGetPath(Frontend);
@@ -192,7 +192,7 @@ FrontendGetPath(
 
 static FORCEINLINE PCHAR
 __FrontendGetPrefix(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return Frontend->Prefix;
@@ -200,7 +200,7 @@ __FrontendGetPrefix(
 
 PCHAR
 FrontendGetPrefix(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return __FrontendGetPrefix(Frontend);
@@ -208,7 +208,7 @@ FrontendGetPrefix(
 
 static FORCEINLINE PCHAR
 __FrontendGetBackendPath(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return Frontend->BackendPath;
@@ -216,7 +216,7 @@ __FrontendGetBackendPath(
 
 PCHAR
 FrontendGetBackendPath(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return __FrontendGetBackendPath(Frontend);
@@ -224,7 +224,7 @@ FrontendGetBackendPath(
 
 static FORCEINLINE USHORT
 __FrontendGetBackendDomain(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return Frontend->BackendDomain;
@@ -232,7 +232,7 @@ __FrontendGetBackendDomain(
 
 USHORT
 FrontendGetBackendDomain(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return __FrontendGetBackendDomain(Frontend);
@@ -240,7 +240,7 @@ FrontendGetBackendDomain(
 
 static VOID
 FrontendSetMaxQueues(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     HANDLE                  ParametersKey;
@@ -265,7 +265,7 @@ FrontendSetMaxQueues(
 
 static FORCEINLINE ULONG
 __FrontendGetMaxQueues(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     ASSERT(Frontend->MaxQueues != 0);
@@ -274,7 +274,7 @@ __FrontendGetMaxQueues(
 
 ULONG
 FrontendGetMaxQueues(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return __FrontendGetMaxQueues(Frontend);
@@ -282,8 +282,8 @@ FrontendGetMaxQueues(
 
 PCHAR
 FrontendFormatPath(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Index
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ ULONG              Index
     )
 {
     ULONG                   Length;
@@ -317,8 +317,8 @@ fail1:
 
 VOID
 FrontendFreePath(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PCHAR               Path
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ PCHAR              Path
     )
 {
     UNREFERENCED_PARAMETER(Frontend);
@@ -350,7 +350,7 @@ DEFINE_FRONTEND_GET_FUNCTION(Controller, PXENVIF_CONTROLLER)
 
 static BOOLEAN
 FrontendIsOnline(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return Frontend->Online;
@@ -358,7 +358,7 @@ FrontendIsOnline(
 
 static BOOLEAN
 FrontendIsBackendOnline(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     PCHAR                   Buffer;
@@ -387,8 +387,8 @@ FrontendIsBackendOnline(
 _IRQL_requires_(PASSIVE_LEVEL)
 static DECLSPEC_NOINLINE NTSTATUS
 FrontendEject(
-    IN  PXENVIF_THREAD  Self,
-    IN  PVOID           Context
+    _In_ PXENVIF_THREAD Self,
+    _In_ PVOID          Context
     )
 {
     PXENVIF_FRONTEND    Frontend = Context;
@@ -443,13 +443,13 @@ loop:
 
 VOID
 FrontendEjectFailed(
-    IN PXENVIF_FRONTEND Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
-    KIRQL               Irql;
-    ULONG               Length;
-    PCHAR               Path;
-    NTSTATUS            status;
+    KIRQL                   Irql;
+    ULONG                   Length;
+    PCHAR                   Path;
+    NTSTATUS                status;
 
     KeAcquireSpinLock(&Frontend->Lock, &Irql);
 
@@ -494,8 +494,8 @@ fail1:
 
 static NTSTATUS
 FrontendProcessInterfaceTable(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PMIB_IF_TABLE2      Table
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ PMIB_IF_TABLE2     Table
     )
 {
     ETHERNET_ADDRESS        PermanentPhysicalAddress;
@@ -542,14 +542,14 @@ found:
 
 static NTSTATUS
 FrontendInsertAddress(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  const SOCKADDR_INET *Address,
-    IN  UINT8               Prefix
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _In_ const SOCKADDR_INET    *Address,
+    _In_ UINT8                  Prefix
     )
 {
-    ULONG                   Index;
-    PXENVIF_ADDRESS         Table;
-    NTSTATUS                status;
+    ULONG                       Index;
+    PXENVIF_ADDRESS             Table;
+    NTSTATUS                    status;
 
     Trace("====>\n");
 
@@ -606,12 +606,12 @@ fail1:
 
 static NTSTATUS
 FrontendProcessAddressTable(
-    IN  PXENVIF_FRONTEND            Frontend,
-    IN  PMIB_UNICASTIPADDRESS_TABLE Table
+    _In_ PXENVIF_FRONTEND               Frontend,
+    _In_ PMIB_UNICASTIPADDRESS_TABLE    Table
     )
 {
-    ULONG                           Index;
-    NTSTATUS                        status;
+    ULONG                               Index;
+    NTSTATUS                            status;
 
     UNREFERENCED_PARAMETER(Frontend);
 
@@ -649,7 +649,7 @@ fail1:
 
 static NTSTATUS
 FrontendDumpAlias(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     NTSTATUS                status;
@@ -861,7 +861,7 @@ FrontendDumpIPv6Address(
 
 static NTSTATUS
 FrontendDumpAddressTable(
-    IN  PXENVIF_FRONTEND        Frontend
+    _In_ PXENVIF_FRONTEND       Frontend
     )
 {
     PXENBUS_STORE_TRANSACTION   Transaction;
@@ -961,12 +961,12 @@ fail1:
 
 static VOID
 FrontendIpAddressChange(
-    IN  PVOID                       Context,
-    IN  PMIB_UNICASTIPADDRESS_ROW   Row OPTIONAL,
-    IN  MIB_NOTIFICATION_TYPE       NotificationType
+    _In_ PVOID                          Context,
+    _In_opt_ PMIB_UNICASTIPADDRESS_ROW  Row,
+    _In_ MIB_NOTIFICATION_TYPE          NotificationType
     )
 {
-    PXENVIF_FRONTEND                Frontend = Context;
+    PXENVIF_FRONTEND                    Frontend = Context;
 
     UNREFERENCED_PARAMETER(Row);
     UNREFERENCED_PARAMETER(NotificationType);
@@ -977,8 +977,8 @@ FrontendIpAddressChange(
 _IRQL_requires_(PASSIVE_LEVEL)
 static DECLSPEC_NOINLINE NTSTATUS
 FrontendMib(
-    IN  PXENVIF_THREAD  Self,
-    IN  PVOID           Context
+    _In_ PXENVIF_THREAD Self,
+    _In_ PVOID          Context
     )
 {
     PXENVIF_FRONTEND    Frontend = Context;
@@ -1138,9 +1138,9 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetMulticastAddresses(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PETHERNET_ADDRESS   Address,
-    IN  ULONG               Count
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ PETHERNET_ADDRESS  Address,
+    _In_ ULONG              Count
     )
 {
     PXENVIF_TRANSMITTER     Transmitter;
@@ -1251,8 +1251,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static NTSTATUS
 FrontendNotifyMulticastAddresses(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  BOOLEAN             Add
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ BOOLEAN            Add
     )
 {
     PXENVIF_TRANSMITTER     Transmitter;
@@ -1306,14 +1306,14 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetFilterLevel(
-    IN  PXENVIF_FRONTEND        Frontend,
-    IN  ETHERNET_ADDRESS_TYPE   Type,
-    IN  XENVIF_MAC_FILTER_LEVEL Level
+    _In_ PXENVIF_FRONTEND           Frontend,
+    _In_ ETHERNET_ADDRESS_TYPE      Type,
+    _In_ XENVIF_MAC_FILTER_LEVEL    Level
     )
 {
-    PXENVIF_MAC                 Mac;
-    KIRQL                       Irql;
-    NTSTATUS                    status;
+    PXENVIF_MAC                     Mac;
+    KIRQL                           Irql;
+    NTSTATUS                        status;
 
     Mac = FrontendGetMac(Frontend);
 
@@ -1348,7 +1348,7 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 FrontendAdvertiseIpAddresses(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     PXENVIF_TRANSMITTER     Transmitter;
@@ -1394,7 +1394,7 @@ FrontendAdvertiseIpAddresses(
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 FrontendSetOnline(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     Trace("====>\n");
@@ -1407,7 +1407,7 @@ FrontendSetOnline(
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 FrontendSetOffline(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     Trace("====>\n");
@@ -1421,8 +1421,8 @@ FrontendSetOffline(
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 FrontendSetXenbusState(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  XenbusState         State
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ XenbusState        State
     )
 {
     BOOLEAN                 Online;
@@ -1454,7 +1454,7 @@ FrontendSetXenbusState(
 _IRQL_requires_(DISPATCH_LEVEL)
 static NTSTATUS
 FrontendAcquireBackend(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     PCHAR                   Buffer;
@@ -1501,8 +1501,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 FrontendWaitForBackendXenbusStateChange(
-    IN      PXENVIF_FRONTEND    Frontend,
-    IN OUT  XenbusState         *State
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _Inout_ XenbusState         *State
     )
 {
     KEVENT                      Event;
@@ -1606,7 +1606,7 @@ FrontendWaitForBackendXenbusStateChange(
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 FrontendReleaseBackend(
-    IN      PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     Trace("=====>\n");
@@ -1627,7 +1627,7 @@ FrontendReleaseBackend(
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 FrontendClose(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     XenbusState             State;
@@ -1689,7 +1689,7 @@ FrontendClose(
 _IRQL_requires_(DISPATCH_LEVEL)
 static NTSTATUS
 FrontendPrepare(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     XenbusState             State;
@@ -1790,9 +1790,9 @@ fail1:
 
 static FORCEINLINE VOID
 __FrontendQueryStatistic(
-    IN  PXENVIF_FRONTEND        Frontend,
-    IN  XENVIF_VIF_STATISTIC    Name,
-    OUT PULONGLONG              Value
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _In_ XENVIF_VIF_STATISTIC   Name,
+    _Out_ PULONGLONG            Value
     )
 {
     ULONG                       Index;
@@ -1810,9 +1810,9 @@ __FrontendQueryStatistic(
 
 VOID
 FrontendQueryStatistic(
-    IN  PXENVIF_FRONTEND        Frontend,
-    IN  XENVIF_VIF_STATISTIC    Name,
-    OUT PULONGLONG              Value
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _In_ XENVIF_VIF_STATISTIC   Name,
+    _Out_ PULONGLONG            Value
     )
 {
     __FrontendQueryStatistic(Frontend, Name, Value);
@@ -1820,9 +1820,9 @@ FrontendQueryStatistic(
 
 VOID
 FrontendIncrementStatistic(
-    IN  PXENVIF_FRONTEND        Frontend,
-    IN  XENVIF_VIF_STATISTIC    Name,
-    IN  ULONGLONG               Delta
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _In_ XENVIF_VIF_STATISTIC   Name,
+    _In_ ULONGLONG              Delta
     )
 {
     ULONG                       Index;
@@ -1845,7 +1845,7 @@ FrontendIncrementStatistic(
 
 static FORCEINLINE const CHAR *
 __FrontendStatisticName(
-    IN  XENVIF_VIF_STATISTIC    Name
+    _In_ XENVIF_VIF_STATISTIC   Name
     )
 {
 #define _FRONTEND_STATISTIC_NAME(_Name)     \
@@ -1917,8 +1917,8 @@ __FrontendStatisticName(
 
 static VOID
 FrontendDebugCallback(
-    IN  PVOID               Argument,
-    IN  BOOLEAN             Crashing
+    _In_ PVOID              Argument,
+    _In_ BOOLEAN            Crashing
     )
 {
     PXENVIF_FRONTEND        Frontend = Argument;
@@ -1950,7 +1950,7 @@ FrontendDebugCallback(
 
 static NTSTATUS
 FrontendSetNumQueues(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     PCHAR                   Buffer;
@@ -1990,7 +1990,7 @@ fail1:
 
 static FORCEINLINE ULONG
 __FrontendGetNumQueues(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     ASSERT(Frontend->NumQueues != 0);
@@ -1999,7 +1999,7 @@ __FrontendGetNumQueues(
 
 ULONG
 FrontendGetNumQueues(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return __FrontendGetNumQueues(Frontend);
@@ -2007,7 +2007,7 @@ FrontendGetNumQueues(
 
 static VOID
 FrontendSetSplit(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     PCHAR                   Buffer;
@@ -2035,7 +2035,7 @@ FrontendSetSplit(
 
 static FORCEINLINE BOOLEAN
 __FrontendIsSplit(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return Frontend->Split;
@@ -2043,7 +2043,7 @@ __FrontendIsSplit(
 
 BOOLEAN
 FrontendIsSplit(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return __FrontendIsSplit(Frontend);
@@ -2134,8 +2134,8 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashAlgorithm(
-    IN  PXENVIF_FRONTEND                Frontend,
-    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
+    _In_ PXENVIF_FRONTEND               Frontend,
+    _In_ XENVIF_PACKET_HASH_ALGORITHM   Algorithm
     )
 {
     XENVIF_FRONTEND_HASH                Hash;
@@ -2201,8 +2201,8 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendQueryHashTypes(
-    IN  PXENVIF_FRONTEND    Frontend,
-    OUT PULONG              Types
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _Out_ PULONG            Types
     )
 {
     KIRQL                   Irql;
@@ -2241,9 +2241,9 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashMapping(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PULONG              Mapping,
-    IN  ULONG               Size
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ PULONG             Mapping,
+    _In_ ULONG              Size
     )
 {
     XENVIF_FRONTEND_HASH    Hash;
@@ -2285,8 +2285,8 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashKey(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PUCHAR              Key
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ PUCHAR             Key
     )
 {
     XENVIF_FRONTEND_HASH    Hash;
@@ -2320,8 +2320,8 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetHashTypes(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Types
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ ULONG              Types
     )
 {
     XENVIF_FRONTEND_HASH    Hash;
@@ -2365,9 +2365,9 @@ fail1:
 
 ULONG
 FrontendGetQueue(
-    IN  PXENVIF_FRONTEND                Frontend,
-    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm,
-    IN  ULONG                           Value
+    _In_ PXENVIF_FRONTEND               Frontend,
+    _In_ XENVIF_PACKET_HASH_ALGORITHM   Algorithm,
+    _In_ ULONG                          Value
     )
 {
     ULONG                               Queue;
@@ -2396,7 +2396,7 @@ FrontendGetQueue(
 _IRQL_requires_(DISPATCH_LEVEL)
 static NTSTATUS
 FrontendConnect(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     XenbusState             State;
@@ -2593,7 +2593,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 FrontendDisconnect(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     Trace("====>\n");
@@ -2621,7 +2621,7 @@ FrontendDisconnect(
 _IRQL_requires_(DISPATCH_LEVEL)
 static NTSTATUS
 FrontendEnable(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     NTSTATUS                status;
@@ -2673,7 +2673,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 FrontendDisable(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     Trace("====>\n");
@@ -2690,7 +2690,7 @@ FrontendDisable(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE BOOLEAN
 FrontendIsPoisoned(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     return TransmitterIsPoisoned(__FrontendGetTransmitter(Frontend));
@@ -2699,8 +2699,8 @@ FrontendIsPoisoned(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendSetState(
-    IN  PXENVIF_FRONTEND        Frontend,
-    IN  XENVIF_FRONTEND_STATE   State
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _In_ XENVIF_FRONTEND_STATE  State
     )
 {
     BOOLEAN                     Failed;
@@ -2876,7 +2876,7 @@ FrontendSetState(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __FrontendResume(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -2888,7 +2888,7 @@ __FrontendResume(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __FrontendSuspend(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -2899,7 +2899,7 @@ __FrontendSuspend(
 _IRQL_requires_(HIGH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 FrontendSuspendCallbackEarly(
-    IN  PVOID           Argument
+    _In_ PVOID          Argument
     )
 {
     PXENVIF_FRONTEND    Frontend = Argument;
@@ -2910,7 +2910,7 @@ FrontendSuspendCallbackEarly(
 _IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 FrontendSuspendCallbackLate(
-    IN  PVOID           Argument
+    _In_ PVOID          Argument
     )
 {
     PXENVIF_FRONTEND    Frontend = Argument;
@@ -2923,7 +2923,7 @@ _IRQL_requires_min_(PASSIVE_LEVEL)
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 FrontendResume(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     KIRQL                   Irql;
@@ -3001,7 +3001,7 @@ _IRQL_requires_min_(PASSIVE_LEVEL)
 _IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 FrontendSuspend(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     KIRQL                   Irql;
@@ -3043,17 +3043,17 @@ FrontendSuspend(
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS
 FrontendInitialize(
-    IN  PXENVIF_PDO         Pdo,
-    OUT PXENVIF_FRONTEND    *Frontend
+    _In_ PXENVIF_PDO            Pdo,
+    _Outptr_ PXENVIF_FRONTEND   *Frontend
     )
 {
-    PCHAR                   Name;
-    ULONG                   Length;
-    PCHAR                   Path;
-    PCHAR                   Prefix;
-    HANDLE                  ParametersKey;
-    ULONG                   FrontendDisableToeplitz;
-    NTSTATUS                status;
+    PCHAR                       Name;
+    ULONG                       Length;
+    PCHAR                       Path;
+    PCHAR                       Prefix;
+    HANDLE                      ParametersKey;
+    ULONG                       FrontendDisableToeplitz;
+    NTSTATUS                    status;
 
     Trace("====>\n");
 
@@ -3253,7 +3253,7 @@ fail1:
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID
 FrontendTeardown(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     )
 {
     Trace("====>\n");

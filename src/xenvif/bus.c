@@ -51,7 +51,7 @@ typedef struct _XENVIF_BUS_CONTEXT {
 
 static FORCEINLINE PVOID
 __BusAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, BUS_TAG);
@@ -59,7 +59,7 @@ __BusAllocate(
 
 static FORCEINLINE VOID
 __BusFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, BUS_TAG);
@@ -67,7 +67,7 @@ __BusFree(
 
 static VOID
 BusReference(
-    IN  PVOID           _Context
+    _In_ PVOID          _Context
     )
 {
     PXENVIF_BUS_CONTEXT Context = _Context;
@@ -77,7 +77,7 @@ BusReference(
 
 static VOID
 BusDereference(
-    IN  PVOID           _Context
+    _In_ PVOID          _Context
     )
 {
     PXENVIF_BUS_CONTEXT Context = _Context;
@@ -87,14 +87,14 @@ BusDereference(
 }
 
 static
-__drv_functionClass(TRANSLATE_BUS_ADDRESS)
+_Function_class_(TRANSLATE_BUS_ADDRESS)
 BOOLEAN
 BusTranslateAddress(
-    IN      PVOID               _Context,
-    IN      PHYSICAL_ADDRESS    BusAddress,
-    IN      ULONG               Length,
-    IN OUT  PULONG              AddressSpace,
-    OUT     PPHYSICAL_ADDRESS   TranslatedAddress
+    _In_ PVOID                  _Context,
+    _In_ PHYSICAL_ADDRESS       BusAddress,
+    _In_ ULONG                  Length,
+    _Inout_ PULONG              AddressSpace,
+    _Outptr_ PPHYSICAL_ADDRESS  TranslatedAddress
     )
 {
     PXENVIF_BUS_CONTEXT         Context = _Context;
@@ -107,15 +107,15 @@ BusTranslateAddress(
 }
 
 static
-__drv_functionClass(GET_DMA_ADAPTER)
+_Function_class_(GET_DMA_ADAPTER)
 PDMA_ADAPTER
 BusGetDmaAdapter(
-    IN  PVOID               _Context,
-    IN  PDEVICE_DESCRIPTION DeviceDescriptor,
-    OUT PULONG              NumberOfMapRegisters
+    _In_ PVOID                  _Context,
+    _In_ PDEVICE_DESCRIPTION    DeviceDescriptor,
+    _Out_ PULONG                NumberOfMapRegisters
     )
 {
-    PXENVIF_BUS_CONTEXT     Context = _Context;
+    PXENVIF_BUS_CONTEXT         Context = _Context;
 
     return PdoGetDmaAdapter(Context->Pdo,
                             DeviceDescriptor,
@@ -123,14 +123,14 @@ BusGetDmaAdapter(
 }
 
 static
-__drv_functionClass(GET_SET_DEVICE_DATA)
+_Function_class_(GET_SET_DEVICE_DATA)
 ULONG
 BusSetData(
-    IN  PVOID           _Context,
-    IN  ULONG           DataType,
-    IN  PVOID           Buffer,
-    IN  ULONG           Offset,
-    IN  ULONG           Length
+    _In_ PVOID          _Context,
+    _In_ ULONG          DataType,
+    _In_ PVOID          Buffer,
+    _In_ ULONG          Offset,
+    _In_ ULONG          Length
     )
 {
     PXENVIF_BUS_CONTEXT Context = _Context;
@@ -143,14 +143,14 @@ BusSetData(
 }
 
 static
-__drv_functionClass(GET_SET_DEVICE_DATA)
+_Function_class_(GET_SET_DEVICE_DATA)
 ULONG
 BusGetData(
-    IN  PVOID           _Context,
-    IN  ULONG           DataType,
-    IN  PVOID           Buffer,
-    IN  ULONG           Offset,
-    IN  ULONG           Length
+    _In_ PVOID          _Context,
+    _In_ ULONG          DataType,
+    _In_ PVOID          Buffer,
+    _In_ ULONG          Offset,
+    _In_ ULONG          Length
     )
 {
     PXENVIF_BUS_CONTEXT Context = _Context;
@@ -164,12 +164,12 @@ BusGetData(
 
 NTSTATUS
 BusInitialize(
-    IN  PXENVIF_PDO             Pdo,
-    OUT PBUS_INTERFACE_STANDARD Interface
+    _In_ PXENVIF_PDO                Pdo,
+    _Out_ PBUS_INTERFACE_STANDARD   Interface
     )
 {
-    PXENVIF_BUS_CONTEXT         Context;
-    NTSTATUS                    status;
+    PXENVIF_BUS_CONTEXT             Context;
+    NTSTATUS                        status;
 
     Trace("====>\n");
 
@@ -203,7 +203,7 @@ fail1:
 
 VOID
 BusTeardown(
-    IN OUT  PBUS_INTERFACE_STANDARD Interface
+    _Inout_ PBUS_INTERFACE_STANDARD Interface
     )
 {
     PXENVIF_BUS_CONTEXT             Context = Interface->Context;

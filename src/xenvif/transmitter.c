@@ -237,7 +237,7 @@ struct _XENVIF_TRANSMITTER {
 
 static FORCEINLINE PVOID
 __TransmitterAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENVIF_TRANSMITTER_TAG);
@@ -245,7 +245,7 @@ __TransmitterAllocate(
 
 static FORCEINLINE VOID
 __TransmitterFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENVIF_TRANSMITTER_TAG);
@@ -255,7 +255,7 @@ _Acquires_nonreentrant_lock_(Argument)
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 TransmitterPacketAcquireLock(
-    IN  PVOID           Argument
+    _In_ PVOID          Argument
     )
 {
     PXENVIF_TRANSMITTER Transmitter = Argument;
@@ -267,7 +267,7 @@ _Requires_lock_held_(Argument)
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 TransmitterPacketReleaseLock(
-    IN  PVOID           Argument
+    _In_ PVOID          Argument
     )
 {
     PXENVIF_TRANSMITTER Transmitter = Argument;
@@ -277,8 +277,8 @@ TransmitterPacketReleaseLock(
 
 static NTSTATUS
 TransmitterPacketCtor(
-    IN  PVOID                   Argument,
-    IN  PVOID                   Object
+    _In_ PVOID                  Argument,
+    _In_ PVOID                  Object
     )
 {
     PXENVIF_TRANSMITTER_PACKET  Packet = Object;
@@ -309,8 +309,8 @@ fail1:
 
 static VOID
 TransmitterPacketDtor(
-    IN  PVOID                   Argument,
-    IN  PVOID                   Object
+    _In_ PVOID                  Argument,
+    _In_ PVOID                  Object
     )
 {
     PXENVIF_TRANSMITTER_PACKET  Packet = Object;
@@ -329,7 +329,7 @@ TransmitterPacketDtor(
 
 static FORCEINLINE PXENVIF_TRANSMITTER_PACKET
 __TransmitterGetPacket(
-    IN  PXENVIF_TRANSMITTER         Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     )
 {
     return XENBUS_CACHE(Get,
@@ -340,8 +340,8 @@ __TransmitterGetPacket(
 
 static FORCEINLINE VOID
 __TransmitterPutPacket(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  PXENVIF_TRANSMITTER_PACKET  Packet
+    _In_ PXENVIF_TRANSMITTER        Transmitter,
+    _In_ PXENVIF_TRANSMITTER_PACKET Packet
     )
 {
     ASSERT(IsZeroMemory(&Packet->ListEntry, sizeof (LIST_ENTRY)));
@@ -372,13 +372,13 @@ __TransmitterPutPacket(
 
 static NTSTATUS
 TransmitterBufferCtor(
-    IN  PVOID                   Argument,
-    IN  PVOID                   Object
+    _In_ PVOID                  Argument,
+    _In_ PVOID                  Object
     )
 {
     PXENVIF_TRANSMITTER_BUFFER  Buffer = Object;
-    PMDL		                Mdl;
-    NTSTATUS	                status;
+    PMDL                        Mdl;
+    NTSTATUS                    status;
 
     UNREFERENCED_PARAMETER(Argument);
 
@@ -405,8 +405,8 @@ fail1:
 
 static VOID
 TransmitterBufferDtor(
-    IN  PVOID                   Argument,
-    IN  PVOID                   Object
+    _In_ PVOID                  Argument,
+    _In_ PVOID                  Object
     )
 {
     PXENVIF_TRANSMITTER_BUFFER  Buffer = Object;
@@ -426,7 +426,7 @@ TransmitterBufferDtor(
 
 static FORCEINLINE PXENVIF_TRANSMITTER_BUFFER
 __TransmitterGetBuffer(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -448,8 +448,8 @@ __TransmitterGetBuffer(
 
 static FORCEINLINE VOID
 __TransmitterPutBuffer(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PXENVIF_TRANSMITTER_BUFFER  Buffer
+    _In_ PXENVIF_TRANSMITTER_RING   Ring,
+    _In_ PXENVIF_TRANSMITTER_BUFFER Buffer
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -472,8 +472,8 @@ __TransmitterPutBuffer(
 
 static NTSTATUS
 TransmitterMulticastControlCtor(
-    IN  PVOID   Argument,
-    IN  PVOID   Object
+    _In_ PVOID  Argument,
+    _In_ PVOID  Object
     )
 {
     UNREFERENCED_PARAMETER(Argument);
@@ -484,8 +484,8 @@ TransmitterMulticastControlCtor(
 
 static VOID
 TransmitterMulticastControlDtor(
-    IN  PVOID   Argument,
-    IN  PVOID   Object
+    _In_ PVOID  Argument,
+    _In_ PVOID  Object
     )
 {
     UNREFERENCED_PARAMETER(Argument);
@@ -494,7 +494,7 @@ TransmitterMulticastControlDtor(
 
 static FORCEINLINE PXENVIF_TRANSMITTER_MULTICAST_CONTROL
 __TransmitterGetMulticastControl(
-    IN  PXENVIF_TRANSMITTER_RING            Ring
+    _In_ PXENVIF_TRANSMITTER_RING           Ring
     )
 {
     PXENVIF_TRANSMITTER                     Transmitter;
@@ -514,8 +514,8 @@ __TransmitterGetMulticastControl(
 
 static FORCEINLINE VOID
 __TransmitterPutMulticastControl(
-    IN  PXENVIF_TRANSMITTER_RING                Ring,
-    IN  PXENVIF_TRANSMITTER_MULTICAST_CONTROL   Control
+    _In_ PXENVIF_TRANSMITTER_RING               Ring,
+    _In_ PXENVIF_TRANSMITTER_MULTICAST_CONTROL  Control
     )
 {
     PXENVIF_TRANSMITTER                         Transmitter;
@@ -535,8 +535,8 @@ __TransmitterPutMulticastControl(
 
 static NTSTATUS
 TransmitterFragmentCtor(
-    IN  PVOID                       Argument,
-    IN  PVOID                       Object
+    _In_ PVOID                      Argument,
+    _In_ PVOID                      Object
     )
 {
     PXENVIF_TRANSMITTER_RING        Ring = Argument;
@@ -544,7 +544,7 @@ TransmitterFragmentCtor(
     PXENVIF_TRANSMITTER             Transmitter;
     PXENVIF_FRONTEND                Frontend;
     LONGLONG                        Id;
-    NTSTATUS	                    status;
+    NTSTATUS                        status;
 
     Transmitter = Ring->Transmitter;
     Frontend = Transmitter->Frontend;
@@ -573,8 +573,8 @@ fail1:
 
 static VOID
 TransmitterFragmentDtor(
-    IN  PVOID                       Argument,
-    IN  PVOID                       Object
+    _In_ PVOID                      Argument,
+    _In_ PVOID                      Object
     )
 {
     PXENVIF_TRANSMITTER_RING        Ring = Argument;
@@ -600,7 +600,7 @@ TransmitterFragmentDtor(
 
 static FORCEINLINE PXENVIF_TRANSMITTER_FRAGMENT
 __TransmitterGetFragment(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -617,8 +617,8 @@ __TransmitterGetFragment(
 
 static FORCEINLINE
 __TransmitterPutFragment(
-    IN  PXENVIF_TRANSMITTER_RING        Ring,
-    IN  PXENVIF_TRANSMITTER_FRAGMENT    Fragment
+    _In_ PXENVIF_TRANSMITTER_RING       Ring,
+    _In_ PXENVIF_TRANSMITTER_FRAGMENT   Fragment
     )
 {
     PXENVIF_TRANSMITTER                 Transmitter;
@@ -643,8 +643,8 @@ __TransmitterPutFragment(
 
 static NTSTATUS
 TransmitterRequestCtor(
-    IN  PVOID   Argument,
-    IN  PVOID   Object
+    _In_ PVOID  Argument,
+    _In_ PVOID  Object
     )
 {
     UNREFERENCED_PARAMETER(Argument);
@@ -655,8 +655,8 @@ TransmitterRequestCtor(
 
 static VOID
 TransmitterRequestDtor(
-    IN  PVOID   Argument,
-    IN  PVOID   Object
+    _In_ PVOID  Argument,
+    _In_ PVOID  Object
     )
 {
     UNREFERENCED_PARAMETER(Argument);
@@ -665,7 +665,7 @@ TransmitterRequestDtor(
 
 static FORCEINLINE PXENVIF_TRANSMITTER_REQUEST
 __TransmitterGetRequest(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -683,11 +683,11 @@ __TransmitterGetRequest(
 
 static FORCEINLINE VOID
 __TransmitterPutRequest(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PXENVIF_TRANSMITTER_REQUEST Request
+    _In_ PXENVIF_TRANSMITTER_RING       Ring,
+    _In_ PXENVIF_TRANSMITTER_REQUEST    Request
     )
 {
-    PXENVIF_TRANSMITTER             Transmitter;
+    PXENVIF_TRANSMITTER                 Transmitter;
 
     Transmitter = Ring->Transmitter;
 
@@ -702,8 +702,8 @@ __TransmitterPutRequest(
 
 static VOID
 TransmitterRingDebugCallback(
-    IN  PVOID                   Argument,
-    IN  BOOLEAN                 Crashing
+    _In_ PVOID                  Argument,
+    _In_ BOOLEAN                Crashing
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Argument;
@@ -788,10 +788,10 @@ TransmitterRingDebugCallback(
 
 static BOOLEAN
 TransmitterPullup(
-    IN      PVOID                   Argument,
-    IN      PUCHAR                  DestinationVa,
-    IN OUT  PXENVIF_PACKET_PAYLOAD  Payload,
-    IN      ULONG                   Length
+    _In_ PVOID                      Argument,
+    _In_ PUCHAR                     DestinationVa,
+    _Inout_ PXENVIF_PACKET_PAYLOAD  Payload,
+    _In_ ULONG                      Length
     )
 {
     PMDL                            Mdl;
@@ -847,7 +847,7 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __TransmitterRingCopyPayload(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -1004,7 +1004,7 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __TransmitterRingGrantPayload(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -1160,7 +1160,7 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __TransmitterRingPrepareHeader(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -1528,7 +1528,7 @@ fail1:
 
 static FORCEINLINE PXENVIF_TRANSMITTER_PACKET
 __TransmitterRingUnprepareFragments(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -1649,8 +1649,8 @@ __TransmitterRingUnprepareFragments(
 
 static FORCEINLINE NTSTATUS
 __TransmitterRingPreparePacket(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PXENVIF_TRANSMITTER_PACKET  Packet
+    _In_ PXENVIF_TRANSMITTER_RING   Ring,
+    _In_ PXENVIF_TRANSMITTER_PACKET Packet
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -1764,8 +1764,8 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __TransmitterRingPrepareArp(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PIPV4_ADDRESS               Address
+    _In_ PXENVIF_TRANSMITTER_RING   Ring,
+    _In_ PIPV4_ADDRESS              Address
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -1906,8 +1906,8 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __TransmitterRingPrepareNeighbourAdvertisement(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PIPV6_ADDRESS               Address
+    _In_ PXENVIF_TRANSMITTER_RING   Ring,
+    _In_ PIPV6_ADDRESS              Address
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -2074,9 +2074,9 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __TransmitterRingPrepareMulticastControl(
-    IN  PXENVIF_TRANSMITTER_RING            Ring,
-    IN  PETHERNET_ADDRESS                   Address,
-    IN  BOOLEAN                             Add
+    _In_ PXENVIF_TRANSMITTER_RING           Ring,
+    _In_ PETHERNET_ADDRESS                  Address,
+    _In_ BOOLEAN                            Add
     )
 {
     PXENVIF_TRANSMITTER_STATE               State;
@@ -2135,7 +2135,7 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __TransmitterRingPostFragments(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -2383,7 +2383,7 @@ fail1:
 
 static FORCEINLINE VOID
 __TransmitterRingFakeResponses(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     RING_IDX                        rsp_prod;
@@ -2455,8 +2455,8 @@ __TransmitterRingFakeResponses(
 
 static FORCEINLINE VOID
 __TransmitterRingCompletePacket(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PXENVIF_TRANSMITTER_PACKET  Packet
+    _In_ PXENVIF_TRANSMITTER_RING   Ring,
+    _In_ PXENVIF_TRANSMITTER_PACKET Packet
     )
 {
     InsertTailList(&Ring->PacketComplete, &Packet->ListEntry);
@@ -2465,7 +2465,7 @@ __TransmitterRingCompletePacket(
 
 static DECLSPEC_NOINLINE ULONG
 TransmitterRingPoll(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -2648,7 +2648,7 @@ done:
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __TransmitterRingTrigger(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -2674,7 +2674,7 @@ __TransmitterRingTrigger(
 
 static FORCEINLINE VOID
 __TransmitterRingSend(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -2700,7 +2700,7 @@ __TransmitterRingSend(
 
 static FORCEINLINE VOID
 __TransmitterRingPushRequests(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     BOOLEAN                         Notify;
@@ -2729,7 +2729,7 @@ __TransmitterRingPushRequests(
 _IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 TransmitterRingSwizzle(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     ULONG_PTR                       Old;
@@ -2781,7 +2781,7 @@ TransmitterRingSwizzle(
 _IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 TransmitterRingSchedule(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER_STATE       State;
@@ -2905,8 +2905,8 @@ TransmitterRingSchedule(
 
 static FORCEINLINE VOID
 __TransmitterSetCompletionInfo(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  PXENVIF_TRANSMITTER_PACKET  Packet
+    _In_ PXENVIF_TRANSMITTER        Transmitter,
+    _In_ PXENVIF_TRANSMITTER_PACKET Packet
     )
 {
     PXENVIF_FRONTEND                Frontend;
@@ -3072,12 +3072,12 @@ __TransmitterSetCompletionInfo(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __TransmitterReturnPackets(
-    IN  PXENVIF_TRANSMITTER Transmitter,
-    IN  PLIST_ENTRY         List
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ PLIST_ENTRY            List
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    PXENVIF_VIF_CONTEXT     Context;
+    PXENVIF_FRONTEND            Frontend;
+    PXENVIF_VIF_CONTEXT         Context;
 
     Frontend = Transmitter->Frontend;
     Context = PdoGetVifContext(FrontendGetPdo(Frontend));
@@ -3108,7 +3108,7 @@ __TransmitterReturnPackets(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE BOOLEAN
 __TransmitterRingTryAcquireLock(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     ULONG_PTR                       Old;
@@ -3137,7 +3137,7 @@ __TransmitterRingTryAcquireLock(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __TransmitterRingAcquireLock(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -3153,7 +3153,7 @@ __TransmitterRingAcquireLock(
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 TransmitterRingAcquireLock(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     __TransmitterRingAcquireLock(Ring);
@@ -3162,7 +3162,7 @@ TransmitterRingAcquireLock(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE BOOLEAN
 __TransmitterRingTryReleaseLock(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     ULONG_PTR                       Old;
@@ -3198,7 +3198,7 @@ __TransmitterRingTryReleaseLock(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __TransmitterRingReleaseLock(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     LIST_ENTRY                      List;
@@ -3237,7 +3237,7 @@ __TransmitterRingReleaseLock(
 _IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 TransmitterRingReleaseLock(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     __TransmitterRingReleaseLock(Ring);
@@ -3246,8 +3246,8 @@ TransmitterRingReleaseLock(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE BOOLEAN
 __TransmitterRingUnmask(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  BOOLEAN                     Force
+    _In_ PXENVIF_TRANSMITTER_RING   Ring,
+    _In_ BOOLEAN                    Force
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -3270,10 +3270,10 @@ _Function_class_(KDEFERRED_ROUTINE)
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 TransmitterRingPollDpc(
-    IN  PKDPC                   Dpc,
-    IN  PVOID                   Context,
-    IN  PVOID                   Argument1,
-    IN  PVOID                   Argument2
+    _In_ PKDPC                  Dpc,
+    _In_ PVOID                  Context,
+    _In_ PVOID                  Argument1,
+    _In_ PVOID                  Argument2
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Context;
@@ -3303,8 +3303,8 @@ KSERVICE_ROUTINE    TransmitterRingEvtchnCallback;
 _Use_decl_annotations_
 BOOLEAN
 TransmitterRingEvtchnCallback(
-    IN  PKINTERRUPT             InterruptObject,
-    IN  PVOID                   Argument
+    _In_ PKINTERRUPT            InterruptObject,
+    _In_ PVOID                  Argument
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Argument;
@@ -3338,8 +3338,8 @@ TransmitterRingEvtchnCallback(
 _IRQL_requires_(PASSIVE_LEVEL)
 static NTSTATUS
 TransmitterRingWatchdog(
-    IN  PXENVIF_THREAD          Self,
-    IN  PVOID                   Context
+    _In_ PXENVIF_THREAD         Self,
+    _In_ PVOID                  Context
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Context;
@@ -3412,14 +3412,14 @@ TransmitterRingWatchdog(
 _IRQL_requires_(PASSIVE_LEVEL)
 static FORCEINLINE NTSTATUS
 __TransmitterRingInitialize(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  ULONG                       Index,
-    OUT PXENVIF_TRANSMITTER_RING    *Ring
+    _In_ PXENVIF_TRANSMITTER            Transmitter,
+    _In_ ULONG                          Index,
+    _Outptr_ PXENVIF_TRANSMITTER_RING   *Ring
     )
 {
-    PXENVIF_FRONTEND                Frontend;
-    CHAR                            Name[MAXNAMELEN];
-    NTSTATUS                        status;
+    PXENVIF_FRONTEND                    Frontend;
+    CHAR                                Name[MAXNAMELEN];
+    NTSTATUS                            status;
 
     Frontend = Transmitter->Frontend;
 
@@ -3675,7 +3675,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE NTSTATUS
 __TransmitterRingConnect(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -3847,8 +3847,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE NTSTATUS
 __TransmitterRingStoreWrite(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction
+    _In_ PXENVIF_TRANSMITTER_RING   Ring,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -3908,7 +3908,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE NTSTATUS
 __TransmitterRingEnable(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -3941,7 +3941,7 @@ __TransmitterRingEnable(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __TransmitterRingDisable(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {    
     PXENVIF_TRANSMITTER             Transmitter;
@@ -4051,7 +4051,7 @@ __TransmitterRingDisable(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __TransmitterRingDisconnect(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -4110,7 +4110,7 @@ __TransmitterRingDisconnect(
 _IRQL_requires_(PASSIVE_LEVEL)
 static FORCEINLINE VOID
 __TransmitterRingTeardown(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -4194,9 +4194,9 @@ __TransmitterRingTeardown(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __TransmitterRingQueuePacket(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PXENVIF_TRANSMITTER_PACKET  Packet,
-    IN  BOOLEAN                     More
+    _In_ PXENVIF_TRANSMITTER_RING   Ring,
+    _In_ PXENVIF_TRANSMITTER_PACKET Packet,
+    _In_ BOOLEAN                    More
     )
 {
     PLIST_ENTRY                     ListEntry;
@@ -4231,7 +4231,7 @@ __TransmitterRingQueuePacket(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __TransmitterRingAbortPackets(
-    IN  PXENVIF_TRANSMITTER_RING    Ring
+    _In_ PXENVIF_TRANSMITTER_RING   Ring
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -4283,8 +4283,8 @@ __TransmitterRingAbortPackets(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE NTSTATUS
 __TransmitterRingQueueArp(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PIPV4_ADDRESS               Address
+    _In_ PXENVIF_TRANSMITTER_RING   Ring,
+    _In_ PIPV4_ADDRESS              Address
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -4334,8 +4334,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE NTSTATUS
 __TransmitterRingQueueNeighbourAdvertisement(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PIPV6_ADDRESS               Address
+    _In_ PXENVIF_TRANSMITTER_RING   Ring,
+    _In_ PIPV6_ADDRESS              Address
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -4389,7 +4389,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE BOOLEAN
 __TransmitterHasMulticastControl(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     )
 {
     return Transmitter->MulticastControl;
@@ -4398,7 +4398,7 @@ __TransmitterHasMulticastControl(
 _IRQL_requires_(DISPATCH_LEVEL)
 BOOLEAN
 TransmitterHasMulticastControl(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     )
 {
     return __TransmitterHasMulticastControl(Transmitter);
@@ -4406,9 +4406,9 @@ TransmitterHasMulticastControl(
 
 static FORCEINLINE NTSTATUS
 __TransmitterRingQueueMulticastControl(
-    IN  PXENVIF_TRANSMITTER_RING    Ring,
-    IN  PETHERNET_ADDRESS           Address,
-    IN  BOOLEAN                     Add
+    _In_ PXENVIF_TRANSMITTER_RING   Ring,
+    _In_ PETHERNET_ADDRESS          Address,
+    _In_ BOOLEAN                    Add
     )
 {
     PXENVIF_TRANSMITTER             Transmitter;
@@ -4467,8 +4467,8 @@ fail1:
 
 static VOID
 TransmitterDebugCallback(
-    IN  PVOID           Argument,
-    IN  BOOLEAN         Crashing
+    _In_ PVOID      Argument,
+    _In_ BOOLEAN    Crashing
     )
 {
     UNREFERENCED_PARAMETER(Argument);
@@ -4478,15 +4478,15 @@ TransmitterDebugCallback(
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS
 TransmitterInitialize(
-    IN  PXENVIF_FRONTEND    Frontend,
-    OUT PXENVIF_TRANSMITTER *Transmitter
+    _In_ PXENVIF_FRONTEND           Frontend,
+    _Outptr_ PXENVIF_TRANSMITTER    *Transmitter
     )
 {
-    HANDLE                  ParametersKey;
-    CHAR                    Name[MAXNAMELEN];
-    LONG                    MaxQueues;
-    LONG                    Index;
-    NTSTATUS                status;
+    HANDLE                          ParametersKey;
+    CHAR                            Name[MAXNAMELEN];
+    LONG                            MaxQueues;
+    LONG                            Index;
+    NTSTATUS                        status;
 
     *Transmitter = __TransmitterAllocate(sizeof (XENVIF_TRANSMITTER));
 
@@ -4692,7 +4692,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 TransmitterConnect(
-    IN  PXENVIF_TRANSMITTER     Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     )
 {
     PXENVIF_FRONTEND            Frontend;
@@ -4803,9 +4803,9 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE NTSTATUS
 __TransmitterRequestMulticastControl(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction,
-    IN  BOOLEAN                     Enabled
+    _In_ PXENVIF_TRANSMITTER        Transmitter,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_ BOOLEAN                    Enabled
     )
 {
     PXENVIF_FRONTEND                Frontend;
@@ -4834,11 +4834,11 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 TransmitterRequestMulticastControl(
-    IN  PXENVIF_TRANSMITTER Transmitter,
-    IN  BOOLEAN             Enabled
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ BOOLEAN                Enabled
     )
 {
-    NTSTATUS                status;
+    NTSTATUS                    status;
 
     status = STATUS_NOT_SUPPORTED;
     if (!__TransmitterHasMulticastControl(Transmitter))
@@ -4859,8 +4859,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 TransmitterStoreWrite(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction
+    _In_ PXENVIF_TRANSMITTER        Transmitter,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction
     )
 {
     PXENVIF_FRONTEND                Frontend;
@@ -4902,11 +4902,11 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 TransmitterEnable(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    LONG                    Index;
+    PXENVIF_FRONTEND            Frontend;
+    LONG                        Index;
 
     Trace("====>\n");
 
@@ -4927,11 +4927,11 @@ TransmitterEnable(
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 TransmitterDisable(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     )
 {
-    PXENVIF_FRONTEND       Frontend;
-    LONG                   Index;
+    PXENVIF_FRONTEND            Frontend;
+    LONG                        Index;
 
     Trace("====>\n");
 
@@ -4950,11 +4950,11 @@ TransmitterDisable(
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 TransmitterDisconnect(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    LONG                    Index;
+    PXENVIF_FRONTEND            Frontend;
+    LONG                        Index;
 
     Trace("====>\n");
 
@@ -4987,11 +4987,11 @@ TransmitterDisconnect(
 
 BOOLEAN
 TransmitterIsPoisoned(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     )
 {
-    ULONG                   NumQueues;
-    ULONG                   Index;
+    ULONG                       NumQueues;
+    ULONG                       Index;
 
     NumQueues = FrontendGetNumQueues(Transmitter->Frontend);
     for (Index = 0; Index < NumQueues; Index++) {
@@ -5007,11 +5007,11 @@ TransmitterIsPoisoned(
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID
 TransmitterTeardown(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    LONG                    Index;
+    PXENVIF_FRONTEND            Frontend;
+    LONG                        Index;
 
     Frontend = Transmitter->Frontend;
 
@@ -5073,9 +5073,9 @@ TransmitterTeardown(
 
 static FORCEINLINE VOID
 __TransmitterHashAccumulate(
-    IN OUT  PULONG  Accumulator,
-    IN      PUCHAR  Array,
-    IN      ULONG   Length
+    _Inout_ PULONG  Accumulator,
+    _In_ PUCHAR     Array,
+    _In_ ULONG      Length
     )
 {
     ULONG           Current;
@@ -5100,8 +5100,8 @@ __TransmitterHashAccumulate(
 
 static FORCEINLINE ULONG
 __TransmitterHashPacket(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  PXENVIF_TRANSMITTER_PACKET  Packet
+    _In_ PXENVIF_TRANSMITTER        Transmitter,
+    _In_ PXENVIF_TRANSMITTER_PACKET Packet
     )
 {
     PXENVIF_FRONTEND                Frontend;
@@ -5182,16 +5182,16 @@ done:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 TransmitterQueuePacket(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  PMDL                        Mdl,
-    IN  ULONG                       Offset,
-    IN  ULONG                       Length,
-    IN  XENVIF_VIF_OFFLOAD_OPTIONS  OffloadOptions,
-    IN  USHORT                      MaximumSegmentSize,
-    IN  USHORT                      TagControlInformation,
-    IN  PXENVIF_PACKET_HASH         Hash,
-    IN  BOOLEAN                     More,
-    IN  PVOID                       Cookie
+    _In_ PXENVIF_TRANSMITTER        Transmitter,
+    _In_ PMDL                       Mdl,
+    _In_ ULONG                      Offset,
+    _In_ ULONG                      Length,
+    _In_ XENVIF_VIF_OFFLOAD_OPTIONS OffloadOptions,
+    _In_ USHORT                     MaximumSegmentSize,
+    _In_ USHORT                     TagControlInformation,
+    _In_ PXENVIF_PACKET_HASH        Hash,
+    _In_ BOOLEAN                    More,
+    _In_ PVOID                      Cookie
     )
 {
     PXENVIF_FRONTEND                Frontend;
@@ -5278,12 +5278,12 @@ fail1:
 _IRQL_requires_max_(APC_LEVEL)
 VOID
 TransmitterAbortPackets(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     )
 {
-    PXENVIF_FRONTEND        Frontend;
-    KIRQL                   Irql;
-    LONG                    Index;
+    PXENVIF_FRONTEND            Frontend;
+    KIRQL                       Irql;
+    LONG                        Index;
 
     Frontend = Transmitter->Frontend;
 
@@ -5302,8 +5302,8 @@ TransmitterAbortPackets(
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 TransmitterQueueArp(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  PIPV4_ADDRESS           Address
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ PIPV4_ADDRESS          Address
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[0];
@@ -5314,8 +5314,8 @@ TransmitterQueueArp(
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 TransmitterQueueNeighbourAdvertisement(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  PIPV6_ADDRESS           Address
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ PIPV6_ADDRESS          Address
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[0];
@@ -5326,9 +5326,9 @@ TransmitterQueueNeighbourAdvertisement(
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 TransmitterQueueMulticastControl(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  PETHERNET_ADDRESS       Address,
-    IN  BOOLEAN                 Add
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ PETHERNET_ADDRESS      Address,
+    _In_ BOOLEAN                Add
     )
 {
     PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[0];
@@ -5339,8 +5339,8 @@ TransmitterQueueMulticastControl(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 TransmitterQueryRingSize(
-    IN  PXENVIF_TRANSMITTER Transmitter,
-    OUT PULONG              Size
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _Out_ PULONG                Size
     )
 {
     UNREFERENCED_PARAMETER(Transmitter);
@@ -5350,8 +5350,8 @@ TransmitterQueryRingSize(
 
 VOID
 TransmitterNotify(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  ULONG                   Index
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ ULONG                  Index
     )
 {
     PXENVIF_FRONTEND            Frontend;
@@ -5370,13 +5370,13 @@ TransmitterNotify(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 TransmitterQueryOffloadOptions(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    OUT PXENVIF_VIF_OFFLOAD_OPTIONS Options
+    _In_ PXENVIF_TRANSMITTER            Transmitter,
+    _Out_ PXENVIF_VIF_OFFLOAD_OPTIONS   Options
     )
 {
-    PXENVIF_FRONTEND                Frontend;
-    PCHAR                           Buffer;
-    NTSTATUS                        status;
+    PXENVIF_FRONTEND                    Frontend;
+    PCHAR                               Buffer;
+    NTSTATUS                            status;
 
     Frontend = Transmitter->Frontend;
 
@@ -5491,9 +5491,9 @@ TransmitterQueryOffloadOptions(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 TransmitterQueryLargePacketSize(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  UCHAR                   Version,
-    OUT PULONG                  Size
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ UCHAR                  Version,
+    _Out_ PULONG                Size
     )
 {
     PXENVIF_FRONTEND            Frontend;

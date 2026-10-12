@@ -148,9 +148,9 @@ _IRQL_requires_min_(PASSIVE_LEVEL)
 _IRQL_requires_max_(APC_LEVEL)
 static FORCEINLINE NTSTATUS
 __InitializeMrswLock(
-    _Out_ struct _MRSW_LOCK     *Lock,
-    _In_ BOOLEAN                CacheAware,
-    _In_ ULONG                  Tag
+    _Out_ struct _MRSW_LOCK *Lock,
+    _In_ BOOLEAN            CacheAware,
+    _In_ ULONG              Tag
     )
 {
     KeInitializeGuardedMutex(&Lock->Mutex);

@@ -35,20 +35,20 @@
 
 extern NTSTATUS
 SettingsSave(
-    IN  PCHAR       SubKeyName,
-    IN  PWCHAR      Alias,
-    IN  PWCHAR      Description,
-    IN  LPGUID      InterfaceGuid,
-    IN  PNET_LUID   InterfaceLuid
+    _In_ PCHAR      SubKeyName,
+    _In_ PWCHAR     Alias,
+    _In_ PWCHAR     Description,
+    _In_ LPGUID     InterfaceGuid,
+    _In_ PNET_LUID  InterfaceLuid
     );
 
 extern NTSTATUS
 SettingsRestore(
-    IN  PCHAR       SubKeyName,
-    IN  PWCHAR      Alias,
-    IN  PWCHAR      Description,
-    IN  LPGUID      InterfaceGuid,
-    IN  PNET_LUID   InterfaceLuid
+    _In_ PCHAR      SubKeyName,
+    _In_ PWCHAR     Alias,
+    _In_ PWCHAR     Description,
+    _In_ LPGUID     InterfaceGuid,
+    _In_ PNET_LUID  InterfaceLuid
     );
 
 #endif  // _XENVIF_SETTINGS_H

@@ -44,7 +44,7 @@ typedef struct _MUTEX {
 
 static FORCEINLINE VOID
 InitializeMutex(
-    IN  PMUTEX  Mutex
+    _In_ PMUTEX Mutex
     )
 {
     RtlZeroMemory(Mutex, sizeof (MUTEX));
@@ -53,9 +53,9 @@ InitializeMutex(
 }
 
 static FORCEINLINE VOID
-__drv_maxIRQL(PASSIVE_LEVEL)
+_IRQL_requires_max_(PASSIVE_LEVEL)
 AcquireMutex(
-    IN  PMUTEX  Mutex
+    _In_ PMUTEX Mutex
     )
 {
     (VOID) KeWaitForSingleObject(&Mutex->Event,
@@ -69,9 +69,9 @@ AcquireMutex(
 }
 
 static FORCEINLINE VOID
-__drv_maxIRQL(PASSIVE_LEVEL)
+_IRQL_requires_max_(PASSIVE_LEVEL)
 ReleaseMutex(
-    IN  PMUTEX  Mutex
+    _In_ PMUTEX Mutex
     )
 {
     ASSERT3P(Mutex->Owner, ==, KeGetCurrentThread());

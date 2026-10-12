@@ -69,7 +69,7 @@ struct _XENVIF_VIF_CONTEXT {
 
 static FORCEINLINE PVOID
 __VifAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENVIF_VIF_TAG);
@@ -77,7 +77,7 @@ __VifAllocate(
 
 static FORCEINLINE VOID
 __VifFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENVIF_VIF_TAG);
@@ -85,8 +85,8 @@ __VifFree(
 
 static NTSTATUS
 VifMac(
-    IN  PXENVIF_THREAD  Self,
-    IN  PVOID           _Context
+    _In_ PXENVIF_THREAD Self,
+    _In_ PVOID          _Context
     )
 {
     PXENVIF_VIF_CONTEXT Context = _Context;
@@ -126,7 +126,7 @@ VifMac(
 
 static DECLSPEC_NOINLINE VOID
 VifSuspendCallbackLate(
-    IN  PVOID           Argument
+    _In_ PVOID          Argument
     )
 {
     PXENVIF_VIF_CONTEXT Context = Argument;
@@ -146,14 +146,14 @@ VifSuspendCallbackLate(
 
 static NTSTATUS
 VifEnable(
-    IN  PINTERFACE          Interface,
-    IN  XENVIF_VIF_CALLBACK Callback,
-    IN  PVOID               Argument
+    _In_ PINTERFACE             Interface,
+    _In_ XENVIF_VIF_CALLBACK    Callback,
+    _In_ PVOID                  Argument
     )
 {
-    PXENVIF_VIF_CONTEXT     Context = Interface->Context;
-    BOOLEAN                 Exclusive;
-    NTSTATUS                status;
+    PXENVIF_VIF_CONTEXT         Context = Interface->Context;
+    BOOLEAN                     Exclusive;
+    NTSTATUS                    status;
 
     Trace("====>\n");
 
@@ -244,9 +244,9 @@ fail1:
 
 static VOID
 VifCallbackVersion8(
-    IN  PVOID                                       _Argument OPTIONAL,
-    IN  XENVIF_VIF_CALLBACK_TYPE                    Type,
-    IN  union _XENVIF_VIF_CALLBACK_PARAMETERS_V9   *Parameters
+    _In_opt_ PVOID                                  _Argument,
+    _In_ XENVIF_VIF_CALLBACK_TYPE                   Type,
+    _In_ union _XENVIF_VIF_CALLBACK_PARAMETERS_V9   *Parameters
     )
 {
     PXENVIF_VIF_CONTEXT                             Context = _Argument;
@@ -304,9 +304,9 @@ VifCallbackVersion8(
 
 static VOID
 VifCallbackVersion9(
-    IN  PVOID                                       _Argument OPTIONAL,
-    IN  XENVIF_VIF_CALLBACK_TYPE                    Type,
-    IN  PXENVIF_VIF_CALLBACK_PARAMETERS             Parameters
+    _In_opt_ PVOID                          _Argument,
+    _In_ XENVIF_VIF_CALLBACK_TYPE           Type,
+    _In_ PXENVIF_VIF_CALLBACK_PARAMETERS    Parameters
     )
 {
 #define XENVIF_RECEIVER_QUEUE_MAX 1024 // Chosen to match IN_NDIS_MAX in XENNET
@@ -384,9 +384,9 @@ VifCallbackVersion9(
 
 static NTSTATUS
 VifEnableVersion9(
-    IN  PINTERFACE                  Interface,
-    IN  XENVIF_VIF_CALLBACK_V9      Callback,
-    IN  PVOID                       Argument
+    _In_ PINTERFACE                 Interface,
+    _In_ XENVIF_VIF_CALLBACK_V9     Callback,
+    _In_ PVOID                      Argument
     )
 {
     PXENVIF_VIF_CONTEXT             Context = Interface->Context;
@@ -410,9 +410,9 @@ VifEnableVersion9(
 
 static NTSTATUS
 VifEnableVersion8(
-    IN  PINTERFACE                  Interface,
-    IN  XENVIF_VIF_CALLBACK_V8      Callback,
-    IN  PVOID                       Argument
+    _In_ PINTERFACE                 Interface,
+    _In_ XENVIF_VIF_CALLBACK_V8     Callback,
+    _In_ PVOID                      Argument
     )
 {
     PXENVIF_VIF_CONTEXT             Context = Interface->Context;
@@ -436,7 +436,7 @@ VifEnableVersion8(
 
 static VOID
 VifDisable(
-    IN  PINTERFACE      Interface
+    _In_ PINTERFACE     Interface
     )
 {
     PXENVIF_VIF_CONTEXT Context = Interface->Context;
@@ -498,9 +498,9 @@ done:
 
 static NTSTATUS
 VifQueryStatistic(
-    IN  PINTERFACE              Interface,
-    IN  XENVIF_VIF_STATISTIC    Index,
-    OUT PULONGLONG              Value
+    _In_ PINTERFACE             Interface,
+    _In_ XENVIF_VIF_STATISTIC   Index,
+    _Out_ PULONGLONG            Value
     )
 {
     PXENVIF_VIF_CONTEXT         Context = Interface->Context;
@@ -523,8 +523,8 @@ done:
 
 static VOID
 VifQueryRingCount(
-    IN  PINTERFACE      Interface,
-    OUT PULONG          Count
+    _In_ PINTERFACE     Interface,
+    _Out_ PULONG        Count
     )
 {
     PXENVIF_VIF_CONTEXT Context = Interface->Context;
@@ -538,9 +538,9 @@ VifQueryRingCount(
 
 static NTSTATUS
 VifUpdateHashMapping(
-    IN  PINTERFACE          Interface,
-    IN  PPROCESSOR_NUMBER   Mapping,
-    IN  ULONG               Order
+    _In_ PINTERFACE         Interface,
+    _In_ PPROCESSOR_NUMBER  Mapping,
+    _In_ ULONG              Order
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
@@ -559,8 +559,8 @@ VifUpdateHashMapping(
 
 static VOID
 VifReceiverReturnPacket(
-    IN  PINTERFACE      Interface,
-    IN  PVOID           Cookie
+    _In_ PINTERFACE     Interface,
+    _In_ PVOID          Cookie
     )
 {
     PXENVIF_VIF_CONTEXT Context = Interface->Context;
@@ -571,16 +571,16 @@ VifReceiverReturnPacket(
 
 static NTSTATUS
 VifTransmitterQueuePacket(
-    IN  PINTERFACE                  Interface,
-    IN  PMDL                        Mdl,
-    IN  ULONG                       Offset,
-    IN  ULONG                       Length,
-    IN  XENVIF_VIF_OFFLOAD_OPTIONS  OffloadOptions,
-    IN  USHORT                      MaximumSegmentSize,
-    IN  USHORT                      TagControlInformation,
-    IN  PXENVIF_PACKET_HASH         Hash,
-    IN  BOOLEAN                     More,
-    IN  PVOID                       Cookie
+    _In_ PINTERFACE                 Interface,
+    _In_ PMDL                       Mdl,
+    _In_ ULONG                      Offset,
+    _In_ ULONG                      Length,
+    _In_ XENVIF_VIF_OFFLOAD_OPTIONS OffloadOptions,
+    _In_ USHORT                     MaximumSegmentSize,
+    _In_ USHORT                     TagControlInformation,
+    _In_ PXENVIF_PACKET_HASH        Hash,
+    _In_ BOOLEAN                    More,
+    _In_ PVOID                      Cookie
     )
 {
     PXENVIF_VIF_CONTEXT             Context = Interface->Context;
@@ -612,11 +612,11 @@ done:
 
 static VOID
 VifTransmitterQueryOffloadOptions(
-    IN  PINTERFACE                  Interface,
-    OUT PXENVIF_VIF_OFFLOAD_OPTIONS Options
+    _In_ PINTERFACE                     Interface,
+    _Out_ PXENVIF_VIF_OFFLOAD_OPTIONS   Options
     )
 {
-    PXENVIF_VIF_CONTEXT             Context = Interface->Context;
+    PXENVIF_VIF_CONTEXT                 Context = Interface->Context;
 
     AcquireMrswLockShared(&Context->Lock);
 
@@ -628,9 +628,9 @@ VifTransmitterQueryOffloadOptions(
 
 static VOID
 VifTransmitterQueryLargePacketSize(
-    IN  PINTERFACE      Interface,
-    IN  UCHAR           Version,
-    OUT PULONG          Size
+    _In_ PINTERFACE     Interface,
+    _In_ UCHAR          Version,
+    _Out_ PULONG        Size
     )
 {
     PXENVIF_VIF_CONTEXT Context = Interface->Context;
@@ -646,8 +646,8 @@ VifTransmitterQueryLargePacketSize(
 
 static VOID
 VifReceiverSetOffloadOptions(
-    IN  PINTERFACE                  Interface,
-    IN  XENVIF_VIF_OFFLOAD_OPTIONS  Options
+    _In_ PINTERFACE                 Interface,
+    _In_ XENVIF_VIF_OFFLOAD_OPTIONS Options
     )
 {
     PXENVIF_VIF_CONTEXT             Context = Interface->Context;
@@ -662,8 +662,8 @@ VifReceiverSetOffloadOptions(
 
 static VOID
 VifReceiverSetBackfillSize(
-    IN  PINTERFACE      Interface,
-    IN  ULONG           Size
+    _In_ PINTERFACE     Interface,
+    _In_ ULONG          Size
     )
 {
     PXENVIF_VIF_CONTEXT Context = Interface->Context;
@@ -678,8 +678,8 @@ VifReceiverSetBackfillSize(
 
 static NTSTATUS
 VifReceiverSetHashAlgorithm(
-    IN  PINTERFACE                      Interface,
-    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
+    _In_ PINTERFACE                     Interface,
+    _In_ XENVIF_PACKET_HASH_ALGORITHM   Algorithm
     )
 {
     PXENVIF_VIF_CONTEXT                 Context = Interface->Context;
@@ -697,7 +697,7 @@ VifReceiverSetHashAlgorithm(
 
 static NTSTATUS
 VifReceiverQueryHashCapabilities(
-    IN  PINTERFACE      Interface,
+    _In_ PINTERFACE     Interface,
     ...
     )
 {
@@ -724,7 +724,7 @@ VifReceiverQueryHashCapabilities(
 
 static NTSTATUS
 VifReceiverUpdateHashParameters(
-    IN  PINTERFACE      Interface,
+    _In_ PINTERFACE     Interface,
     ...
     )
 {
@@ -754,13 +754,13 @@ VifReceiverUpdateHashParameters(
 
 static VOID
 VifMacQueryState(
-    IN  PINTERFACE                  Interface,
-    OUT PNET_IF_MEDIA_CONNECT_STATE MediaConnectState OPTIONAL,
-    OUT PULONG64                    LinkSpeed OPTIONAL,
-    OUT PNET_IF_MEDIA_DUPLEX_STATE  MediaDuplexState OPTIONAL
+    _In_ PINTERFACE                         Interface,
+    _Out_opt_ PNET_IF_MEDIA_CONNECT_STATE   MediaConnectState,
+    _Out_opt_ PULONG64                      LinkSpeed,
+    _Out_opt_ PNET_IF_MEDIA_DUPLEX_STATE    MediaDuplexState
     )
 {
-    PXENVIF_VIF_CONTEXT             Context = Interface->Context;
+    PXENVIF_VIF_CONTEXT                     Context = Interface->Context;
 
     AcquireMrswLockShared(&Context->Lock);
 
@@ -774,8 +774,8 @@ VifMacQueryState(
 
 static VOID
 VifMacQueryMaximumFrameSize(
-    IN  PINTERFACE      Interface,
-    OUT PULONG          Size
+    _In_ PINTERFACE     Interface,
+    _Out_ PULONG        Size
     )
 {
     PXENVIF_VIF_CONTEXT Context = Interface->Context;
@@ -789,8 +789,8 @@ VifMacQueryMaximumFrameSize(
 
 static VOID
 VifMacQueryPermanentAddress(
-    IN  PINTERFACE          Interface,
-    OUT PETHERNET_ADDRESS   Address
+    _In_ PINTERFACE         Interface,
+    _Out_ PETHERNET_ADDRESS Address
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
@@ -804,8 +804,8 @@ VifMacQueryPermanentAddress(
 
 static VOID
 VifMacQueryCurrentAddress(
-    IN  PINTERFACE          Interface,
-    OUT PETHERNET_ADDRESS   Address
+    _In_ PINTERFACE         Interface,
+    _Out_ PETHERNET_ADDRESS Address
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
@@ -819,9 +819,9 @@ VifMacQueryCurrentAddress(
 
 static NTSTATUS
 VifMacQueryMulticastAddresses(
-    IN      PINTERFACE          Interface,
-    OUT     PETHERNET_ADDRESS   Address OPTIONAL,
-    IN OUT  PULONG              Count
+    _In_ PINTERFACE             Interface,
+    _Out_opt_ PETHERNET_ADDRESS Address,
+    _Inout_ PULONG              Count
     )
 {
     PXENVIF_VIF_CONTEXT         Context = Interface->Context;
@@ -840,9 +840,9 @@ VifMacQueryMulticastAddresses(
 
 static NTSTATUS
 VifMacSetMulticastAddresses(
-    IN  PINTERFACE          Interface,
-    IN  PETHERNET_ADDRESS   Address,
-    IN  ULONG               Count
+    _In_ PINTERFACE         Interface,
+    _In_ PETHERNET_ADDRESS  Address,
+    _In_ ULONG              Count
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
@@ -869,13 +869,13 @@ done:
 
 static NTSTATUS
 VifMacQueryFilterLevel(
-    IN  PINTERFACE                  Interface,
-    IN  ETHERNET_ADDRESS_TYPE       Type,
-    OUT PXENVIF_MAC_FILTER_LEVEL    Level
+    _In_ PINTERFACE                 Interface,
+    _In_ ETHERNET_ADDRESS_TYPE      Type,
+    _Out_ PXENVIF_MAC_FILTER_LEVEL  Level
     )
 {
     PXENVIF_VIF_CONTEXT             Context = Interface->Context;
-    NTSTATUS                status;
+    NTSTATUS                        status;
 
     AcquireMrswLockShared(&Context->Lock);
 
@@ -890,9 +890,9 @@ VifMacQueryFilterLevel(
 
 static NTSTATUS
 VifMacSetFilterLevel(
-    IN  PINTERFACE                  Interface,
-    IN  ETHERNET_ADDRESS_TYPE       Type,
-    IN  XENVIF_MAC_FILTER_LEVEL     Level
+    _In_ PINTERFACE                 Interface,
+    _In_ ETHERNET_ADDRESS_TYPE      Type,
+    _In_ XENVIF_MAC_FILTER_LEVEL    Level
     )
 {
     PXENVIF_VIF_CONTEXT             Context = Interface->Context;
@@ -909,8 +909,8 @@ VifMacSetFilterLevel(
 
 static VOID
 VifReceiverQueryRingSize(
-    IN  PINTERFACE          Interface,
-    OUT PULONG              Size
+    _In_ PINTERFACE         Interface,
+    _Out_ PULONG            Size
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
@@ -924,8 +924,8 @@ VifReceiverQueryRingSize(
 
 static VOID
 VifTransmitterQueryRingSize(
-    IN  PINTERFACE          Interface,
-    OUT PULONG              Size
+    _In_ PINTERFACE         Interface,
+    _Out_ PULONG            Size
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
@@ -964,7 +964,7 @@ done:
 
 VOID
 VifRelease(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENVIF_VIF_CONTEXT     Context = Interface->Context;
@@ -1079,11 +1079,11 @@ static struct _XENVIF_VIF_INTERFACE_V10 VifInterfaceVersion10 = {
 
 NTSTATUS
 VifInitialize(
-    IN  PXENVIF_PDO         Pdo,
-    OUT PXENVIF_VIF_CONTEXT *Context
+    _In_ PXENVIF_PDO                Pdo,
+    _Outptr_ PXENVIF_VIF_CONTEXT    *Context
     )
 {
-    NTSTATUS                status;
+    NTSTATUS                        status;
 
     Trace("====>\n");
 
@@ -1137,10 +1137,10 @@ fail1:
 
 NTSTATUS
 VifGetInterface(
-    IN      PXENVIF_VIF_CONTEXT Context,
-    IN      ULONG               Version,
-    IN OUT  PINTERFACE          Interface,
-    IN      ULONG               Size
+    _In_ PXENVIF_VIF_CONTEXT    Context,
+    _In_ ULONG                  Version,
+    _Inout_ PINTERFACE          Interface,
+    _In_ ULONG                  Size
     )
 {
     NTSTATUS                    status;
@@ -1207,7 +1207,7 @@ VifGetInterface(
 
 VOID
 VifTeardown(
-    IN  PXENVIF_VIF_CONTEXT Context
+    _In_ PXENVIF_VIF_CONTEXT    Context
     )
 {
     Trace("====>\n");
@@ -1236,19 +1236,19 @@ VifTeardown(
 
 VOID
 VifReceiverQueuePacket(
-    IN  PXENVIF_VIF_CONTEXT             Context,
-    IN  ULONG                           Index,
-    IN  PMDL                            Mdl,
-    IN  ULONG                           Offset,
-    IN  ULONG                           Length,
-    IN  XENVIF_PACKET_CHECKSUM_FLAGS    Flags,
-    IN  USHORT                          MaximumSegmentSize,
-    IN  USHORT                          TagControlInformation,
-    IN  PXENVIF_PACKET_INFO             Info,
-    IN  PXENVIF_PACKET_HASH             Hash,
-    IN  BOOLEAN                         More,
-    IN  PVOID                           Cookie,
-    OUT PBOOLEAN                        Pause
+    _In_ PXENVIF_VIF_CONTEXT            Context,
+    _In_ ULONG                          Index,
+    _In_ PMDL                           Mdl,
+    _In_ ULONG                          Offset,
+    _In_ ULONG                          Length,
+    _In_ XENVIF_PACKET_CHECKSUM_FLAGS   Flags,
+    _In_ USHORT                         MaximumSegmentSize,
+    _In_ USHORT                         TagControlInformation,
+    _In_ PXENVIF_PACKET_INFO            Info,
+    _In_ PXENVIF_PACKET_HASH            Hash,
+    _In_ BOOLEAN                        More,
+    _In_ PVOID                          Cookie,
+    _Out_ PBOOLEAN                      Pause
     )
 {
     KIRQL                               Irql;
@@ -1279,9 +1279,9 @@ VifReceiverQueuePacket(
 
 VOID
 VifTransmitterReturnPacket(
-    IN  PXENVIF_VIF_CONTEXT                         Context,
-    IN  PVOID                                       Cookie,
-    IN  PXENVIF_TRANSMITTER_PACKET_COMPLETION_INFO  Completion
+    _In_ PXENVIF_VIF_CONTEXT                        Context,
+    _In_ PVOID                                      Cookie,
+    _In_ PXENVIF_TRANSMITTER_PACKET_COMPLETION_INFO Completion
     )
 {
     XENVIF_VIF_CALLBACK_PARAMETERS                  Parameters;
@@ -1296,7 +1296,7 @@ VifTransmitterReturnPacket(
 
 PXENVIF_THREAD
 VifGetMacThread(
-    IN  PXENVIF_VIF_CONTEXT Context
+    _In_ PXENVIF_VIF_CONTEXT    Context
     )
 {
     return Context->MacThread;

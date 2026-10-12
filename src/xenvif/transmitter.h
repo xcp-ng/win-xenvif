@@ -46,134 +46,134 @@ typedef struct _XENVIF_TRANSMITTER XENVIF_TRANSMITTER, *PXENVIF_TRANSMITTER;
 _IRQL_requires_(PASSIVE_LEVEL)
 extern NTSTATUS
 TransmitterInitialize(
-    IN  PXENVIF_FRONTEND    Frontend,
-    OUT PXENVIF_TRANSMITTER *Transmitter
+    _In_ PXENVIF_FRONTEND           Frontend,
+    _Outptr_ PXENVIF_TRANSMITTER    *Transmitter
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 TransmitterConnect(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 TransmitterStoreWrite(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction
+    _In_ PXENVIF_TRANSMITTER        Transmitter,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 TransmitterEnable(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterDisable(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterDisconnect(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     );
 
 extern BOOLEAN
 TransmitterIsPoisoned(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     );
 
 _IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 TransmitterTeardown(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     );
 
 extern VOID
 TransmitterNotify(
-    IN  PXENVIF_TRANSMITTER Transmitter,
-    IN  ULONG               Index
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ ULONG                  Index
     );
 
 _IRQL_requires_max_(APC_LEVEL)
 extern VOID
 TransmitterAbortPackets(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueueArp(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  PIPV4_ADDRESS           Address
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ PIPV4_ADDRESS          Address
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueueNeighbourAdvertisement(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  PIPV6_ADDRESS           Address
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ PIPV6_ADDRESS          Address
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueueMulticastControl(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  PETHERNET_ADDRESS       Address,
-    IN  BOOLEAN                 Add
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ PETHERNET_ADDRESS      Address,
+    _In_ BOOLEAN                Add
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueryRingSize(
-    IN  PXENVIF_TRANSMITTER Transmitter,
-    OUT PULONG              Size
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _Out_ PULONG                Size
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 TransmitterQueuePacket(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    IN  PMDL                        Mdl,
-    IN  ULONG                       Offset,
-    IN  ULONG                       Length,
-    IN  XENVIF_VIF_OFFLOAD_OPTIONS  OffloadOptions,
-    IN  USHORT                      MaximumSegmentSize,
-    IN  USHORT                      TagControlInformation,
-    IN  PXENVIF_PACKET_HASH         Hash,
-    IN  BOOLEAN                     More,
-    IN  PVOID                       Cookie
+    _In_ PXENVIF_TRANSMITTER        Transmitter,
+    _In_ PMDL                       Mdl,
+    _In_ ULONG                      Offset,
+    _In_ ULONG                      Length,
+    _In_ XENVIF_VIF_OFFLOAD_OPTIONS OffloadOptions,
+    _In_ USHORT                     MaximumSegmentSize,
+    _In_ USHORT                     TagControlInformation,
+    _In_ PXENVIF_PACKET_HASH        Hash,
+    _In_ BOOLEAN                    More,
+    _In_ PVOID                      Cookie
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueryOffloadOptions(
-    IN  PXENVIF_TRANSMITTER         Transmitter,
-    OUT PXENVIF_VIF_OFFLOAD_OPTIONS Options
+    _In_ PXENVIF_TRANSMITTER            Transmitter,
+    _Out_ PXENVIF_VIF_OFFLOAD_OPTIONS   Options
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 TransmitterQueryLargePacketSize(
-    IN  PXENVIF_TRANSMITTER     Transmitter,
-    IN  UCHAR                   Version,
-    OUT PULONG                  Size
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ UCHAR                  Version,
+    _Out_ PULONG                Size
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 BOOLEAN
 TransmitterHasMulticastControl(
-    IN  PXENVIF_TRANSMITTER Transmitter
+    _In_ PXENVIF_TRANSMITTER    Transmitter
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 TransmitterRequestMulticastControl(
-    IN  PXENVIF_TRANSMITTER Transmitter,
-    IN  BOOLEAN             Enabled
+    _In_ PXENVIF_TRANSMITTER    Transmitter,
+    _In_ BOOLEAN                Enabled
     );
 
 #endif  // _XENVIF_TRANSMITTER_H

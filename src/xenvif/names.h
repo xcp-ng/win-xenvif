@@ -279,7 +279,7 @@ DeviceUsageTypeName(
 
 static FORCEINLINE const CHAR *
 InterfaceTypeName(
-    IN  INTERFACE_TYPE  Type
+    _In_ INTERFACE_TYPE Type
     )
 {
 #define _INTERFACE_TYPE_NAME(_Type) \
@@ -317,7 +317,7 @@ InterfaceTypeName(
 
 static FORCEINLINE const CHAR *
 DmaWidthName(
-    IN  DMA_WIDTH   Width
+    _In_ DMA_WIDTH  Width
     )
 {
 #define _DMA_WIDTH_NAME(_Width) \
@@ -341,7 +341,7 @@ DmaWidthName(
 
 static FORCEINLINE const CHAR *
 DmaSpeedName(
-    IN  DMA_SPEED   Speed
+    _In_ DMA_SPEED  Speed
     )
 {
 #define _DMA_SPEED_NAME(_Speed) \
@@ -366,7 +366,7 @@ DmaSpeedName(
 
 static FORCEINLINE const PCHAR
 XenbusStateName(
-    IN  XenbusState   State
+    _In_ XenbusState    State
     )
 {
 #define _STATE_NAME(_State)     \

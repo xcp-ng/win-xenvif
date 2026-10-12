@@ -59,7 +59,7 @@ typedef struct _SETTINGS_COPY_IP_ADDRESS_PARAMETERS {
 
 static FORCEINLINE PVOID
 __SettingsAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, SETTINGS_TAG);
@@ -67,7 +67,7 @@ __SettingsAllocate(
 
 static FORCEINLINE VOID
 __SettingsFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, SETTINGS_TAG);
@@ -75,8 +75,8 @@ __SettingsFree(
 
 static FORCEINLINE NTSTATUS
 __GuidToString(
-    IN  LPGUID          Guid,
-    OUT PANSI_STRING    Ansi
+    _In_ LPGUID         Guid,
+    _Out_ PANSI_STRING  Ansi
     )
 {
     NTSTATUS            status;
@@ -107,10 +107,10 @@ fail1:
 
 static NTSTATUS
 SettingsCopyIpAddressesValue(
-    IN  PVOID                               Context,
-    IN  HANDLE                              Key,
-    IN  PANSI_STRING                        ValueName,
-    IN  ULONG                               Type
+    _In_ PVOID                              Context,
+    _In_ HANDLE                             Key,
+    _In_ PANSI_STRING                       ValueName,
+    _In_ ULONG                              Type
     )
 {
     PSETTINGS_COPY_IP_ADDRESS_PARAMETERS    Parameters = Context;
@@ -174,9 +174,9 @@ fail1:
 
 static NTSTATUS
 SettingsCopyIpAddresses(
-    IN  ULONG                           Version,
-    IN  PNET_LUID                       OldLuid,
-    IN  PNET_LUID                       NewLuid
+    _In_ ULONG                          Version,
+    _In_ PNET_LUID                      OldLuid,
+    _In_ PNET_LUID                      NewLuid
     )
 {
     SETTINGS_COPY_IP_ADDRESS_PARAMETERS Parameters;
@@ -238,14 +238,14 @@ fail1:
 
 static NTSTATUS
 SettingsCopyInterfaceValue(
-    IN  PVOID            Context,
-    IN  HANDLE           SourceKey,
-    IN  PANSI_STRING     ValueName,
-    IN  ULONG            Type
+    _In_ PVOID          Context,
+    _In_ HANDLE         SourceKey,
+    _In_ PANSI_STRING   ValueName,
+    _In_ ULONG          Type
     )
 {
-    HANDLE               DestinationKey = Context;
-    NTSTATUS             status;
+    HANDLE              DestinationKey = Context;
+    NTSTATUS            status;
 
     Trace(" - %Z\n", ValueName);
 
@@ -309,10 +309,10 @@ SettingsCopyInterfaceValue(
 
 static NTSTATUS
 SettingsCopyInterface(
-    IN  PCHAR           InterfacePath,
-    IN  PCHAR           InterfacePrefix,
-    IN  PANSI_STRING    OldGuid,
-    IN  PANSI_STRING    NewGuid
+    _In_ PCHAR          InterfacePath,
+    _In_ PCHAR          InterfacePrefix,
+    _In_ PANSI_STRING   OldGuid,
+    _In_ PANSI_STRING   NewGuid
     )
 {
     HANDLE              OldKey;
@@ -420,9 +420,9 @@ fail1:
 
 static NTSTATUS
 SettingsStoreCurrent(
-    IN  HANDLE          SubKey,
-    IN  PANSI_STRING    Guid,
-    IN  PNET_LUID       Luid
+    _In_ HANDLE         SubKey,
+    _In_ PANSI_STRING   Guid,
+    _In_ PNET_LUID      Luid
     )
 {
 
@@ -458,11 +458,11 @@ fail1:
 
 static NTSTATUS
 SettingsCopy(
-    IN  PCHAR           SubKeyName,
-    IN  PANSI_STRING    OldGuid,
-    IN  PNET_LUID       OldLuid,
-    IN  PANSI_STRING    NewGuid,
-    IN  PNET_LUID       NewLuid
+    _In_ PCHAR          SubKeyName,
+    _In_ PANSI_STRING   OldGuid,
+    _In_ PNET_LUID      OldLuid,
+    _In_ PANSI_STRING   NewGuid,
+    _In_ PNET_LUID      NewLuid
      )
 {
     HANDLE              SettingsKey;
@@ -530,11 +530,11 @@ fail1:
 
 NTSTATUS
 SettingsSave(
-    IN  PCHAR       SubKeyName,
-    IN  PWCHAR      Alias,
-    IN  PWCHAR      Description,
-    IN  LPGUID      InterfaceGuid,
-    IN  PNET_LUID   InterfaceLuid
+    _In_ PCHAR      SubKeyName,
+    _In_ PWCHAR     Alias,
+    _In_ PWCHAR     Description,
+    _In_ LPGUID     InterfaceGuid,
+    _In_ PNET_LUID  InterfaceLuid
     )
 {
     HANDLE          SettingsKey;
@@ -601,11 +601,11 @@ fail1:
 
 NTSTATUS
 SettingsRestore(
-    IN  PCHAR       SubKeyName,
-    IN  PWCHAR      Alias,
-    IN  PWCHAR      Description,
-    IN  LPGUID      InterfaceGuid,
-    IN  PNET_LUID   InterfaceLuid
+    _In_ PCHAR      SubKeyName,
+    _In_ PWCHAR     Alias,
+    _In_ PWCHAR     Description,
+    _In_ LPGUID     InterfaceGuid,
+    _In_ PNET_LUID  InterfaceLuid
     )
 {
     HANDLE          SettingsKey;

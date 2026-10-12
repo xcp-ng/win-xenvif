@@ -37,59 +37,59 @@
 
 extern VOID
 AccumulateChecksum(
-    IN OUT  PULONG  Accumulator,
-    IN      PVOID   MappedSystemVa,
-    IN      ULONG   ByteCount
+    _Inout_ PULONG  Accumulator,
+    _In_ PVOID      MappedSystemVa,
+    _In_ ULONG      ByteCount
     );
 
 extern USHORT
 ChecksumIpVersion4Header(
-    IN  PUCHAR              StartVa,
-    IN  PXENVIF_PACKET_INFO Info
+    _In_ PUCHAR                 StartVa,
+    _In_ PXENVIF_PACKET_INFO    Info
     );
 
 extern USHORT
 ChecksumIpVersion4PseudoHeader(
-    IN  PIPV4_ADDRESS   SourceAddress,
-    IN  PIPV4_ADDRESS   DestinationAddress,
-    IN  USHORT          Length,
-    IN  UCHAR           Protocol
+    _In_ PIPV4_ADDRESS  SourceAddress,
+    _In_ PIPV4_ADDRESS  DestinationAddress,
+    _In_ USHORT         Length,
+    _In_ UCHAR          Protocol
     );
 
 extern USHORT
 ChecksumIpVersion6PseudoHeader(
-    IN  PIPV6_ADDRESS   SourceAddress,
-    IN  PIPV6_ADDRESS   DestinationAddress,
-    IN  USHORT          Length,
-    IN  UCHAR           Protocol
+    _In_ PIPV6_ADDRESS  SourceAddress,
+    _In_ PIPV6_ADDRESS  DestinationAddress,
+    _In_ USHORT         Length,
+    _In_ UCHAR          Protocol
     );
 
 extern USHORT
 ChecksumPseudoHeader(
-    IN  PUCHAR              StartVa,
-    IN  PXENVIF_PACKET_INFO Info
+    _In_ PUCHAR                 StartVa,
+    _In_ PXENVIF_PACKET_INFO    Info
     );
 
 extern USHORT
 ChecksumTcpPacket(
-    IN  PUCHAR                  StartVa,
-    IN  PXENVIF_PACKET_INFO     Info,
-    IN  USHORT                  PseudoHeaderChecksum,
-    IN  PXENVIF_PACKET_PAYLOAD  Payload
+    _In_ PUCHAR                 StartVa,
+    _In_ PXENVIF_PACKET_INFO    Info,
+    _In_ USHORT                 PseudoHeaderChecksum,
+    _In_ PXENVIF_PACKET_PAYLOAD Payload
     );
 
 extern USHORT
 ChecksumUdpPacket(
-    IN  PUCHAR                  StartVa,
-    IN  PXENVIF_PACKET_INFO     Info,
-    IN  USHORT                  PseudoHeaderChecksum,
-    IN  PXENVIF_PACKET_PAYLOAD  Payload
+    _In_ PUCHAR                 StartVa,
+    _In_ PXENVIF_PACKET_INFO    Info,
+    _In_ USHORT                 PseudoHeaderChecksum,
+    _In_ PXENVIF_PACKET_PAYLOAD Payload
     );
 
 extern BOOLEAN
 ChecksumVerify(
-    IN  USHORT  Calculated,
-    IN  USHORT  Embedded
+    _In_ USHORT Calculated,
+    _In_ USHORT Embedded
     );
 
 #endif  // _XENVIF_CHECKSUM_H

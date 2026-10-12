@@ -60,204 +60,204 @@ typedef enum _XENVIF_FRONTEND_STATE {
 _IRQL_requires_(PASSIVE_LEVEL)
 extern NTSTATUS
 FrontendInitialize(
-    IN  PXENVIF_PDO         Pdo,
-    OUT PXENVIF_FRONTEND    *Frontend
+    _In_ PXENVIF_PDO            Pdo,
+    _Outptr_ PXENVIF_FRONTEND   *Frontend
     );
 
 _IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 FrontendTeardown(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern VOID
 FrontendEjectFailed(
-    IN PXENVIF_FRONTEND Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetState(
-    IN  PXENVIF_FRONTEND        Frontend,
-    IN  XENVIF_FRONTEND_STATE   State
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _In_ XENVIF_FRONTEND_STATE  State
     );
 
 _IRQL_requires_min_(PASSIVE_LEVEL)
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendResume(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 _IRQL_requires_min_(PASSIVE_LEVEL)
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 FrontendSuspend(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern PXENVIF_PDO
 FrontendGetPdo(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern PCHAR
 FrontendGetPrefix(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern PCHAR
 FrontendGetPath(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern PCHAR
 FrontendGetBackendPath(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern USHORT
 FrontendGetBackendDomain(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern ULONG
 FrontendGetMaxQueues(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern ULONG
 FrontendGetNumQueues(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern BOOLEAN
 FrontendIsSplit(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern BOOLEAN
 FrontendIsSplit(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern PCHAR
 FrontendFormatPath(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Index
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ ULONG              Index
     );
 
 extern VOID
 FrontendFreePath(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PCHAR               Path
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ PCHAR              Path
     );
 
 #include "mac.h"
 
 extern PXENVIF_MAC
 FrontendGetMac(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 #include "receiver.h"
 
 extern PXENVIF_RECEIVER
 FrontendGetReceiver(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 #include "transmitter.h"
 
 extern PXENVIF_TRANSMITTER
 FrontendGetTransmitter(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 #include "controller.h"
 
 extern PXENVIF_CONTROLLER
 FrontendGetController(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 extern VOID
 FrontendQueryStatistic(
-    IN  PXENVIF_FRONTEND        Frontend,
-    IN  XENVIF_VIF_STATISTIC    Index,
-    OUT PULONGLONG              Value
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _In_ XENVIF_VIF_STATISTIC   Index,
+    _Out_ PULONGLONG            Value
     );
 
 extern VOID
 FrontendIncrementStatistic(
-    IN  PXENVIF_FRONTEND        Frontend,
-    IN  XENVIF_VIF_STATISTIC    Index,
-    IN  ULONGLONG               Delta
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _In_ XENVIF_VIF_STATISTIC   Index,
+    _In_ ULONGLONG              Delta
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetMulticastAddresses(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PETHERNET_ADDRESS   Address,
-    IN  ULONG               Count
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ PETHERNET_ADDRESS  Address,
+    _In_ ULONG              Count
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetFilterLevel(
-    IN  PXENVIF_FRONTEND        Frontend,
-    IN  ETHERNET_ADDRESS_TYPE   Type,
-    IN  XENVIF_MAC_FILTER_LEVEL Level
+    _In_ PXENVIF_FRONTEND           Frontend,
+    _In_ ETHERNET_ADDRESS_TYPE      Type,
+    _In_ XENVIF_MAC_FILTER_LEVEL    Level
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern VOID
 FrontendAdvertiseIpAddresses(
-    IN  PXENVIF_FRONTEND    Frontend
+    _In_ PXENVIF_FRONTEND   Frontend
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashAlgorithm(
-    IN  PXENVIF_FRONTEND                Frontend,
-    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
+    _In_ PXENVIF_FRONTEND               Frontend,
+    _In_ XENVIF_PACKET_HASH_ALGORITHM   Algorithm
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendQueryHashTypes(
-    IN  PXENVIF_FRONTEND    Frontend,
-    OUT PULONG              Types
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _Out_ PULONG            Types
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashMapping(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PULONG              Mapping,
-    IN  ULONG               Order
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ PULONG             Mapping,
+    _In_ ULONG              Order
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashKey(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  PUCHAR              Key
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ PUCHAR             Key
     );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 extern NTSTATUS
 FrontendSetHashTypes(
-    IN  PXENVIF_FRONTEND    Frontend,
-    IN  ULONG               Types
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _In_ ULONG              Types
     );
 
 extern ULONG
 FrontendGetQueue(
-    IN  PXENVIF_FRONTEND                Frontend,
-    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm,
-    IN  ULONG                           Index
+    _In_ PXENVIF_FRONTEND               Frontend,
+    _In_ XENVIF_PACKET_HASH_ALGORITHM   Algorithm,
+    _In_ ULONG                          Index
     );
 
 #endif  // _XENVIF_FRONTEND_H

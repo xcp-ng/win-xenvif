@@ -35,9 +35,9 @@
 
 extern NTSTATUS
 LinkGetRoutineAddress(
-    IN  const CHAR  *ModuleName,
-    IN  const CHAR  *FunctionName,
-    OUT PVOID       *Address
+    _In_ const CHAR *ModuleName,
+    _In_ const CHAR *FunctionName,
+    _Outptr_ PVOID  *Address
      );
 
 #endif  // _XENVIF_LINK_H

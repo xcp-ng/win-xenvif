@@ -155,7 +155,7 @@ struct _XENVIF_RECEIVER {
 
 static FORCEINLINE PVOID
 __ReceiverAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENVIF_RECEIVER_TAG);
@@ -163,7 +163,7 @@ __ReceiverAllocate(
 
 static FORCEINLINE VOID
 __ReceiverFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENVIF_RECEIVER_TAG);
@@ -171,10 +171,10 @@ __ReceiverFree(
 
 static VOID FORCEINLINE
 __ReceiverPacketMdlInit(
-    IN  PXENVIF_RECEIVER_PACKET Packet
+    _In_ PXENVIF_RECEIVER_PACKET    Packet
     )
 {
-    PMDL    Mdl = Packet->SystemMdl;
+    PMDL                            Mdl = Packet->SystemMdl;
 
     ASSERT(IsZeroMemory(&Packet->Mdl, sizeof (MDL)));
 
@@ -193,8 +193,8 @@ __ReceiverPacketMdlInit(
 
 static NTSTATUS
 ReceiverPacketCtor(
-    IN  PVOID               Argument,
-    IN  PVOID               Object
+    _In_ PVOID              Argument,
+    _In_ PVOID              Object
     )
 {
     PXENVIF_RECEIVER_RING   Ring = Argument;
@@ -230,8 +230,8 @@ fail1:
 
 static VOID
 ReceiverPacketDtor(
-    IN  PVOID               Argument,
-    IN  PVOID               Object
+    _In_ PVOID              Argument,
+    _In_ PVOID              Object
     )
 {
     PXENVIF_RECEIVER_RING   Ring = Argument;
@@ -253,8 +253,8 @@ ReceiverPacketDtor(
 
 static FORCEINLINE PXENVIF_RECEIVER_PACKET
 __ReceiverRingGetPacket(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  BOOLEAN                 Locked
+    _In_ PXENVIF_RECEIVER_RING  Ring,
+    _In_ BOOLEAN                Locked
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -279,13 +279,13 @@ __ReceiverRingGetPacket(
 
 static FORCEINLINE VOID
 __ReceiverRingPutPacket(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet,
-    IN  BOOLEAN                 Locked
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet,
+    _In_ BOOLEAN                    Locked
     )
 {
-    PXENVIF_RECEIVER            Receiver;
-    PXENVIF_FRONTEND            Frontend;
+    PXENVIF_RECEIVER                Receiver;
+    PXENVIF_FRONTEND                Frontend;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -315,8 +315,8 @@ __ReceiverRingPutPacket(
 
 static FORCEINLINE PMDL
 __ReceiverRingGetMdl(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  BOOLEAN                 Locked
+    _In_ PXENVIF_RECEIVER_RING  Ring,
+    _In_ BOOLEAN                Locked
     )
 {
     PXENVIF_RECEIVER_PACKET     Packet;
@@ -330,9 +330,9 @@ __ReceiverRingGetMdl(
 
 static FORCEINLINE VOID
 __ReceiverRingPutMdl(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PMDL                    Mdl,
-    IN  BOOLEAN                 Locked
+    _In_ PXENVIF_RECEIVER_RING  Ring,
+    _In_ PMDL                   Mdl,
+    _In_ BOOLEAN                Locked
     )
 {
     PXENVIF_RECEIVER_PACKET     Packet;
@@ -343,8 +343,8 @@ __ReceiverRingPutMdl(
 
 static NTSTATUS
 ReceiverFragmentCtor(
-    IN  PVOID                   Argument,
-    IN  PVOID                   Object
+    _In_ PVOID                  Argument,
+    _In_ PVOID                  Object
     )
 {
     PXENVIF_RECEIVER_FRAGMENT   Fragment = Object;
@@ -358,8 +358,8 @@ ReceiverFragmentCtor(
 
 static VOID
 ReceiverFragmentDtor(
-    IN  PVOID                   Argument,
-    IN  PVOID                   Object
+    _In_ PVOID                  Argument,
+    _In_ PVOID                  Object
     )
 {
     PXENVIF_RECEIVER_FRAGMENT   Fragment = Object;
@@ -371,7 +371,7 @@ ReceiverFragmentDtor(
 
 static FORCEINLINE PXENVIF_RECEIVER_FRAGMENT
 __ReceiverRingGetFragment(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -388,8 +388,8 @@ __ReceiverRingGetFragment(
 
 static FORCEINLINE
 __ReceiverRingPutFragment(
-    IN  PXENVIF_RECEIVER_RING       Ring,
-    IN  PXENVIF_RECEIVER_FRAGMENT   Fragment
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_FRAGMENT  Fragment
     )
 {
     PXENVIF_RECEIVER                Receiver;
@@ -409,15 +409,15 @@ __ReceiverRingPutFragment(
 
 static DECLSPEC_NOINLINE VOID
 ReceiverRingProcessTag(
-    IN  PXENVIF_RECEIVER_RING    Ring,
-    IN  PXENVIF_RECEIVER_PACKET  Packet
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet
     )
 {
-    PXENVIF_PACKET_INFO          Info;
-    ULONG                        PayloadLength;
-    PUCHAR                       BaseVa;
-    PETHERNET_HEADER             EthernetHeader;
-    ULONG                        Offset;
+    PXENVIF_PACKET_INFO             Info;
+    ULONG                           PayloadLength;
+    PUCHAR                          BaseVa;
+    PETHERNET_HEADER                EthernetHeader;
+    ULONG                           Offset;
 
     Info = &Packet->Info;
 
@@ -476,17 +476,17 @@ ReceiverRingProcessTag(
 
 static DECLSPEC_NOINLINE VOID
 ReceiverRingProcessChecksum(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet
     )
 {
-    PXENVIF_RECEIVER            Receiver;
-    PXENVIF_FRONTEND            Frontend;
-    PXENVIF_PACKET_INFO         Info;
-    XENVIF_PACKET_PAYLOAD       Payload;
-    uint16_t                    flags;
-    PUCHAR                      BaseVa;
-    PIP_HEADER                  IpHeader;
+    PXENVIF_RECEIVER                Receiver;
+    PXENVIF_FRONTEND                Frontend;
+    PXENVIF_PACKET_INFO             Info;
+    XENVIF_PACKET_PAYLOAD           Payload;
+    uint16_t                        flags;
+    PUCHAR                          BaseVa;
+    PIP_HEADER                      IpHeader;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -648,10 +648,10 @@ ReceiverRingProcessChecksum(
 
 static BOOLEAN
 ReceiverRingPullup(
-    IN      PVOID                   Argument,
-    IN      PUCHAR                  DestinationVa,
-    IN OUT  PXENVIF_PACKET_PAYLOAD  Payload,
-    IN      ULONG                   Length
+    _In_ PVOID                      Argument,
+    _In_ PUCHAR                     DestinationVa,
+    _Inout_ PXENVIF_PACKET_PAYLOAD  Payload,
+    _In_ ULONG                      Length
     )
 {
     PMDL                            Mdl;
@@ -706,13 +706,13 @@ fail1:
 
 static FORCEINLINE VOID
 __ReceiverRingPullupPacket(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet
     )
 {
-    PUCHAR                      BaseVa;
-    XENVIF_PACKET_PAYLOAD       Payload;
-    ULONG                       Length;
+    PUCHAR                          BaseVa;
+    XENVIF_PACKET_PAYLOAD           Payload;
+    ULONG                           Length;
 
     ASSERT(Packet->Mdl.MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
     BaseVa = Packet->Mdl.MappedSystemVa;
@@ -737,22 +737,22 @@ __ReceiverRingPullupPacket(
 
 static FORCEINLINE PXENVIF_RECEIVER_PACKET
 __ReceiverRingBuildSegment(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet,
-    IN  ULONG                   SegmentSize,
-    IN  PXENVIF_PACKET_PAYLOAD  Payload
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet,
+    _In_ ULONG                      SegmentSize,
+    _In_ PXENVIF_PACKET_PAYLOAD     Payload
     )
 {
-    PXENVIF_RECEIVER            Receiver;
-    PXENVIF_PACKET_INFO         Info;
-    PXENVIF_RECEIVER_PACKET     Segment;
-    PMDL                        Mdl;
-    PUCHAR                      InfoVa;
-    PUCHAR                      BaseVa;
-    PIP_HEADER                  IpHeader;
-    PTCP_HEADER                 TcpHeader;
-    ULONG                       Seq;
-    NTSTATUS                    status;
+    PXENVIF_RECEIVER                Receiver;
+    PXENVIF_PACKET_INFO             Info;
+    PXENVIF_RECEIVER_PACKET         Segment;
+    PMDL                            Mdl;
+    PUCHAR                          InfoVa;
+    PUCHAR                          BaseVa;
+    PIP_HEADER                      IpHeader;
+    PTCP_HEADER                     TcpHeader;
+    ULONG                           Seq;
+    NTSTATUS                        status;
 
     Receiver = Ring->Receiver;
 
@@ -920,8 +920,8 @@ fail1:
 
 static VOID
 ReceiverRingCompletePacket(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet
     )
 {
     ReceiverRingProcessTag(Ring, Packet);
@@ -933,20 +933,20 @@ ReceiverRingCompletePacket(
 
 static VOID
 ReceiverRingProcessLargePacket(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet
     )
 {
-    PXENVIF_RECEIVER            Receiver;
-    PXENVIF_FRONTEND            Frontend;
-    BOOLEAN                     Offload;
-    PXENVIF_PACKET_INFO         Info;
-    uint16_t                    flags;
-    XENVIF_PACKET_PAYLOAD       Payload;
-    PUCHAR                      InfoVa;
-    PIP_HEADER                  IpHeader;
-    ULONG                       Length;
-    NTSTATUS                    status;
+    PXENVIF_RECEIVER                Receiver;
+    PXENVIF_FRONTEND                Frontend;
+    BOOLEAN                         Offload;
+    PXENVIF_PACKET_INFO             Info;
+    uint16_t                        flags;
+    XENVIF_PACKET_PAYLOAD           Payload;
+    PUCHAR                          InfoVa;
+    PIP_HEADER                      IpHeader;
+    ULONG                           Length;
+    NTSTATUS                        status;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -1107,17 +1107,17 @@ fail1:
 
 static VOID
 ReceiverRingProcessStandardPacket(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet
     )
 {
-    PXENVIF_RECEIVER            Receiver;
-    PXENVIF_FRONTEND            Frontend;
-    PXENVIF_MAC                 Mac;
-    PXENVIF_PACKET_INFO         Info;
-    XENVIF_PACKET_PAYLOAD       Payload;
-    ULONG                       MaximumFrameSize;
-    NTSTATUS                    status;
+    PXENVIF_RECEIVER                Receiver;
+    PXENVIF_FRONTEND                Frontend;
+    PXENVIF_MAC                     Mac;
+    PXENVIF_PACKET_INFO             Info;
+    XENVIF_PACKET_PAYLOAD           Payload;
+    ULONG                           MaximumFrameSize;
+    NTSTATUS                        status;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -1210,8 +1210,8 @@ fail1:
 
 static VOID
 ReceiverRingProcessPacket(
-    IN  PXENVIF_RECEIVER_RING       Ring,
-    IN  PXENVIF_RECEIVER_PACKET     Packet
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet
     )
 {
     PXENVIF_RECEIVER                Receiver;
@@ -1341,7 +1341,7 @@ _IRQL_requires_min_(PASSIVE_LEVEL)
 _IRQL_requires_max_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ReceiverRingSwizzle(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -1582,7 +1582,7 @@ __ReceiverRingSwizzle(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ReceiverRingAcquireLock(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -1593,7 +1593,7 @@ __ReceiverRingAcquireLock(
 _IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 ReceiverRingAcquireLock(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     __ReceiverRingAcquireLock(Ring);
@@ -1602,7 +1602,7 @@ ReceiverRingAcquireLock(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ReceiverRingReleaseLock(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -1614,7 +1614,7 @@ __ReceiverRingReleaseLock(
 _IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE VOID
 ReceiverRingReleaseLock(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     __ReceiverRingReleaseLock(Ring);
@@ -1626,10 +1626,10 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 _IRQL_requires_same_
 static VOID
 ReceiverRingQueueDpc(
-    IN  PKDPC               Dpc,
-    IN  PVOID               Context,
-    IN  PVOID               Argument1,
-    IN  PVOID               Argument2
+    _In_ PKDPC              Dpc,
+    _In_ PVOID              Context,
+    _In_ PVOID              Argument1,
+    _In_ PVOID              Argument2
     )
 {
     PXENVIF_RECEIVER_RING   Ring = Context;
@@ -1645,7 +1645,7 @@ ReceiverRingQueueDpc(
 
 static FORCEINLINE VOID
 __ReceiverRingStop(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     Ring->Stopped = TRUE;
@@ -1653,7 +1653,7 @@ __ReceiverRingStop(
 
 static FORCEINLINE VOID
 __ReceiverRingStart(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     Ring->Stopped = FALSE;
@@ -1661,7 +1661,7 @@ __ReceiverRingStart(
 
 static FORCEINLINE BOOLEAN
 __ReceiverRingIsStopped(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     return Ring->Stopped;
@@ -1670,8 +1670,8 @@ __ReceiverRingIsStopped(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ReceiverRingTrigger(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  BOOLEAN                 Locked
+    _In_ PXENVIF_RECEIVER_RING  Ring,
+    _In_ BOOLEAN                Locked
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -1692,8 +1692,8 @@ __ReceiverRingTrigger(
 
 static FORCEINLINE VOID
 __ReceiverRingSend(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  BOOLEAN                 Locked
+    _In_ PXENVIF_RECEIVER_RING  Ring,
+    _In_ BOOLEAN                Locked
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -1714,16 +1714,16 @@ __ReceiverRingSend(
 
 static FORCEINLINE PXENVIF_RECEIVER_FRAGMENT
 __ReceiverRingPreparePacket(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet
     )
 {
-    PXENVIF_RECEIVER            Receiver;
-    PXENVIF_FRONTEND            Frontend;
-    PXENVIF_RECEIVER_FRAGMENT   Fragment;
-    PMDL                        Mdl;
-    PFN_NUMBER                  Pfn;
-    NTSTATUS                    status;
+    PXENVIF_RECEIVER                Receiver;
+    PXENVIF_FRONTEND                Frontend;
+    PXENVIF_RECEIVER_FRAGMENT       Fragment;
+    PMDL                            Mdl;
+    PFN_NUMBER                      Pfn;
+    NTSTATUS                        status;
 
     Receiver = Ring->Receiver;
     Frontend = Receiver->Frontend;
@@ -1766,7 +1766,7 @@ fail1:
 
 static FORCEINLINE VOID
 __ReceiverRingPushRequests(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     BOOLEAN                     Notify;
@@ -1790,7 +1790,7 @@ __ReceiverRingPushRequests(
 
 static NTSTATUS
 ReceiverRingFill(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -1860,12 +1860,12 @@ ReceiverRingFill(
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ReceiverRingReturnPacket(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet,
-    IN  BOOLEAN                 Locked
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet,
+    _In_ BOOLEAN                    Locked
     )
 {
-    PMDL                        Mdl;
+    PMDL                            Mdl;
 
     Mdl = &Packet->Mdl;
 
@@ -1903,7 +1903,7 @@ __ReceiverRingReturnPacket(
 
 static FORCEINLINE VOID
 __ReceiverRingEmpty(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -1944,8 +1944,8 @@ __ReceiverRingEmpty(
 
 static VOID
 ReceiverRingDebugCallback(
-    IN  PVOID                   Argument,
-    IN  BOOLEAN                 Crashing
+    _In_ PVOID                  Argument,
+    _In_ BOOLEAN                Crashing
     )
 {
     PXENVIF_RECEIVER_RING       Ring = Argument;
@@ -2006,13 +2006,13 @@ ReceiverRingDebugCallback(
 
 static FORCEINLINE VOID
 __ReceiverRingQueuePacket(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PXENVIF_RECEIVER_PACKET Packet
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENVIF_RECEIVER_PACKET    Packet
     )
 {
-    PLIST_ENTRY                 ListEntry;
-    PLIST_ENTRY                 Old;
-    PLIST_ENTRY                 New;
+    PLIST_ENTRY                     ListEntry;
+    PLIST_ENTRY                     Old;
+    PLIST_ENTRY                     New;
 
     ListEntry = &Packet->ListEntry;
 
@@ -2027,7 +2027,7 @@ __ReceiverRingQueuePacket(
 _IRQL_requires_(DISPATCH_LEVEL)
 static DECLSPEC_NOINLINE ULONG
 ReceiverRingPoll(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -2277,8 +2277,8 @@ done:
 
 static FORCEINLINE BOOLEAN
 __ReceiverRingUnmask(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  BOOLEAN                 Force
+    _In_ PXENVIF_RECEIVER_RING  Ring,
+    _In_ BOOLEAN                Force
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -2302,10 +2302,10 @@ _IRQL_requires_(DISPATCH_LEVEL)
 _IRQL_requires_same_
 static VOID
 ReceiverRingPollDpc(
-    IN  PKDPC               Dpc,
-    IN  PVOID               Context,
-    IN  PVOID               Argument1,
-    IN  PVOID               Argument2
+    _In_ PKDPC              Dpc,
+    _In_ PVOID              Context,
+    _In_ PVOID              Argument1,
+    _In_ PVOID              Argument2
     )
 {
     PXENVIF_RECEIVER_RING   Ring = Context;
@@ -2335,8 +2335,8 @@ KSERVICE_ROUTINE    ReceiverRingEvtchnCallback;
 _Use_decl_annotations_
 BOOLEAN
 ReceiverRingEvtchnCallback(
-    IN  PKINTERRUPT             InterruptObject,
-    IN  PVOID                   Argument
+    _In_ PKINTERRUPT            InterruptObject,
+    _In_ PVOID                  Argument
     )
 {
     PXENVIF_RECEIVER_RING       Ring = Argument;
@@ -2371,8 +2371,8 @@ ReceiverRingEvtchnCallback(
 
 static NTSTATUS
 ReceiverRingWatchdog(
-    IN  PXENVIF_THREAD      Self,
-    IN  PVOID               Context
+    _In_ PXENVIF_THREAD     Self,
+    _In_ PVOID              Context
     )
 {
     PXENVIF_RECEIVER_RING   Ring = Context;
@@ -2452,14 +2452,14 @@ ReceiverRingWatchdog(
 
 static FORCEINLINE NTSTATUS
 __ReceiverRingInitialize(
-    IN  PXENVIF_RECEIVER        Receiver,
-    IN  ULONG                   Index,
-    OUT PXENVIF_RECEIVER_RING   *Ring
+    _In_ PXENVIF_RECEIVER           Receiver,
+    _In_ ULONG                      Index,
+    _Outptr_ PXENVIF_RECEIVER_RING  *Ring
     )
 {
-    PXENVIF_FRONTEND            Frontend;
-    CHAR                        Name[MAXNAMELEN];
-    NTSTATUS                    status;
+    PXENVIF_FRONTEND                Frontend;
+    CHAR                            Name[MAXNAMELEN];
+    NTSTATUS                        status;
 
     Frontend = Receiver->Frontend;
 
@@ -2599,8 +2599,8 @@ fail1:
 
 static FORCEINLINE VOID
 __ReceiverRingSetAffinity(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  PPROCESSOR_NUMBER       Processor
+    _In_ PXENVIF_RECEIVER_RING  Ring,
+    _In_ PPROCESSOR_NUMBER      Processor
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -2622,7 +2622,7 @@ __ReceiverRingSetAffinity(
 
 static FORCEINLINE NTSTATUS
 __ReceiverRingConnect(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -2791,8 +2791,8 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __ReceiverRingStoreWrite(
-    IN  PXENVIF_RECEIVER_RING       Ring,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction
     )
 {
     PXENVIF_RECEIVER                Receiver;
@@ -2847,7 +2847,7 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __ReceiverRingEnable(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -2894,7 +2894,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ReceiverRingDisable(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {    
     PXENVIF_RECEIVER            Receiver;
@@ -2926,7 +2926,7 @@ __ReceiverRingDisable(
 
 static FORCEINLINE VOID
 __ReceiverRingDisconnect(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -2992,7 +2992,7 @@ __ReceiverRingDisconnect(
 
 static FORCEINLINE VOID
 __ReceiverRingTeardown(
-    IN  PXENVIF_RECEIVER_RING   Ring
+    _In_ PXENVIF_RECEIVER_RING  Ring
     )
 {
     PXENVIF_RECEIVER            Receiver;
@@ -3049,8 +3049,8 @@ __ReceiverRingTeardown(
 
 static FORCEINLINE VOID
 __ReceiverRingSetOffloadOptions(
-    IN  PXENVIF_RECEIVER_RING       Ring,
-    IN  XENVIF_VIF_OFFLOAD_OPTIONS  Options
+    _In_ PXENVIF_RECEIVER_RING      Ring,
+    _In_ XENVIF_VIF_OFFLOAD_OPTIONS Options
     )
 {
     KIRQL                           Irql;
@@ -3066,8 +3066,8 @@ __ReceiverRingSetOffloadOptions(
 
 static FORCEINLINE VOID
 __ReceiverRingSetBackfillSize(
-    IN  PXENVIF_RECEIVER_RING   Ring,
-    IN  ULONG                   Size
+    _In_ PXENVIF_RECEIVER_RING  Ring,
+    _In_ ULONG                  Size
     )
 {
     KIRQL                       Irql;
@@ -3083,8 +3083,8 @@ __ReceiverRingSetBackfillSize(
 
 static VOID
 ReceiverDebugCallback(
-    IN  PVOID           Argument,
-    IN  BOOLEAN         Crashing
+    _In_ PVOID          Argument,
+    _In_ BOOLEAN        Crashing
     )
 {
     PXENVIF_RECEIVER    Receiver = Argument;
@@ -3101,14 +3101,14 @@ ReceiverDebugCallback(
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS
 ReceiverInitialize(
-    IN  PXENVIF_FRONTEND    Frontend,
-    OUT PXENVIF_RECEIVER    *Receiver
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _Outptr_ PXENVIF_RECEIVER   *Receiver
     )
 {
-    HANDLE                  ParametersKey;
-    LONG                    MaxQueues;
-    LONG                    Index;
-    NTSTATUS                status;
+    HANDLE                      ParametersKey;
+    LONG                        MaxQueues;
+    LONG                        Index;
+    NTSTATUS                    status;
 
     *Receiver = __ReceiverAllocate(sizeof (XENVIF_RECEIVER));
 
@@ -3275,7 +3275,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverConnect(
-    IN  PXENVIF_RECEIVER    Receiver
+    _In_ PXENVIF_RECEIVER   Receiver
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -3364,8 +3364,8 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __ReceiverSetGsoFeatureFlag(
-    IN  PXENVIF_RECEIVER            Receiver,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction
+    _In_ PXENVIF_RECEIVER           Receiver,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction
     )
 {
     PXENVIF_FRONTEND                Frontend;
@@ -3418,8 +3418,8 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __ReceiverSetChecksumFeatureFlag(
-    IN  PXENVIF_RECEIVER            Receiver,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction
+    _In_ PXENVIF_RECEIVER           Receiver,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction
     )
 {
     PXENVIF_FRONTEND                Frontend;
@@ -3461,8 +3461,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverStoreWrite(
-    IN  PXENVIF_RECEIVER            Receiver,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction
+    _In_ PXENVIF_RECEIVER           Receiver,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction
     )
 {
     PXENVIF_FRONTEND                Frontend;
@@ -3546,7 +3546,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverEnable(
-    IN  PXENVIF_RECEIVER    Receiver
+    _In_ PXENVIF_RECEIVER   Receiver
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -3590,7 +3590,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverDisable(
-    IN  PXENVIF_RECEIVER    Receiver
+    _In_ PXENVIF_RECEIVER   Receiver
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -3613,7 +3613,7 @@ ReceiverDisable(
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverDisconnect(
-    IN  PXENVIF_RECEIVER    Receiver
+    _In_ PXENVIF_RECEIVER   Receiver
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -3649,7 +3649,7 @@ ReceiverDisconnect(
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID
 ReceiverTeardown(
-    IN  PXENVIF_RECEIVER    Receiver
+    _In_ PXENVIF_RECEIVER   Receiver
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -3710,8 +3710,8 @@ ReceiverTeardown(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 ReceiverSetOffloadOptions(
-    IN  PXENVIF_RECEIVER            Receiver,
-    IN  XENVIF_VIF_OFFLOAD_OPTIONS  Options
+    _In_ PXENVIF_RECEIVER           Receiver,
+    _In_ XENVIF_VIF_OFFLOAD_OPTIONS Options
     )
 {
     PXENVIF_FRONTEND                Frontend;
@@ -3741,8 +3741,8 @@ ReceiverSetOffloadOptions(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 ReceiverSetBackfillSize(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  ULONG               Size
+    _In_ PXENVIF_RECEIVER           Receiver,
+    _In_ ULONG                      Size
     )
 {
     PXENVIF_FRONTEND                Frontend;
@@ -3768,8 +3768,8 @@ ReceiverSetBackfillSize(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 VOID
 ReceiverQueryRingSize(
-    IN  PXENVIF_RECEIVER    Receiver,
-    OUT PULONG              Size
+    _In_ PXENVIF_RECEIVER   Receiver,
+    _Out_ PULONG            Size
     )
 {
     UNREFERENCED_PARAMETER(Receiver);
@@ -3780,8 +3780,8 @@ ReceiverQueryRingSize(
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverReturnPacket(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  PVOID               Cookie
+    _In_ PXENVIF_RECEIVER   Receiver,
+    _In_ PVOID              Cookie
     )
 {
     PXENVIF_RECEIVER_PACKET Packet = Cookie;
@@ -3810,7 +3810,7 @@ ReceiverReturnPacket(
 _IRQL_requires_max_(APC_LEVEL)
 VOID
 ReceiverWaitForPackets(
-    IN  PXENVIF_RECEIVER    Receiver
+    _In_ PXENVIF_RECEIVER   Receiver
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -3861,8 +3861,8 @@ ReceiverWaitForPackets(
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverTrigger(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  ULONG               Index
+    _In_ PXENVIF_RECEIVER   Receiver,
+    _In_ ULONG              Index
     )
 {
     PXENVIF_RECEIVER_RING   Ring;
@@ -3875,8 +3875,8 @@ ReceiverTrigger(
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ReceiverSend(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  ULONG               Index
+    _In_ PXENVIF_RECEIVER   Receiver,
+    _In_ ULONG              Index
     )
 {
     PXENVIF_RECEIVER_RING   Ring;
@@ -3889,8 +3889,8 @@ ReceiverSend(
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverSetHashAlgorithm(
-    IN  PXENVIF_RECEIVER                Receiver,
-    IN  XENVIF_PACKET_HASH_ALGORITHM    Algorithm
+    _In_ PXENVIF_RECEIVER               Receiver,
+    _In_ XENVIF_PACKET_HASH_ALGORITHM   Algorithm
     )
 {
     PXENVIF_FRONTEND                    Frontend;
@@ -3933,8 +3933,8 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverQueryHashCapabilities(
-    IN  PXENVIF_RECEIVER    Receiver,
-    OUT PULONG              Types
+    _In_ PXENVIF_RECEIVER   Receiver,
+    _Out_ PULONG            Types
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -3957,9 +3957,9 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverUpdateHashParameters(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  ULONG               Types,
-    IN  PUCHAR              Key
+    _In_ PXENVIF_RECEIVER   Receiver,
+    _In_ ULONG              Types,
+    _In_ PUCHAR             Key
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -4009,9 +4009,9 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static FORCEINLINE NTSTATUS
 __ReceiverSetQueueAffinities(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  PPROCESSOR_NUMBER   QueueAffinities,
-    IN  ULONG               Count
+    _In_ PXENVIF_RECEIVER   Receiver,
+    _In_ PPROCESSOR_NUMBER  QueueAffinities,
+    _In_ ULONG              Count
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -4053,9 +4053,9 @@ fail1:
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 ReceiverUpdateHashMapping(
-    IN  PXENVIF_RECEIVER    Receiver,
-    IN  PPROCESSOR_NUMBER   ProcessorMapping,
-    IN  ULONG               Size
+    _In_ PXENVIF_RECEIVER   Receiver,
+    _In_ PPROCESSOR_NUMBER  ProcessorMapping,
+    _In_ ULONG              Size
     )
 {
     PXENVIF_FRONTEND        Frontend;

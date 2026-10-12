@@ -73,7 +73,7 @@ struct _XENVIF_MAC {
 
 static FORCEINLINE PVOID
 __MacAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENVIF_MAC_TAG);
@@ -81,7 +81,7 @@ __MacAllocate(
 
 static FORCEINLINE VOID
 __MacFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENVIF_MAC_TAG);
@@ -89,8 +89,8 @@ __MacFree(
 
 static FORCEINLINE NTSTATUS
 __MacSetPermanentAddress(
-    IN  PXENVIF_MAC         Mac,
-    IN  PETHERNET_ADDRESS   Address
+    _In_ PXENVIF_MAC        Mac,
+    _In_ PETHERNET_ADDRESS  Address
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -121,8 +121,8 @@ fail1:
 
 VOID
 MacQueryPermanentAddress(
-    IN  PXENVIF_MAC         Mac,
-    OUT PETHERNET_ADDRESS   Address
+    _In_ PXENVIF_MAC        Mac,
+    _Out_ PETHERNET_ADDRESS Address
     )
 {
     *Address = Mac->PermanentAddress;
@@ -130,8 +130,8 @@ MacQueryPermanentAddress(
 
 static FORCEINLINE NTSTATUS
 __MacSetCurrentAddress(
-    IN  PXENVIF_MAC         Mac,
-    IN  PETHERNET_ADDRESS   Address
+    _In_ PXENVIF_MAC        Mac,
+    _In_ PETHERNET_ADDRESS  Address
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -162,8 +162,8 @@ fail1:
 
 VOID
 MacQueryCurrentAddress(
-    IN  PXENVIF_MAC         Mac,
-    OUT PETHERNET_ADDRESS   Address
+    _In_ PXENVIF_MAC        Mac,
+    _Out_ PETHERNET_ADDRESS Address
     )
 {
     *Address = Mac->CurrentAddress;
@@ -171,8 +171,8 @@ MacQueryCurrentAddress(
 
 static VOID
 MacDebugCallback(
-    IN  PVOID           Argument,
-    IN  BOOLEAN         Crashing
+    _In_ PVOID          Argument,
+    _In_ BOOLEAN        Crashing
     )
 {
     PXENVIF_MAC         Mac = Argument;
@@ -206,8 +206,8 @@ MacDebugCallback(
 
 NTSTATUS
 MacInitialize(
-    IN  PXENVIF_FRONTEND    Frontend,
-    OUT PXENVIF_MAC         *Mac
+    _In_ PXENVIF_FRONTEND   Frontend,
+    _Outptr_ PXENVIF_MAC    *Mac
     )
 {
     HANDLE                  ParametersKey;
@@ -251,9 +251,9 @@ fail1:
 }
 
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_(DISPATCH_LEVEL)
 __MacAcquireLockExclusive(
-    IN  PXENVIF_MAC     Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -262,9 +262,9 @@ __MacAcquireLockExclusive(
 }
 
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_(DISPATCH_LEVEL)
 __MacReleaseLockExclusive(
-    IN  PXENVIF_MAC     Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -274,9 +274,9 @@ __MacReleaseLockExclusive(
 }
 
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_(DISPATCH_LEVEL)
 __MacAcquireLockShared(
-    IN  PXENVIF_MAC     Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -285,9 +285,9 @@ __MacAcquireLockShared(
 }
 
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_(DISPATCH_LEVEL)
 __MacReleaseLockShared(
-    IN  PXENVIF_MAC     Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -298,7 +298,7 @@ __MacReleaseLockShared(
 
 NTSTATUS
 MacDumpAddressTable(
-    IN  PXENVIF_MAC     Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -403,7 +403,7 @@ fail1:
 
 NTSTATUS
 MacConnect(
-    IN  PXENVIF_MAC     Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -516,7 +516,7 @@ fail1:
 
 NTSTATUS
 MacEnable(
-    IN  PXENVIF_MAC     Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -577,7 +577,7 @@ fail1:
 
 VOID
 MacDisable(
-    IN  PXENVIF_MAC     Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -610,7 +610,7 @@ MacDisable(
 
 VOID
 MacDisconnect(
-    IN  PXENVIF_MAC     Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -650,7 +650,7 @@ MacDisconnect(
 
 VOID
 MacTeardown(
-    IN  PXENVIF_MAC Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     while (!IsListEmpty(&Mac->MulticastList)) {
@@ -694,7 +694,7 @@ MacTeardown(
 
 static FORCEINLINE ULONG64
 __MacGetSpeed(
-    IN  PXENVIF_MAC Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -761,7 +761,7 @@ __MacGetSpeed(
 
 static FORCEINLINE BOOLEAN
 __MacGetDisconnect(
-    IN  PXENVIF_MAC     Mac
+    _In_ PXENVIF_MAC    Mac
     )
 {
     PXENVIF_FRONTEND    Frontend;
@@ -792,14 +792,14 @@ __MacGetDisconnect(
 
 VOID
 MacQueryState(
-    IN  PXENVIF_MAC                 Mac,
-    OUT PNET_IF_MEDIA_CONNECT_STATE MediaConnectState   OPTIONAL,
-    OUT PULONG64                    LinkSpeed           OPTIONAL,
-    OUT PNET_IF_MEDIA_DUPLEX_STATE  MediaDuplexState    OPTIONAL
+    _In_ PXENVIF_MAC                        Mac,
+    _Out_opt_ PNET_IF_MEDIA_CONNECT_STATE   MediaConnectState,
+    _Out_opt_ PULONG64                      LinkSpeed,
+    _Out_opt_ PNET_IF_MEDIA_DUPLEX_STATE    MediaDuplexState
     )
 {
-    ULONG64 Speed = __MacGetSpeed(Mac);
-    BOOLEAN Disconnect = __MacGetDisconnect(Mac);
+    ULONG64                                 Speed = __MacGetSpeed(Mac);
+    BOOLEAN                                 Disconnect = __MacGetDisconnect(Mac);
 
     if (Speed == 0)
         Disconnect = TRUE;
@@ -820,8 +820,8 @@ MacQueryState(
 
 VOID
 MacQueryMaximumFrameSize(
-    IN  PXENVIF_MAC Mac,
-    OUT PULONG      Size
+    _In_ PXENVIF_MAC    Mac,
+    _Out_ PULONG        Size
     )
 {
     *Size = Mac->MaximumFrameSize;
@@ -829,8 +829,8 @@ MacQueryMaximumFrameSize(
 
 NTSTATUS
 MacAddMulticastAddress(
-    IN      PXENVIF_MAC         Mac,
-    IN      PETHERNET_ADDRESS   Address
+    _In_ PXENVIF_MAC            Mac,
+    _In_ PETHERNET_ADDRESS      Address
     )
 {
     PXENVIF_FRONTEND            Frontend;
@@ -878,8 +878,8 @@ fail1:
 
 NTSTATUS
 MacRemoveMulticastAddress(
-    IN      PXENVIF_MAC         Mac,
-    IN      PETHERNET_ADDRESS   Address
+    _In_ PXENVIF_MAC            Mac,
+    _In_ PETHERNET_ADDRESS      Address
     )
 {
     PXENVIF_FRONTEND            Frontend;
@@ -941,9 +941,9 @@ fail1:
 
 NTSTATUS
 MacQueryMulticastAddresses(
-    IN      PXENVIF_MAC         Mac,
-    IN      PETHERNET_ADDRESS   Address OPTIONAL,
-    IN OUT  PULONG              Count
+    _In_ PXENVIF_MAC            Mac,
+    _In_opt_ PETHERNET_ADDRESS  Address,
+    _Inout_ PULONG              Count
     )
 {
     PLIST_ENTRY                 ListEntry;
@@ -987,8 +987,8 @@ fail1:
 
 VOID
 MacQueryBroadcastAddress(
-    IN  PXENVIF_MAC         Mac,
-    OUT PETHERNET_ADDRESS   Address
+    _In_ PXENVIF_MAC        Mac,
+    _Out_ PETHERNET_ADDRESS Address
     )
 {
     *Address = Mac->BroadcastAddress;
@@ -996,13 +996,13 @@ MacQueryBroadcastAddress(
 
 NTSTATUS
 MacSetFilterLevel(
-    IN  PXENVIF_MAC             Mac,
-    IN  ETHERNET_ADDRESS_TYPE   Type,
-    IN  XENVIF_MAC_FILTER_LEVEL Level
+    _In_ PXENVIF_MAC                Mac,
+    _In_ ETHERNET_ADDRESS_TYPE      Type,
+    _In_ XENVIF_MAC_FILTER_LEVEL    Level
     )
 {
-    KIRQL                       Irql;
-    NTSTATUS                    status;
+    KIRQL                           Irql;
+    NTSTATUS                        status;
 
     status = STATUS_INVALID_PARAMETER;
     if ((ULONG)Type >= ETHERNET_ADDRESS_TYPE_COUNT)
@@ -1036,9 +1036,9 @@ fail1:
 
 NTSTATUS
 MacQueryFilterLevel(
-    IN  PXENVIF_MAC                 Mac,
-    IN  ETHERNET_ADDRESS_TYPE       Type,
-    OUT PXENVIF_MAC_FILTER_LEVEL    Level
+    _In_ PXENVIF_MAC                Mac,
+    _In_ ETHERNET_ADDRESS_TYPE      Type,
+    _Out_ PXENVIF_MAC_FILTER_LEVEL  Level
     )
 {
     KIRQL                           Irql;
@@ -1066,8 +1066,8 @@ fail1:
 
 BOOLEAN
 MacApplyFilters(
-    IN  PXENVIF_MAC         Mac,
-    IN  PETHERNET_ADDRESS   DestinationAddress
+    _In_ PXENVIF_MAC        Mac,
+    _In_ PETHERNET_ADDRESS  DestinationAddress
     )
 {
     ETHERNET_ADDRESS_TYPE   Type;

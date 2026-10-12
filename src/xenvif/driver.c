@@ -73,7 +73,7 @@ DriverSafeMode(
 
 static FORCEINLINE VOID
 __DriverSetDriverObject(
-    IN  PDRIVER_OBJECT  DriverObject
+    _In_ PDRIVER_OBJECT DriverObject
     )
 {
     Driver.DriverObject = DriverObject;
@@ -97,7 +97,7 @@ DriverGetDriverObject(
 
 static FORCEINLINE VOID
 __DriverSetParametersKey(
-    IN  HANDLE  Key
+    _In_ HANDLE Key
     )
 {
     Driver.ParametersKey = Key;
@@ -121,7 +121,7 @@ DriverGetParametersKey(
 
 static FORCEINLINE VOID
 __DriverSetAddressesKey(
-    IN  HANDLE  Key
+    _In_ HANDLE Key
     )
 {
     Driver.AddressesKey = Key;
@@ -145,7 +145,7 @@ DriverGetAddressesKey(
 
 static FORCEINLINE VOID
 __DriverSetSettingsKey(
-    IN  HANDLE  Key
+    _In_ HANDLE Key
     )
 {
     Driver.SettingsKey = Key;
@@ -171,7 +171,7 @@ DRIVER_UNLOAD       DriverUnload;
 
 VOID
 DriverUnload(
-    IN  PDRIVER_OBJECT  DriverObject
+    _In_ PDRIVER_OBJECT DriverObject
     )
 {
     HANDLE              SettingsKey;
@@ -219,8 +219,8 @@ DRIVER_ADD_DEVICE   AddDevice;
 
 NTSTATUS
 AddDevice(
-    IN  PDRIVER_OBJECT  DriverObject,
-    IN  PDEVICE_OBJECT  DeviceObject
+    _In_ PDRIVER_OBJECT DriverObject,
+    _In_ PDEVICE_OBJECT DeviceObject
     )
 {
     NTSTATUS            status;
@@ -247,8 +247,8 @@ DRIVER_DISPATCH Dispatch;
 
 NTSTATUS 
 Dispatch(
-    IN PDEVICE_OBJECT   DeviceObject,
-    IN PIRP             Irp
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ PIRP           Irp
     )
 {
     PXENVIF_DX          Dx;
@@ -304,16 +304,16 @@ DRIVER_INITIALIZE   DriverEntry;
 
 NTSTATUS
 DriverEntry(
-    IN  PDRIVER_OBJECT  DriverObject,
-    IN  PUNICODE_STRING RegistryPath
+    _In_ PDRIVER_OBJECT     DriverObject,
+    _In_ PUNICODE_STRING    RegistryPath
     )
 {
-    HANDLE              ServiceKey;
-    HANDLE              ParametersKey;
-    HANDLE              AddressesKey;
-    HANDLE              SettingsKey;
-    ULONG               Index;
-    NTSTATUS            status;
+    HANDLE                  ServiceKey;
+    HANDLE                  ParametersKey;
+    HANDLE                  AddressesKey;
+    HANDLE                  SettingsKey;
+    ULONG                   Index;
+    NTSTATUS                status;
 
     ASSERT3P(__DriverGetDriverObject(), ==, NULL);
 
@@ -375,8 +375,8 @@ DriverEntry(
     DriverObject->DriverExtension->AddDevice = AddDevice;
 
     for (Index = 0; Index <= IRP_MJ_MAXIMUM_FUNCTION; Index++) {
-#pragma prefast(suppress:28169) // No __drv_dispatchType annotation
-#pragma prefast(suppress:28168) // No matching __drv_dispatchType annotation for IRP_MJ_CREATE
+#pragma prefast(suppress:28169) // No _Dispatch_type_ annotation
+#pragma prefast(suppress:28168) // No matching _Dispatch_type_ annotation for IRP_MJ_CREATE
         DriverObject->MajorFunction[Index] = Dispatch;
     }
 

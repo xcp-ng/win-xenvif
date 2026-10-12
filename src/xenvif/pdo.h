@@ -42,172 +42,172 @@
 
 extern VOID
 PdoSetDevicePnpState(
-    IN  PXENVIF_PDO         Pdo,
-    IN  DEVICE_PNP_STATE    State
+    _In_ PXENVIF_PDO        Pdo,
+    _In_ DEVICE_PNP_STATE   State
     );
 
 extern DEVICE_PNP_STATE
 PdoGetDevicePnpState(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern VOID
 PdoSetMissing(
-    IN  PXENVIF_PDO Pdo,
-    IN  const CHAR  *Reason
+    _In_ PXENVIF_PDO    Pdo,
+    _In_ const CHAR     *Reason
     );
 
 extern BOOLEAN
 PdoIsMissing(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern VOID
 PdoRequestEject(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern BOOLEAN
 PdoIsEjectRequested(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern PCHAR
 PdoGetName(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern PXENVIF_FDO
 PdoGetFdo(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern PDEVICE_OBJECT
 PdoGetDeviceObject(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 #include "vif.h"
 
 extern PXENVIF_VIF_CONTEXT
 PdoGetVifContext(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern PDMA_ADAPTER
 PdoGetDmaAdapter(
-    IN  PXENVIF_PDO         Pdo,
-    IN  PDEVICE_DESCRIPTION DeviceDescriptor,
-    OUT PULONG              NumberOfMapRegisters
+    _In_ PXENVIF_PDO            Pdo,
+    _In_ PDEVICE_DESCRIPTION    DeviceDescriptor,
+    _Out_ PULONG                NumberOfMapRegisters
     );
 
 extern BOOLEAN
 PdoTranslateBusAddress(
-    IN      PXENVIF_PDO         Pdo,
-    IN      PHYSICAL_ADDRESS    BusAddress,
-    IN      ULONG               Length,
-    IN OUT  PULONG              AddressSpace,
-    OUT     PPHYSICAL_ADDRESS   TranslatedAddress
+    _In_ PXENVIF_PDO            Pdo,
+    _In_ PHYSICAL_ADDRESS       BusAddress,
+    _In_ ULONG                  Length,
+    _Inout_ PULONG              AddressSpace,
+    _Outptr_ PPHYSICAL_ADDRESS  TranslatedAddress
     );
 
 extern ULONG
 PdoSetBusData(
-    IN  PXENVIF_PDO     Pdo,
-    IN  ULONG           DataType,
-    IN  PVOID           Buffer,
-    IN  ULONG           Offset,
-    IN  ULONG           Length
+    _In_ PXENVIF_PDO    Pdo,
+    _In_ ULONG          DataType,
+    _In_ PVOID          Buffer,
+    _In_ ULONG          Offset,
+    _In_ ULONG          Length
     );
 
 extern ULONG
 PdoGetBusData(
-    IN  PXENVIF_PDO     Pdo,
-    IN  ULONG           DataType,
-    IN  PVOID           Buffer,
-    IN  ULONG           Offset,
-    IN  ULONG           Length
+    _In_ PXENVIF_PDO    Pdo,
+    _In_ ULONG          DataType,
+    _In_ PVOID          Buffer,
+    _In_ ULONG          Offset,
+    _In_ ULONG          Length
     );
 
 extern PETHERNET_ADDRESS
 PdoGetPermanentAddress(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern PETHERNET_ADDRESS
 PdoGetCurrentAddress(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern NTSTATUS
 PdoCreate(
-    IN  PXENVIF_FDO Fdo,
-    IN  ULONG       Number,
-    IN  PCHAR       Address
+    _In_ PXENVIF_FDO    Fdo,
+    _In_ ULONG          Number,
+    _In_ PCHAR          Address
     );
 
 extern NTSTATUS
 PdoResume(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern VOID
 PdoSuspend(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern VOID
 PdoDestroy(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 #include "frontend.h"
 
 extern PXENVIF_FRONTEND
 PdoGetFrontend(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern PXENBUS_EVTCHN_INTERFACE
 PdoGetEvtchnInterface(
-    IN  PXENVIF_PDO     Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern PXENBUS_DEBUG_INTERFACE
 PdoGetDebugInterface(
-    IN  PXENVIF_PDO     Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern PXENBUS_STORE_INTERFACE
 PdoGetStoreInterface(
-    IN  PXENVIF_PDO     Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern PXENBUS_CACHE_INTERFACE
 PdoGetCacheInterface(
-    IN  PXENVIF_PDO     Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern PXENBUS_GNTTAB_INTERFACE
 PdoGetGnttabInterface(
-    IN  PXENVIF_PDO     Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern PXENBUS_SUSPEND_INTERFACE
 PdoGetSuspendInterface(
-    IN  PXENVIF_PDO     Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 #include "vif.h"
 
 extern PXENVIF_VIF_INTERFACE
 PdoGetVifInterface(
-    IN  PXENVIF_PDO Pdo
+    _In_ PXENVIF_PDO    Pdo
     );
 
 extern NTSTATUS
 PdoDispatch(
-    IN  PXENVIF_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENVIF_PDO    Pdo,
+    _In_ PIRP           Irp
     );
 
 #endif  // _XENVIF_PDO_H

@@ -44,95 +44,95 @@ typedef struct _XENVIF_CONTROLLER XENVIF_CONTROLLER, *PXENVIF_CONTROLLER;
 _IRQL_requires_(PASSIVE_LEVEL)
 extern NTSTATUS
 ControllerInitialize(
-    IN  PXENVIF_FRONTEND    Frontend,
-    OUT PXENVIF_CONTROLLER  *Controller
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _Outptr_ PXENVIF_CONTROLLER *Controller
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerConnect(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerStoreWrite(
-    IN  PXENVIF_CONTROLLER          Controller,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction
+    _In_ PXENVIF_CONTROLLER         Controller,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction
     );
 
 extern VOID
 ControllerEnable(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     );
 
 extern VOID
 ControllerDisable(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern VOID
 ControllerDisconnect(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     );
 
 _IRQL_requires_(PASSIVE_LEVEL)
 extern VOID
 ControllerTeardown(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashAlgorithm(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Algorithm
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ ULONG              Algorithm
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerGetHashFlags(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Flags
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ PULONG             Flags
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashFlags(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Flags
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ ULONG              Flags
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashKey(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PUCHAR              Key,
-    IN  ULONG               Size
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ PUCHAR             Key,
+    _In_ ULONG              Size
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerGetHashMappingSize(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Size
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ PULONG             Size
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashMappingSize(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Size
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ ULONG              Size
     );
 
 _IRQL_requires_(DISPATCH_LEVEL)
 extern NTSTATUS
 ControllerSetHashMapping(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Mapping,
-    IN  ULONG               Size,
-    IN  ULONG               Offset
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ PULONG             Mapping,
+    _In_ ULONG              Size,
+    _In_ ULONG              Offset
     );
 
 

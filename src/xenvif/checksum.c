@@ -47,9 +47,9 @@
 #if !defined(_M_X64)
 VOID
 AccumulateChecksum(
-    IN OUT  PULONG  Accumulator,
-    IN      PUCHAR  BaseVa,
-    IN      ULONG   ByteCount
+    _Inout_ PULONG  Accumulator,
+    _In_ PUCHAR     BaseVa,
+    _In_ ULONG      ByteCount
     )
 {
     ULONG           Current;
@@ -76,8 +76,8 @@ AccumulateChecksum(
 
 BOOLEAN
 ChecksumVerify(
-    IN  USHORT  Calculated,
-    IN  USHORT  Embedded
+    _In_ USHORT Calculated,
+    _In_ USHORT Embedded
     )
 {
     ULONG       Accumulator = ~Calculated;
@@ -96,10 +96,10 @@ ChecksumVerify(
 
 static FORCEINLINE USHORT
 __ChecksumIpVersion4PseudoHeader(
-    IN  PIPV4_ADDRESS   SourceAddress,
-    IN  PIPV4_ADDRESS   DestinationAddress,
-    IN  USHORT          Length,
-    IN  UCHAR           Protocol
+    _In_ PIPV4_ADDRESS  SourceAddress,
+    _In_ PIPV4_ADDRESS  DestinationAddress,
+    _In_ USHORT         Length,
+    _In_ UCHAR          Protocol
     )
 {
     IPV4_PSEUDO_HEADER  Header;
@@ -123,10 +123,10 @@ __ChecksumIpVersion4PseudoHeader(
 
 USHORT
 ChecksumIpVersion4PseudoHeader(
-    IN  PIPV4_ADDRESS   SourceAddress,
-    IN  PIPV4_ADDRESS   DestinationAddress,
-    IN  USHORT          Length,
-    IN  UCHAR           Protocol
+    _In_ PIPV4_ADDRESS  SourceAddress,
+    _In_ PIPV4_ADDRESS  DestinationAddress,
+    _In_ USHORT         Length,
+    _In_ UCHAR          Protocol
     )
 {
     return __ChecksumIpVersion4PseudoHeader(SourceAddress,
@@ -137,10 +137,10 @@ ChecksumIpVersion4PseudoHeader(
 
 static FORCEINLINE USHORT
 __ChecksumIpVersion6PseudoHeader(
-    IN  PIPV6_ADDRESS   SourceAddress,
-    IN  PIPV6_ADDRESS   DestinationAddress,
-    IN  USHORT          Length,
-    IN  UCHAR           Protocol
+    _In_ PIPV6_ADDRESS  SourceAddress,
+    _In_ PIPV6_ADDRESS  DestinationAddress,
+    _In_ USHORT         Length,
+    _In_ UCHAR          Protocol
     )
 {
     IPV6_PSEUDO_HEADER  Header;
@@ -164,10 +164,10 @@ __ChecksumIpVersion6PseudoHeader(
 
 USHORT
 ChecksumIpVersion6PseudoHeader(
-    IN  PIPV6_ADDRESS   SourceAddress,
-    IN  PIPV6_ADDRESS   DestinationAddress,
-    IN  USHORT          Length,
-    IN  UCHAR           Protocol
+    _In_ PIPV6_ADDRESS  SourceAddress,
+    _In_ PIPV6_ADDRESS  DestinationAddress,
+    _In_ USHORT         Length,
+    _In_ UCHAR          Protocol
     )
 {
     return __ChecksumIpVersion6PseudoHeader(SourceAddress,
@@ -178,13 +178,13 @@ ChecksumIpVersion6PseudoHeader(
 
 USHORT
 ChecksumPseudoHeader(
-    IN  PUCHAR              StartVa,
-    IN  PXENVIF_PACKET_INFO Info
+    _In_ PUCHAR                 StartVa,
+    _In_ PXENVIF_PACKET_INFO    Info
     )
 {
-    PIP_HEADER              Header;
-    UCHAR                   Protocol;
-    USHORT                  Checksum;
+    PIP_HEADER                  Header;
+    UCHAR                       Protocol;
+    USHORT                      Checksum;
 
     ASSERT(Info->IpHeader.Length != 0);
     Header = (PIP_HEADER)(StartVa + Info->IpHeader.Offset);
@@ -226,13 +226,13 @@ ChecksumPseudoHeader(
 
 USHORT
 ChecksumIpVersion4Header(
-    IN  PUCHAR              StartVa,
-    IN  PXENVIF_PACKET_INFO Info
+    _In_ PUCHAR                 StartVa,
+    _In_ PXENVIF_PACKET_INFO    Info
     )
 {
-    ULONG                   Accumulator;
-    PIPV4_HEADER            Header;
-    USHORT                  Saved;
+    ULONG                       Accumulator;
+    PIPV4_HEADER                Header;
+    USHORT                      Saved;
 
     ASSERT(Info->IpHeader.Length != 0);
     Header = (PIPV4_HEADER)(StartVa + Info->IpHeader.Offset);
@@ -262,10 +262,10 @@ ChecksumIpVersion4Header(
 
 USHORT
 ChecksumTcpPacket(
-    IN  PUCHAR                  StartVa,
-    IN  PXENVIF_PACKET_INFO     Info,
-    IN  USHORT                  PseudoHeaderChecksum,
-    IN  PXENVIF_PACKET_PAYLOAD  Payload
+    _In_ PUCHAR                 StartVa,
+    _In_ PXENVIF_PACKET_INFO    Info,
+    _In_ USHORT                 PseudoHeaderChecksum,
+    _In_ PXENVIF_PACKET_PAYLOAD Payload
     )
 {
     ULONG                       Accumulator;
@@ -347,10 +347,10 @@ ChecksumTcpPacket(
 
 USHORT
 ChecksumUdpPacket(
-    IN  PUCHAR                  StartVa,
-    IN  PXENVIF_PACKET_INFO     Info,
-    IN  USHORT                  PseudoHeaderChecksum,
-    IN  PXENVIF_PACKET_PAYLOAD  Payload
+    _In_ PUCHAR                 StartVa,
+    _In_ PXENVIF_PACKET_INFO    Info,
+    _In_ USHORT                 PseudoHeaderChecksum,
+    _In_ PXENVIF_PACKET_PAYLOAD Payload
     )
 {
     ULONG                       Accumulator;

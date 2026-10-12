@@ -54,7 +54,7 @@ typedef struct _XENBUS_RANGE_SET    XENBUS_RANGE_SET, *PXENBUS_RANGE_SET;
 */  
 typedef NTSTATUS
 (*XENBUS_RANGE_SET_ACQUIRE)(
-    IN  PINTERFACE  Interface
+    _In_ PINTERFACE Interface
     );
 
 /*! \typedef XENBUS_RANGE_SET_RELEASE
@@ -64,7 +64,7 @@ typedef NTSTATUS
 */  
 typedef VOID
 (*XENBUS_RANGE_SET_RELEASE)(
-    IN  PINTERFACE  Interface
+    _In_ PINTERFACE Interface
     );
 
 /*! \typedef XENBUS_RANGE_SET_CREATE
@@ -76,9 +76,9 @@ typedef VOID
 */  
 typedef NTSTATUS
 (*XENBUS_RANGE_SET_CREATE)(
-    IN  PINTERFACE          Interface,
-    IN  const CHAR          *Name,
-    OUT PXENBUS_RANGE_SET   *RangeSet
+    _In_ PINTERFACE             Interface,
+    _In_ const CHAR             *Name,
+    _Outptr_ PXENBUS_RANGE_SET  *RangeSet
     );
 
 /*! \typedef XENBUS_RANGE_SET_PUT
@@ -91,10 +91,10 @@ typedef NTSTATUS
 */  
 typedef NTSTATUS
 (*XENBUS_RANGE_SET_PUT)(
-    IN  PINTERFACE          Interface,
-    IN  PXENBUS_RANGE_SET   RangeSet,
-    IN  LONGLONG            Start,
-    IN  ULONGLONG           Count
+    _In_ PINTERFACE         Interface,
+    _In_ PXENBUS_RANGE_SET  RangeSet,
+    _In_ LONGLONG           Start,
+    _In_ ULONGLONG          Count
     );
 
 /*! \typedef XENBUS_RANGE_SET_POP
@@ -108,10 +108,10 @@ typedef NTSTATUS
 */  
 typedef NTSTATUS
 (*XENBUS_RANGE_SET_POP)(
-    IN  PINTERFACE          Interface,
-    IN  PXENBUS_RANGE_SET   RangeSet,
-    IN  ULONGLONG           Count,
-    OUT PLONGLONG           Start
+    _In_ PINTERFACE         Interface,
+    _In_ PXENBUS_RANGE_SET  RangeSet,
+    _In_ ULONGLONG          Count,
+    _Out_ PLONGLONG         Start
     );
 
 /*! \typedef XENBUS_RANGE_SET_GET
@@ -124,10 +124,10 @@ typedef NTSTATUS
 */  
 typedef NTSTATUS
 (*XENBUS_RANGE_SET_GET)(
-    IN  PINTERFACE          Interface,
-    IN  PXENBUS_RANGE_SET   RangeSet,
-    IN  LONGLONG            Start,
-    IN  ULONGLONG           Count
+    _In_ PINTERFACE         Interface,
+    _In_ PXENBUS_RANGE_SET  RangeSet,
+    _In_ LONGLONG           Start,
+    _In_ ULONGLONG          Count
     );
 
 /*! \typedef XENBUS_RANGE_SET_DESTROY
@@ -140,8 +140,8 @@ typedef NTSTATUS
 */  
 typedef VOID
 (*XENBUS_RANGE_SET_DESTROY)(
-    IN  PINTERFACE          Interface,
-    IN  PXENBUS_RANGE_SET   RangeSet
+    _In_ PINTERFACE         Interface,
+    _In_ PXENBUS_RANGE_SET  RangeSet
     );
 
 // {EE7E78A2-6847-48C5-B123-BB012F0EABF4}

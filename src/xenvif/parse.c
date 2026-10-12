@@ -46,13 +46,13 @@
 
 static FORCEINLINE BOOLEAN
 __ParsePullup(
-    IN      XENVIF_PARSE_PULLUP         Pullup,
-    IN      PVOID                       Argument,
-    IN      PUCHAR                      StartVa,
-    IN      ULONG                       StartLen,
-    IN      ULONG                       Offset,
-    IN      PXENVIF_PACKET_PAYLOAD      Payload,
-    IN      ULONG                       Length
+    _In_ XENVIF_PARSE_PULLUP    Pullup,
+    _In_ PVOID                  Argument,
+    _In_ PUCHAR                 StartVa,
+    _In_ ULONG                  StartLen,
+    _In_ ULONG                  Offset,
+    _In_ PXENVIF_PACKET_PAYLOAD Payload,
+    _In_ ULONG                  Length
     )
 {
     ASSERT3U(StartLen, >, Offset);
@@ -68,13 +68,13 @@ __ParsePullup(
 
 static FORCEINLINE NTSTATUS
 __ParseTcpHeader(
-    IN      PUCHAR                      StartVa,
-    IN      ULONG                       StartLen,
-    IN      ULONG                       Offset,
-    IN      XENVIF_PARSE_PULLUP         Pullup,
-    IN      PVOID                       Argument,
-    IN OUT  PXENVIF_PACKET_PAYLOAD      Payload,
-    OUT     PXENVIF_PACKET_INFO         Info
+    _In_ PUCHAR                         StartVa,
+    _In_ ULONG                          StartLen,
+    _In_ ULONG                          Offset,
+    _In_ XENVIF_PARSE_PULLUP            Pullup,
+    _In_ PVOID                          Argument,
+    _Inout_ PXENVIF_PACKET_PAYLOAD      Payload,
+    _Out_ PXENVIF_PACKET_INFO           Info
     )
 {
     PTCP_HEADER                         Header;
@@ -138,13 +138,13 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __ParseUdpHeader(
-    IN      PUCHAR                      StartVa,
-    IN      ULONG                       StartLen,
-    IN      ULONG                       Offset,
-    IN      XENVIF_PARSE_PULLUP         Pullup,
-    IN      PVOID                       Argument,
-    IN OUT  PXENVIF_PACKET_PAYLOAD      Payload,
-    OUT     PXENVIF_PACKET_INFO         Info
+    _In_ PUCHAR                     StartVa,
+    _In_ ULONG                      StartLen,
+    _In_ ULONG                      Offset,
+    _In_ XENVIF_PARSE_PULLUP        Pullup,
+    _In_ PVOID                      Argument,
+    _Inout_ PXENVIF_PACKET_PAYLOAD  Payload,
+    _Out_ PXENVIF_PACKET_INFO       Info
     )
 {
     Info->UdpHeader.Offset = Offset;
@@ -174,13 +174,13 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __ParseIpVersion4Header(
-    IN      PUCHAR                      StartVa,
-    IN      ULONG                       StartLen,
-    IN      ULONG                       Offset,
-    IN      XENVIF_PARSE_PULLUP         Pullup,
-    IN      PVOID                       Argument,
-    IN OUT  PXENVIF_PACKET_PAYLOAD      Payload,
-    OUT     PXENVIF_PACKET_INFO         Info
+    _In_ PUCHAR                         StartVa,
+    _In_ ULONG                          StartLen,
+    _In_ ULONG                          Offset,
+    _In_ XENVIF_PARSE_PULLUP            Pullup,
+    _In_ PVOID                          Argument,
+    _Inout_ PXENVIF_PACKET_PAYLOAD      Payload,
+    _Out_ PXENVIF_PACKET_INFO           Info
     )
 {
     PIPV4_HEADER                        Header;
@@ -289,13 +289,13 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __ParseIpVersion6Header(
-    IN      PUCHAR                      StartVa,
-    IN      ULONG                       StartLen,
-    IN      ULONG                       Offset,
-    IN      XENVIF_PARSE_PULLUP         Pullup,
-    IN      PVOID                       Argument,
-    IN OUT  PXENVIF_PACKET_PAYLOAD      Payload,
-    OUT     PXENVIF_PACKET_INFO         Info
+    _In_ PUCHAR                         StartVa,
+    _In_ ULONG                          StartLen,
+    _In_ ULONG                          Offset,
+    _In_ XENVIF_PARSE_PULLUP            Pullup,
+    _In_ PVOID                          Argument,
+    _Inout_ PXENVIF_PACKET_PAYLOAD      Payload,
+    _Out_ PXENVIF_PACKET_INFO           Info
     )
 {
     PIPV6_HEADER                        Header;
@@ -493,13 +493,13 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __ParseLLCSnapHeader(
-    IN      PUCHAR                      StartVa,
-    IN      ULONG                       StartLen,
-    IN      ULONG                       Offset,
-    IN      XENVIF_PARSE_PULLUP         Pullup,
-    IN      PVOID                       Argument,
-    IN OUT  PXENVIF_PACKET_PAYLOAD      Payload,
-    OUT     PXENVIF_PACKET_INFO         Info
+    _In_ PUCHAR                         StartVa,
+    _In_ ULONG                          StartLen,
+    _In_ ULONG                          Offset,
+    _In_ XENVIF_PARSE_PULLUP            Pullup,
+    _In_ PVOID                          Argument,
+    _Inout_ PXENVIF_PACKET_PAYLOAD      Payload,
+    _Out_ PXENVIF_PACKET_INFO           Info
     )
 {
     PLLC_SNAP_HEADER                    Header;
@@ -552,13 +552,13 @@ fail1:
 
 static FORCEINLINE NTSTATUS
 __ParseEthernetHeader(
-    IN      PUCHAR                      StartVa,
-    IN      ULONG                       StartLen,
-    IN      ULONG                       Offset,
-    IN      XENVIF_PARSE_PULLUP         Pullup,
-    IN      PVOID                       Argument,
-    IN OUT  PXENVIF_PACKET_PAYLOAD      Payload,
-    OUT     PXENVIF_PACKET_INFO         Info
+    _In_ PUCHAR                         StartVa,
+    _In_ ULONG                          StartLen,
+    _In_ ULONG                          Offset,
+    _In_ XENVIF_PARSE_PULLUP            Pullup,
+    _In_ PVOID                          Argument,
+    _Inout_ PXENVIF_PACKET_PAYLOAD      Payload,
+    _Out_ PXENVIF_PACKET_INFO           Info
     )
 {
     PETHERNET_HEADER                    Header;
@@ -656,12 +656,12 @@ fail1:
 
 NTSTATUS
 ParsePacket(
-    IN      PUCHAR                      StartVa,
-    IN      ULONG                       StartLen,
-    IN      XENVIF_PARSE_PULLUP         Pullup,
-    IN      PVOID                       Argument,
-    IN OUT  PXENVIF_PACKET_PAYLOAD      Payload,
-    OUT     PXENVIF_PACKET_INFO         Info
+    _In_ PUCHAR                     StartVa,
+    _In_ ULONG                      StartLen,
+    _In_ XENVIF_PARSE_PULLUP        Pullup,
+    _In_ PVOID                      Argument,
+    _Inout_ PXENVIF_PACKET_PAYLOAD  Payload,
+    _Out_ PXENVIF_PACKET_INFO       Info
     )
 {
     ASSERT(IsZeroMemory(Info, sizeof (XENVIF_PACKET_INFO)));

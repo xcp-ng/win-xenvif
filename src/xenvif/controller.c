@@ -56,7 +56,7 @@
 extern ULONG
 NTAPI
 RtlRandomEx (
-    __inout PULONG Seed
+    _Inout_ PULONG  Seed
     );
 
 #define MAXNAMELEN  128
@@ -87,7 +87,7 @@ struct _XENVIF_CONTROLLER {
 
 static FORCEINLINE PVOID
 __ControllerAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENVIF_CONTROLLER_TAG);
@@ -95,16 +95,16 @@ __ControllerAllocate(
 
 static FORCEINLINE VOID
 __ControllerFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENVIF_CONTROLLER_TAG);
 }
 
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_(DISPATCH_LEVEL)
 __ControllerAcquireLock(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, DISPATCH_LEVEL);
@@ -113,9 +113,9 @@ __ControllerAcquireLock(
 }
 
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_(DISPATCH_LEVEL)
 __ControllerReleaseLock(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     )
 {
     KeReleaseSpinLockFromDpcLevel(&Controller->Lock);
@@ -125,7 +125,7 @@ _Acquires_nonreentrant_lock_(Controller)
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 ControllerAcquireLock(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     )
 {
     __ControllerAcquireLock(Controller);
@@ -135,7 +135,7 @@ _Requires_lock_held_(Controller)
 _IRQL_requires_(DISPATCH_LEVEL)
 static VOID
 ControllerReleaseLock(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     )
 {
     __ControllerReleaseLock(Controller);
@@ -144,7 +144,7 @@ ControllerReleaseLock(
 _IRQL_requires_min_(DISPATCH_LEVEL)
 static FORCEINLINE VOID
 __ControllerSend(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     )
 {
     (VOID) XENBUS_EVTCHN(Send,
@@ -154,7 +154,7 @@ __ControllerSend(
 
 VOID
 ControllerPoll(
-    IN  PXENVIF_CONTROLLER          Controller
+    _In_ PXENVIF_CONTROLLER         Controller
     )
 {
     RING_IDX                        rsp_prod;
@@ -185,11 +185,11 @@ ControllerPoll(
 _IRQL_requires_min_(DISPATCH_LEVEL)
 static NTSTATUS
 ControllerPutRequest(
-    IN  PXENVIF_CONTROLLER          Controller,
-    IN  USHORT                      Type,
-    IN  ULONG                       Data0,
-    IN  ULONG                       Data1,
-    IN  ULONG                       Data2
+    _In_ PXENVIF_CONTROLLER         Controller,
+    _In_ USHORT                     Type,
+    _In_ ULONG                      Data0,
+    _In_ ULONG                      Data1,
+    _In_ ULONG                      Data2
     )
 {
     RING_IDX                        req_prod;
@@ -259,8 +259,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 static NTSTATUS
 ControllerGetResponse(
-    IN  PXENVIF_CONTROLLER          Controller,
-    OUT PULONG                      Data OPTIONAL
+    _In_ PXENVIF_CONTROLLER         Controller,
+    _Out_opt_ PULONG                Data
     )
 {
     LARGE_INTEGER                   PollTimeout;
@@ -354,8 +354,8 @@ KSERVICE_ROUTINE    ControllerEvtchnCallback;
 _Use_decl_annotations_
 BOOLEAN
 ControllerEvtchnCallback(
-    IN  PKINTERRUPT             InterruptObject,
-    IN  PVOID                   Argument
+    _In_ PKINTERRUPT            InterruptObject,
+    _In_ PVOID                  Argument
     )
 {
     PXENVIF_CONTROLLER          Controller = Argument;
@@ -371,8 +371,8 @@ ControllerEvtchnCallback(
 
 static VOID
 ControllerDebugCallback(
-    IN  PVOID           Argument,
-    IN  BOOLEAN         Crashing
+    _In_ PVOID      Argument,
+    _In_ BOOLEAN    Crashing
     )
 {
     UNREFERENCED_PARAMETER(Argument);
@@ -382,13 +382,13 @@ ControllerDebugCallback(
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS
 ControllerInitialize(
-    IN  PXENVIF_FRONTEND    Frontend,
-    OUT PXENVIF_CONTROLLER  *Controller
+    _In_ PXENVIF_FRONTEND       Frontend,
+    _Outptr_ PXENVIF_CONTROLLER *Controller
     )
 {
-    LARGE_INTEGER           Now;
-    ULONG                   Seed;
-    NTSTATUS                status;
+    LARGE_INTEGER               Now;
+    ULONG                       Seed;
+    NTSTATUS                    status;
 
     *Controller = __ControllerAllocate(sizeof (XENVIF_CONTROLLER));
 
@@ -428,7 +428,7 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerConnect(
-    IN  PXENVIF_CONTROLLER      Controller
+    _In_ PXENVIF_CONTROLLER     Controller
     )
 {
     PXENVIF_FRONTEND            Frontend;
@@ -636,8 +636,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerStoreWrite(
-    IN  PXENVIF_CONTROLLER          Controller,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction
+    _In_ PXENVIF_CONTROLLER         Controller,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction
     )
 {
     PXENVIF_FRONTEND                Frontend;
@@ -689,7 +689,7 @@ fail1:
 
 VOID
 ControllerEnable(
-    IN  PXENVIF_CONTROLLER      Controller
+    _In_ PXENVIF_CONTROLLER Controller
     )
 {
     __ControllerAcquireLock(Controller);
@@ -703,7 +703,7 @@ ControllerEnable(
 
 VOID
 ControllerDisable(
-    IN  PXENVIF_CONTROLLER      Controller
+    _In_ PXENVIF_CONTROLLER Controller
     )
 {
     __ControllerAcquireLock(Controller);
@@ -718,7 +718,7 @@ ControllerDisable(
 _IRQL_requires_(DISPATCH_LEVEL)
 VOID
 ControllerDisconnect(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     )
 {
     Trace("====>\n");
@@ -781,7 +781,7 @@ done:
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID
 ControllerTeardown(
-    IN  PXENVIF_CONTROLLER  Controller
+    _In_ PXENVIF_CONTROLLER Controller
     )
 {
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
@@ -812,8 +812,8 @@ ControllerTeardown(
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashAlgorithm(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Algorithm
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ ULONG              Algorithm
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -853,8 +853,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerGetHashFlags(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Flags
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ PULONG             Flags
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -894,8 +894,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashFlags(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Flags
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ ULONG              Flags
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -935,9 +935,9 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashKey(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PUCHAR              Key,
-    IN  ULONG               Size
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ PUCHAR             Key,
+    _In_ ULONG              Size
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -1030,8 +1030,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerGetHashMappingSize(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Size
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ PULONG             Size
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -1071,8 +1071,8 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashMappingSize(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  ULONG               Size
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ ULONG              Size
     )
 {
     PXENVIF_FRONTEND        Frontend;
@@ -1112,10 +1112,10 @@ fail1:
 _IRQL_requires_(DISPATCH_LEVEL)
 NTSTATUS
 ControllerSetHashMapping(
-    IN  PXENVIF_CONTROLLER  Controller,
-    IN  PULONG              Mapping,
-    IN  ULONG               Size,
-    IN  ULONG               Offset
+    _In_ PXENVIF_CONTROLLER Controller,
+    _In_ PULONG             Mapping,
+    _In_ ULONG              Size,
+    _In_ ULONG              Offset
     )
 {
     PXENVIF_FRONTEND        Frontend;
