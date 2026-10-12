@@ -1800,6 +1800,10 @@ __FrontendQueryStatistic(
     ASSERT3U(Name, <, XENVIF_VIF_STATISTIC_COUNT);
 
     *Value = 0;
+
+    if (Name >= XENVIF_VIF_STATISTIC_COUNT)
+        return;
+
     for (Index = 0; Index < Frontend->StatisticsCount; Index++) {
         PXENVIF_FRONTEND_STATISTICS Statistics;
 
