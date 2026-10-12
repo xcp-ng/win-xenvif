@@ -132,8 +132,8 @@ FdoDispatch(
 #define DECLARE_FDO_GET_INTERFACE(_Interface, _Type)    \
 extern VOID                                             \
 FdoGet ## _Interface ## Interface(                      \
-    IN  PXENVIF_FDO Fdo,                                \
-    OUT _Type       _Interface ## Interface             \
+    _In_  PXENVIF_FDO Fdo,                                \
+    _Out_ _Type       _Interface ## Interface             \
     );
 
 DECLARE_FDO_GET_INTERFACE(Debug, PXENBUS_DEBUG_INTERFACE)
