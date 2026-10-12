@@ -5022,6 +5022,8 @@ TransmitterTeardown(
     while (--Index >= 0) {
         PXENVIF_TRANSMITTER_RING    Ring = Transmitter->Ring[Index];
 
+        ASSERT3P(Ring, !=, NULL);
+
         Transmitter->Ring[Index] = NULL;
         __TransmitterRingTeardown(Ring);
     }

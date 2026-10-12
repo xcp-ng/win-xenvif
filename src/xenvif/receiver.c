@@ -1929,6 +1929,8 @@ __ReceiverRingEmpty(
         Mdl = Fragment->Context;
         Fragment->Context = NULL;
 
+        ASSERT3P(Fragment->Entry, !=, NULL);
+
         (VOID) XENBUS_GNTTAB(RevokeForeignAccess,
                              &Receiver->GnttabInterface,
                              Ring->GnttabCache,
@@ -3667,6 +3669,10 @@ ReceiverTeardown(
     Index = FrontendGetMaxQueues(Frontend);
     while (--Index >= 0) {
         PXENVIF_RECEIVER_RING   Ring = Receiver->Ring[Index];
+
+        // As Ring is expected to be a valid pointer,
+        // we assert it is not NULL before proceeding.
+        ASSERT3P(Ring, !=, NULL);
 
         Receiver->Ring[Index] = NULL;
         __ReceiverRingTeardown(Ring);

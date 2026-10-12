@@ -249,9 +249,17 @@ VifCallbackVersion8(
     _In_ union _XENVIF_VIF_CALLBACK_PARAMETERS_V9   *Parameters
     )
 {
-    PXENVIF_VIF_CONTEXT                             Context = _Argument;
-    XENVIF_VIF_CALLBACK_V8                          Callback = Context->CallbackVersion8;
-    PVOID                                           Argument = Context->ArgumentVersion8;
+    PXENVIF_VIF_CONTEXT                             Context;
+    XENVIF_VIF_CALLBACK_V8                          Callback;
+    PVOID                                           Argument;
+
+    // As _Argument is expected to be a valid context pointer,
+    // we assert it is not NULL before proceeding.
+    ASSERT3P(_Argument, !=, NULL);
+    Context = _Argument;
+    Callback = Context->CallbackVersion8;
+    Argument = Context->ArgumentVersion8;
+
 
     switch (Type) {
     case XENVIF_TRANSMITTER_RETURN_PACKET: {
@@ -311,10 +319,16 @@ VifCallbackVersion9(
 {
 #define XENVIF_RECEIVER_QUEUE_MAX 1024 // Chosen to match IN_NDIS_MAX in XENNET
 
-    PXENVIF_VIF_CONTEXT                             Context = _Argument;
-    XENVIF_VIF_CALLBACK_V9                          Callback = Context->CallbackVersion9;
-    PVOID                                           Argument = Context->ArgumentVersion9;
+    PXENVIF_VIF_CONTEXT                             Context;
+    XENVIF_VIF_CALLBACK_V9                          Callback;
+    PVOID                                           Argument;
     union _XENVIF_VIF_CALLBACK_PARAMETERS_V9        ParametersVersion9;
+
+    ASSERT3P(_Argument, !=, NULL);
+
+    Context = _Argument;
+    Callback = Context->CallbackVersion9;
+    Argument = Context->ArgumentVersion9;
 
     switch (Type) {
     case XENVIF_TRANSMITTER_RETURN_PACKET:
