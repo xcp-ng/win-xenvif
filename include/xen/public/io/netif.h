@@ -1,25 +1,8 @@
+/* SPDX-License-Identifier: MIT */
 /******************************************************************************
  * netif.h
  *
  * Unified network-device I/O interface for Xen guest OSes.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to
- * deal in the Software without restriction, including without limitation the
- * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- * sell copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
  *
  * Copyright (c) 2003-2004, Keir Fraser
  */
@@ -161,6 +144,12 @@
  */
 
 /*
+ * The setting of "trusted" node to "0" in the frontend path signals that the
+ * frontend should not trust the backend, and should deploy whatever measures
+ * available to protect from a malicious backend on the other end.
+ */
+
+/*
  * Control ring
  * ============
  *
@@ -171,7 +160,7 @@
  * The ability of the backend to use a control ring is advertised by
  * setting:
  *
- * /local/domain/X/backend/<domid>/<vif>/feature-ctrl-ring = "1"
+ * /local/domain/X/backend/vif/<domid>/<vif>/feature-ctrl-ring = "1"
  *
  * The frontend provides a control ring to the backend by setting:
  *
@@ -188,6 +177,32 @@
  * the same as a transmit or receive ring.
  * Note that there is no requirement that responses are issued in the same
  * order as requests.
+ */
+
+/*
+ * Link state
+ * ==========
+ *
+ * The backend can advertise its current link (carrier) state to the
+ * frontend using the /local/domain/X/backend/vif/<domid>/<vif>/carrier
+ * node. If this node is not present, then the frontend should assume that
+ * the link is up (for compatibility with backends that do not implement
+ * this feature). If this node is present, then a value of "0" should be
+ * interpreted by the frontend as the link being down (no carrier) and a
+ * value of "1" should be interpreted as the link being up (carrier
+ * present).
+ */
+
+/*
+ * MTU
+ * ===
+ *
+ * The toolstack may set a value of MTU for the frontend by setting the
+ * /local/domain/<domid>/device/vif/<vif>/mtu node with the MTU value in
+ * octets. If this node is absent the frontend should assume an MTU value
+ * of 1500 octets. A frontend is also at liberty to ignore this value so
+ * it is only suitable for informing the frontend that a packet payload
+ * >1500 octets is permitted.
  */
 
 /*
@@ -353,6 +368,9 @@ struct xen_netif_ctrl_request {
 #define XEN_NETIF_CTRL_TYPE_SET_HASH_MAPPING_SIZE 5
 #define XEN_NETIF_CTRL_TYPE_SET_HASH_MAPPING      6
 #define XEN_NETIF_CTRL_TYPE_SET_HASH_ALGORITHM    7
+#define XEN_NETIF_CTRL_TYPE_GET_GREF_MAPPING_SIZE 8
+#define XEN_NETIF_CTRL_TYPE_ADD_GREF_MAPPING      9
+#define XEN_NETIF_CTRL_TYPE_DEL_GREF_MAPPING     10
 
     uint32_t data[3];
 };
@@ -388,6 +406,44 @@ struct xen_netif_ctrl_response {
 #define XEN_NETIF_CTRL_STATUS_BUFFER_OVERFLOW   3
 
     uint32_t data;
+};
+
+/*
+ * Static Grants (struct xen_netif_gref)
+ * =====================================
+ *
+ * A frontend may provide a fixed set of grant references to be mapped on
+ * the backend. The message of type XEN_NETIF_CTRL_TYPE_ADD_GREF_MAPPING
+ * prior its usage in the command ring allows for creation of these mappings.
+ * The backend will maintain a fixed amount of these mappings.
+ *
+ * XEN_NETIF_CTRL_TYPE_GET_GREF_MAPPING_SIZE lets a frontend query how many
+ * of these mappings can be kept.
+ *
+ * Each entry in the XEN_NETIF_CTRL_TYPE_{ADD,DEL}_GREF_MAPPING input table has
+ * the following format:
+ *
+ *    0     1     2     3     4     5     6     7  octet
+ * +-----+-----+-----+-----+-----+-----+-----+-----+
+ * | grant ref             |  flags    |  status   |
+ * +-----+-----+-----+-----+-----+-----+-----+-----+
+ *
+ * grant ref: grant reference (IN)
+ * flags: flags describing the control operation (IN)
+ * status: XEN_NETIF_CTRL_STATUS_* (OUT)
+ *
+ * 'status' is an output parameter which does not require to be set to zero
+ * prior to its usage in the corresponding control messages.
+ */
+
+struct xen_netif_gref {
+       grant_ref_t ref;
+       uint16_t flags;
+
+#define _XEN_NETIF_CTRLF_GREF_readonly    0
+#define XEN_NETIF_CTRLF_GREF_readonly    (1U<<_XEN_NETIF_CTRLF_GREF_readonly)
+
+       uint16_t status;
 };
 
 /*
@@ -609,6 +665,88 @@ struct xen_netif_ctrl_response {
  *       invalidate any table data outside that range.
  *       The grant reference may be read-only and must remain valid until
  *       the response has been processed.
+ *
+ * XEN_NETIF_CTRL_TYPE_GET_GREF_MAPPING_SIZE
+ * -----------------------------------------
+ *
+ * This is sent by the frontend to fetch the number of grefs that can be kept
+ * mapped in the backend.
+ *
+ * Request:
+ *
+ *  type    = XEN_NETIF_CTRL_TYPE_GET_GREF_MAPPING_SIZE
+ *  data[0] = queue index (assumed 0 for single queue)
+ *  data[1] = 0
+ *  data[2] = 0
+ *
+ * Response:
+ *
+ *  status = XEN_NETIF_CTRL_STATUS_NOT_SUPPORTED     - Operation not
+ *                                                     supported
+ *           XEN_NETIF_CTRL_STATUS_INVALID_PARAMETER - The queue index is
+ *                                                     out of range
+ *           XEN_NETIF_CTRL_STATUS_SUCCESS           - Operation successful
+ *  data   = maximum number of entries allowed in the gref mapping table
+ *           (if operation was successful) or zero if it is not supported.
+ *
+ * XEN_NETIF_CTRL_TYPE_ADD_GREF_MAPPING
+ * ------------------------------------
+ *
+ * This is sent by the frontend for backend to map a list of grant
+ * references.
+ *
+ * Request:
+ *
+ *  type    = XEN_NETIF_CTRL_TYPE_ADD_GREF_MAPPING
+ *  data[0] = queue index
+ *  data[1] = grant reference of page containing the mapping list
+ *            (r/w and assumed to start at beginning of page)
+ *  data[2] = size of list in entries
+ *
+ * Response:
+ *
+ *  status = XEN_NETIF_CTRL_STATUS_NOT_SUPPORTED     - Operation not
+ *                                                     supported
+ *           XEN_NETIF_CTRL_STATUS_INVALID_PARAMETER - Operation failed
+ *           XEN_NETIF_CTRL_STATUS_SUCCESS           - Operation successful
+ *
+ * NOTE: Each entry in the input table has the format outlined
+ *       in struct xen_netif_gref.
+ *       Contrary to XEN_NETIF_CTRL_TYPE_DEL_GREF_MAPPING, the struct
+ *       xen_netif_gref 'status' field is not used and therefore the response
+ *       'status' determines the success of this operation. In case of
+ *       failure none of grants mappings get added in the backend.
+ *
+ * XEN_NETIF_CTRL_TYPE_DEL_GREF_MAPPING
+ * ------------------------------------
+ *
+ * This is sent by the frontend for backend to unmap a list of grant
+ * references.
+ *
+ * Request:
+ *
+ *  type    = XEN_NETIF_CTRL_TYPE_DEL_GREF_MAPPING
+ *  data[0] = queue index
+ *  data[1] = grant reference of page containing the mapping list
+ *            (r/w and assumed to start at beginning of page)
+ *  data[2] = size of list in entries
+ *
+ * Response:
+ *
+ *  status = XEN_NETIF_CTRL_STATUS_NOT_SUPPORTED     - Operation not
+ *                                                     supported
+ *           XEN_NETIF_CTRL_STATUS_INVALID_PARAMETER - Operation failed
+ *           XEN_NETIF_CTRL_STATUS_SUCCESS           - Operation successful
+ *  data   = number of entries that were unmapped
+ *
+ * NOTE: Each entry in the input table has the format outlined in struct
+ *       xen_netif_gref.
+ *       The struct xen_netif_gref 'status' field determines if the entry
+ *       was successfully removed.
+ *       The entries used are only the ones representing grant references that
+ *       were previously the subject of a XEN_NETIF_CTRL_TYPE_ADD_GREF_MAPPING
+ *       operation. Any other entries will have their status set to
+ *       XEN_NETIF_CTRL_STATUS_INVALID_PARAMETER upon completion.
  */
 
 DEFINE_RING_TYPES(xen_netif_ctrl,
