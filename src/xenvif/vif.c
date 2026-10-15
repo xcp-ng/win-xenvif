@@ -538,16 +538,29 @@ done:
 static VOID
 VifQueryRingCount(
     _In_ PINTERFACE     Interface,
-    _Out_ PULONG        Count
+    _Out_opt_ PULONG    Count,
+    _Out_opt_ PULONG    MaxCount
     )
 {
     PXENVIF_VIF_CONTEXT Context = Interface->Context;
 
     AcquireMrswLockShared(&Context->Lock);
 
-    *Count = FrontendGetNumQueues(Context->Frontend);
+    if (Count)
+        *Count = FrontendGetNumQueues(Context->Frontend);
+    if (MaxCount)
+        *MaxCount = FrontendGetMaxQueues(Context->Frontend);
 
     ReleaseMrswLockShared(&Context->Lock);
+}
+
+static VOID
+VifQueryRingCountVersion8(
+    _In_ PINTERFACE Interface,
+    _Out_ PULONG    Count
+    )
+{
+    VifQueryRingCount(Interface, Count, NULL);
 }
 
 static NTSTATUS
@@ -1008,7 +1021,7 @@ static struct _XENVIF_VIF_INTERFACE_V8 VifInterfaceVersion8 = {
     VifEnableVersion8,
     VifDisable,
     VifQueryStatistic,
-    VifQueryRingCount,
+    VifQueryRingCountVersion8,
     VifUpdateHashMapping,
     VifReceiverReturnPacket,
     VifReceiverSetOffloadOptions,
@@ -1038,7 +1051,7 @@ static struct _XENVIF_VIF_INTERFACE_V9 VifInterfaceVersion9 = {
     VifEnableVersion9,
     VifDisable,
     VifQueryStatistic,
-    VifQueryRingCount,
+    VifQueryRingCountVersion8,
     VifUpdateHashMapping,
     VifReceiverReturnPacket,
     VifReceiverSetOffloadOptions,
@@ -1063,6 +1076,36 @@ static struct _XENVIF_VIF_INTERFACE_V9 VifInterfaceVersion9 = {
 
 static struct _XENVIF_VIF_INTERFACE_V10 VifInterfaceVersion10 = {
     { sizeof (struct _XENVIF_VIF_INTERFACE_V10), 10, NULL, NULL, NULL },
+    VifAcquire,
+    VifRelease,
+    VifEnable,
+    VifDisable,
+    VifQueryStatistic,
+    VifQueryRingCountVersion8,
+    VifUpdateHashMapping,
+    VifReceiverReturnPacket,
+    VifReceiverSetOffloadOptions,
+    VifReceiverSetBackfillSize,
+    VifReceiverQueryRingSize,
+    VifReceiverSetHashAlgorithm,
+    VifReceiverQueryHashCapabilities,
+    VifReceiverUpdateHashParameters,
+    VifTransmitterQueuePacket,
+    VifTransmitterQueryOffloadOptions,
+    VifTransmitterQueryLargePacketSize,
+    VifTransmitterQueryRingSize,
+    VifMacQueryState,
+    VifMacQueryMaximumFrameSize,
+    VifMacQueryPermanentAddress,
+    VifMacQueryCurrentAddress,
+    VifMacQueryMulticastAddresses,
+    VifMacSetMulticastAddresses,
+    VifMacSetFilterLevel,
+    VifMacQueryFilterLevel
+};
+
+static struct _XENVIF_VIF_INTERFACE_V11 VifInterfaceVersion11 = {
+    { sizeof (struct _XENVIF_VIF_INTERFACE_V11), 11, NULL, NULL, NULL },
     VifAcquire,
     VifRelease,
     VifEnable,
@@ -1204,6 +1247,23 @@ VifGetInterface(
             break;
 
         *VifInterface = VifInterfaceVersion10;
+
+        ASSERT3U(Interface->Version, ==, Version);
+        Interface->Context = Context;
+
+        status = STATUS_SUCCESS;
+        break;
+    }
+    case 11: {
+        struct _XENVIF_VIF_INTERFACE_V11 *VifInterface;
+
+        VifInterface = (struct _XENVIF_VIF_INTERFACE_V11 *)Interface;
+
+        status = STATUS_BUFFER_OVERFLOW;
+        if (Size < sizeof (struct _XENVIF_VIF_INTERFACE_V11))
+            break;
+
+        *VifInterface = VifInterfaceVersion11;
 
         ASSERT3U(Interface->Version, ==, Version);
         Interface->Context = Context;
