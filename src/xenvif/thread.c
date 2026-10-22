@@ -1,32 +1,32 @@
 /* Copyright (c) Xen Project.
  * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -37,7 +37,7 @@
 #include "assert.h"
 #include "util.h"
 
-#define THREAD_POOL 'ERHT'
+#define THREAD_TAG 'ERHT'
 
 struct _XENVIF_THREAD {
     XENVIF_THREAD_FUNCTION  Function;
@@ -53,7 +53,7 @@ __ThreadAllocate(
     _In_ ULONG  Length
     )
 {
-    return __AllocatePoolWithTag(NonPagedPool, Length, THREAD_POOL);
+    return __AllocatePoolWithTag(NonPagedPool, Length, THREAD_TAG);
 }
 
 static FORCEINLINE VOID
@@ -61,12 +61,12 @@ __ThreadFree(
     _In_ PVOID  Buffer
     )
 {
-    __FreePoolWithTag(Buffer, THREAD_POOL);
+    __FreePoolWithTag(Buffer, THREAD_TAG);
 }
 
 static FORCEINLINE VOID
 __ThreadWake(
-    _Out_ PXENVIF_THREAD    Thread
+    _Inout_ PXENVIF_THREAD  Thread
     )
 {
     KeSetEvent(&Thread->Event, IO_NO_INCREMENT, FALSE);
@@ -74,7 +74,7 @@ __ThreadWake(
 
 VOID
 ThreadWake(
-    _Out_ PXENVIF_THREAD    Thread
+    _Inout_ PXENVIF_THREAD  Thread
     )
 {
     __ThreadWake(Thread);
@@ -82,7 +82,7 @@ ThreadWake(
 
 static FORCEINLINE VOID
 __ThreadAlert(
-    _Out_ PXENVIF_THREAD    Thread
+    _Inout_ PXENVIF_THREAD  Thread
     )
 {
     Thread->Alerted = TRUE;
@@ -91,7 +91,7 @@ __ThreadAlert(
 
 VOID
 ThreadAlert(
-    _Out_ PXENVIF_THREAD    Thread
+    _Inout_ PXENVIF_THREAD  Thread
     )
 {
     __ThreadAlert(Thread);
@@ -101,11 +101,11 @@ KSTART_ROUTINE  ThreadFunction;
 
 VOID
 ThreadFunction(
-    _In_ PVOID          Argument
+    _In_ PVOID      Argument
     )
 {
-    PXENVIF_THREAD      Self = Argument;
-    NTSTATUS            status;
+    PXENVIF_THREAD  Self = Argument;
+    NTSTATUS        status;
 
     status = Self->Function(Self, Self->Context);
 
@@ -130,8 +130,6 @@ ThreadCreate(
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
     (*Thread) = __ThreadAllocate(sizeof (XENVIF_THREAD));
-
-    Trace("Create thread %p %p\n", Function, Thread);
 
     status = STATUS_NO_MEMORY;
     if (*Thread == NULL)
@@ -207,10 +205,10 @@ ThreadIsAlerted(
 
 VOID
 ThreadJoin(
-    _Out_ PXENVIF_THREAD    Thread
+    _Inout_ PXENVIF_THREAD  Thread
     )
 {
-    LONG                    References;
+    LONG                References;
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
     ASSERT3P(KeGetCurrentThread(), !=, Thread->Thread);
