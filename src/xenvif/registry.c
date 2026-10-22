@@ -62,17 +62,31 @@ __RegistryFree(
 }
 
 NTSTATUS
+#pragma prefast(suppress:28101) // unannotated DriverEntry function
 RegistryInitialize(
+    _In_opt_ PDRIVER_OBJECT DriverObject,
     _In_ PUNICODE_STRING    Path
     )
 {
-    NTSTATUS                status;
+    UNICODE_STRING      Unicode;
+    PVOID               Func;
+    NTSTATUS            status;
 
     ASSERT3P(RegistryPath.Buffer, ==, NULL);
 
     status = RtlUpcaseUnicodeString(&RegistryPath, Path, TRUE);
     if (!NT_SUCCESS(status))
         goto fail1;
+
+    ASSERT3P(RegistryDriverObject, ==, NULL);
+    RegistryDriverObject = DriverObject;
+
+    ASSERT3P(__IoOpenDriverRegistryKey, ==, NULL);
+    RtlInitUnicodeString(&Unicode, L"IoOpenDriverRegistryKey");
+
+    Func = MmGetSystemRoutineAddress(&Unicode);
+    if (Func != NULL)
+        __IoOpenDriverRegistryKey = (IOOPENDRIVERREGISTRYKEY)Func;
 
     return STATUS_SUCCESS;
 
@@ -1155,17 +1169,17 @@ fail1:
 
 NTSTATUS
 RegistryQueryBinaryValue(
-    _In_ HANDLE                             Key,
-    _In_ PSTR                               Name,
-    _Outptr_result_buffer_(*Length) PVOID   *Buffer,
-    _Out_ PULONG                            Length
+    _In_ HANDLE                                 Key,
+    _In_ PSTR                                   Name,
+    _Outptr_result_bytebuffer_(*Length) PVOID   *Buffer,
+    _Out_ PULONG                                Length
     )
 {
-    ANSI_STRING                             Ansi;
-    UNICODE_STRING                          Unicode;
-    PKEY_VALUE_PARTIAL_INFORMATION          Partial;
-    ULONG                                   Size;
-    NTSTATUS                                status;
+    ANSI_STRING                                 Ansi;
+    UNICODE_STRING                              Unicode;
+    PKEY_VALUE_PARTIAL_INFORMATION              Partial;
+    ULONG                                       Size;
+    NTSTATUS                                    status;
 
     RtlInitAnsiString(&Ansi, Name);
 
@@ -1627,12 +1641,4 @@ RegistryCloseKey(
     )
 {
     ZwClose(Key);
-}
-
-PUNICODE_STRING
-RegistryGetPath(
-    VOID
-    )
-{
-    return &RegistryPath;
 }

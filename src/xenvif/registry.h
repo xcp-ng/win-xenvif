@@ -37,6 +37,7 @@
 
 extern NTSTATUS
 RegistryInitialize(
+    _In_opt_ PDRIVER_OBJECT DrvObj,
     _In_ PUNICODE_STRING    Path
     );
 
@@ -110,8 +111,8 @@ RegistryCreateSubKey(
 
 extern NTSTATUS
 RegistryDeleteSubKey(
-    _In_ HANDLE Key,
-    _In_ PSTR   Name
+    _In_ HANDLE     Key,
+    _In_ PSTR       Name
     );
 
 extern NTSTATUS
@@ -130,15 +131,15 @@ RegistryEnumerateValues(
 
 extern NTSTATUS
 RegistryDeleteValue(
-    _In_ HANDLE Key,
-    _In_ PSTR   Name
+    _In_ HANDLE     Key,
+    _In_ PSTR       Name
     );
 
 extern NTSTATUS
 RegistryQueryDwordValue(
-    _In_ HANDLE     Key,
-    _In_ PSTR       Name,
-    _Out_ PULONG    Value
+    _In_ HANDLE         Key,
+    _In_ PSTR           Name,
+    _Out_ PULONG        Value
     );
 
 extern NTSTATUS
@@ -150,9 +151,9 @@ RegistryQueryQwordValue(
 
 extern NTSTATUS
 RegistryUpdateDwordValue(
-    _In_ HANDLE Key,
-    _In_ PSTR   Name,
-    _In_ ULONG  Value
+    _In_ HANDLE         Key,
+    _In_ PSTR           Name,
+    _In_ ULONG          Value
     );
 
 extern NTSTATUS
@@ -165,10 +166,10 @@ RegistryQuerySzValue(
 
 extern NTSTATUS
 RegistryQueryBinaryValue(
-    _In_ HANDLE                             Key,
-    _In_ PSTR                               Name,
-    _Outptr_result_buffer_(*Length) PVOID   *Buffer,
-    _Out_ PULONG                            Length
+    _In_ HANDLE                                 Key,
+    _In_ PSTR                                   Name,
+    _Outptr_result_bytebuffer_(*Length) PVOID   *Buffer,
+    _Out_ PULONG                                Length
     );
 
 extern NTSTATUS
@@ -198,7 +199,7 @@ RegistryFreeSzValue(
 
 extern VOID
 RegistryFreeBinaryValue(
-    _In_ PVOID  Buffer
+    _In_ PVOID          Buffer
     );
 
 extern NTSTATUS
@@ -212,11 +213,6 @@ RegistryUpdateSzValue(
 extern VOID
 RegistryCloseKey(
     _In_ HANDLE Key
-    );
-
-extern PUNICODE_STRING
-RegistryGetPath(
-    VOID
     );
 
 #endif  // _XENVIF_REGISTRY_H
