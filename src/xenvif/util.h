@@ -41,6 +41,11 @@
 #define	P2ROUNDUP(_t, _x, _a)   \
         (-(-((_t)(_x)) & -(((_t)(_a)))))
 
+#define TIME_US(_us)            ((_us) * 10ll)
+#define TIME_MS(_ms)            (TIME_US((_ms) * 1000ll))
+#define TIME_S(_s)              (TIME_MS((_s) * 1000ll))
+#define TIME_RELATIVE(_t)       (-(_t))
+
 static FORCEINLINE LONG
 __ffs(
     _In_ unsigned long long mask
@@ -196,13 +201,12 @@ __AllocatePages(
 
     LowAddress.QuadPart = 0ull;
     HighAddress.QuadPart = ~0ull;
+    SkipBytes.QuadPart = 0ull;
     TotalBytes = (SIZE_T)PAGE_SIZE * Count;
 
     if (Contiguous) {
-        SkipBytes.QuadPart = TotalBytes;
         Flags = MM_ALLOCATE_REQUIRE_CONTIGUOUS_CHUNKS;
     } else {
-        SkipBytes.QuadPart = 0ull;
         Flags = MM_ALLOCATE_FULLY_REQUIRED;
     }
 

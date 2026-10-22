@@ -248,11 +248,6 @@ fail1:
     return status;
 }
 
-#define TIME_US(_us)        ((_us) * 10)
-#define TIME_MS(_ms)        (TIME_US((_ms) * 1000))
-#define TIME_S(_s)          (TIME_MS((_s) * 1000))
-#define TIME_RELATIVE(_t)   (-(_t))
-
 #define XENVIF_CONTROLLER_POLL_PERIOD   TIME_MS(100)
 #define XENVIF_CONTROLLER_MAX_WAIT      TIME_S(5)
 
